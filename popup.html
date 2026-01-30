@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Limitr</h1>
+      <div class="toggle-container">
+        <label class="toggle">
+          <input type="checkbox" id="enabled">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </header>
+
+    <div class="status" id="status">
+      <span class="status-dot"></span>
+      <span class="status-text">Inactive</span>
+    </div>
+
+    <div class="meter-container">
+      <label>Gain Reduction</label>
+      <div class="meter">
+        <div class="meter-fill" id="reductionMeter"></div>
+        <span class="meter-value" id="reductionValue">0 dB</span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="control-group">
+        <div class="control-header">
+          <label for="threshold">Threshold</label>
+          <span class="value" id="thresholdValue">-24 dB</span>
+        </div>
+        <input type="range" id="threshold" min="-60" max="0" value="-24" step="1">
+      </div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <label for="ratio">Ratio</label>
+          <span class="value" id="ratioValue">8:1</span>
+        </div>
+        <input type="range" id="ratio" min="1" max="20" value="8" step="0.5">
+      </div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <label for="knee">Knee</label>
+          <span class="value" id="kneeValue">12 dB</span>
+        </div>
+        <input type="range" id="knee" min="0" max="40" value="12" step="1">
+      </div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <label for="attack">Attack</label>
+          <span class="value" id="attackValue">5 ms</span>
+        </div>
+        <input type="range" id="attack" min="0" max="100" value="5" step="1">
+      </div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <label for="release">Release</label>
+          <span class="value" id="releaseValue">100 ms</span>
+        </div>
+        <input type="range" id="release" min="10" max="1000" value="100" step="10">
+      </div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <label for="makeupGain">Makeup Gain</label>
+          <span class="value" id="makeupGainValue">0 dB</span>
+        </div>
+        <input type="range" id="makeupGain" min="0" max="24" value="0" step="1">
+      </div>
+    </div>
+
+    <div class="presets">
+      <button class="preset-btn" data-preset="gentle">Gentle</button>
+      <button class="preset-btn" data-preset="moderate">Moderate</button>
+      <button class="preset-btn" data-preset="aggressive">Aggressive</button>
+    </div>
+
+    <footer>
+      <span class="media-count" id="mediaCount">0 media elements</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

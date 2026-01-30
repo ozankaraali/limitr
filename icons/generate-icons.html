@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Generate Limitr Icons</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #1a1a2e; color: #fff; }
+    .icons { display: flex; gap: 20px; flex-wrap: wrap; margin: 20px 0; }
+    .icon-box { text-align: center; }
+    canvas { border: 1px solid #333; }
+    button { padding: 10px 20px; background: #4f46e5; color: #fff; border: none; border-radius: 6px; cursor: pointer; margin: 5px; }
+    button:hover { background: #4338ca; }
+  </style>
+</head>
+<body>
+  <h1>Limitr Icon Generator</h1>
+  <p>Click the buttons below to download each icon size:</p>
+
+  <div class="icons">
+    <div class="icon-box">
+      <canvas id="icon16" width="16" height="16"></canvas>
+      <br><button onclick="download(16)">Download 16x16</button>
+    </div>
+    <div class="icon-box">
+      <canvas id="icon32" width="32" height="32"></canvas>
+      <br><button onclick="download(32)">Download 32x32</button>
+    </div>
+    <div class="icon-box">
+      <canvas id="icon48" width="48" height="48"></canvas>
+      <br><button onclick="download(48)">Download 48x48</button>
+    </div>
+    <div class="icon-box">
+      <canvas id="icon128" width="128" height="128"></canvas>
+      <br><button onclick="download(128)">Download 128x128</button>
+    </div>
+  </div>
+
+  <button onclick="downloadAll()">Download All Icons</button>
+
+  <script>
+    const sizes = [16, 32, 48, 128];
+
+    function drawIcon(size) {
+      const canvas = document.getElementById(`icon${size}`);
+      const ctx = canvas.getContext('2d');
+
+      // Background gradient
+      const gradient = ctx.createLinearGradient(0, 0, size, size);
+      gradient.addColorStop(0, '#4f46e5');
+      gradient.addColorStop(1, '#7c3aed');
+
+      // Rounded rectangle background
+      const radius = size * 0.15;
+      ctx.beginPath();
+      ctx.roundRect(0, 0, size, size, radius);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      // Draw audio waveform / limiter symbol
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = Math.max(1.5, size * 0.06);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      const margin = size * 0.2;
+      const centerY = size / 2;
+      const waveHeight = size * 0.25;
+
+      // Input wave (left side, taller)
+      ctx.beginPath();
+      ctx.moveTo(margin, centerY);
+      ctx.lineTo(margin + size * 0.1, centerY - waveHeight);
+      ctx.lineTo(margin + size * 0.2, centerY + waveHeight * 0.8);
+      ctx.lineTo(margin + size * 0.3, centerY - waveHeight * 0.6);
+      ctx.stroke();
+
+      // Limiter line (ceiling)
+      ctx.beginPath();
+      ctx.setLineDash([size * 0.03, size * 0.03]);
+      ctx.moveTo(size * 0.35, centerY - waveHeight * 0.4);
+      ctx.lineTo(size * 0.85, centerY - waveHeight * 0.4);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Output wave (right side, compressed)
+      ctx.beginPath();
+      ctx.moveTo(size * 0.55, centerY);
+      ctx.lineTo(size * 0.62, centerY - waveHeight * 0.35);
+      ctx.lineTo(size * 0.69, centerY + waveHeight * 0.3);
+      ctx.lineTo(size * 0.76, centerY - waveHeight * 0.25);
+      ctx.stroke();
+
+      return canvas;
+    }
+
+    function download(size) {
+      const canvas = document.getElementById(`icon${size}`);
+      const link = document.createElement('a');
+      link.download = `icon${size}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+
+    function downloadAll() {
+      sizes.forEach((size, i) => {
+        setTimeout(() => download(size), i * 100);
+      });
+    }
+
+    // Draw all icons on load
+    sizes.forEach(drawIcon);
+  </script>
+</body>
+</html>
