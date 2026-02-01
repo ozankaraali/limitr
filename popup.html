@@ -8,7 +8,14 @@
   <div class="container">
     <header>
       <h1>Limitr</h1>
-      <div class="toggle-container">
+      <div class="header-controls">
+        <div class="mode-toggle">
+          <span class="mode-label" id="modeLabel">Simple</span>
+          <label class="toggle small">
+            <input type="checkbox" id="modeToggle">
+            <span class="slider"></span>
+          </label>
+        </div>
         <label class="toggle">
           <input type="checkbox" id="enabled">
           <span class="slider"></span>
@@ -29,7 +36,67 @@
       </div>
     </div>
 
-    <div class="controls">
+    <!-- Presets (shown in both modes) -->
+    <div class="presets-section">
+      <div class="presets-grid">
+        <button class="preset-btn" data-preset="nightMode">
+          <span class="preset-name">Night Mode</span>
+          <span class="preset-desc">Tame loud sounds</span>
+        </button>
+        <button class="preset-btn" data-preset="voiceClarity">
+          <span class="preset-name">Voice Clarity</span>
+          <span class="preset-desc">Speech & podcasts</span>
+        </button>
+        <button class="preset-btn" data-preset="bassTamer">
+          <span class="preset-name">Bass Tamer</span>
+          <span class="preset-desc">Reduce bass boom</span>
+        </button>
+        <button class="preset-btn" data-preset="normalize">
+          <span class="preset-name">Normalize</span>
+          <span class="preset-desc">Balanced volume</span>
+        </button>
+        <button class="preset-btn" data-preset="music">
+          <span class="preset-name">Music</span>
+          <span class="preset-desc">Light touch</span>
+        </button>
+        <button class="preset-btn" data-preset="tv90s">
+          <span class="preset-name">90s TV</span>
+          <span class="preset-desc">Warm CRT sound</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Simple Mode Controls -->
+    <div id="simpleControls" class="controls">
+      <div class="control-group">
+        <div class="control-header">
+          <label for="outputGainSimple">Output Volume</label>
+          <span class="value" id="outputGainSimpleValue">0 dB</span>
+        </div>
+        <input type="range" id="outputGainSimple" min="-24" max="24" value="0" step="1">
+      </div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <label for="bassCut">Bass Cut</label>
+          <span class="value" id="bassCutValue">Off</span>
+        </div>
+        <input type="range" id="bassCut" min="0" max="300" value="0" step="10">
+      </div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <label for="trebleCut">Treble Cut</label>
+          <span class="value" id="trebleCutValue">Off</span>
+        </div>
+        <input type="range" id="trebleCut" min="2000" max="20000" value="20000" step="500">
+      </div>
+    </div>
+
+    <!-- Advanced Mode Controls -->
+    <div id="advancedControls" class="controls" style="display: none;">
+      <div class="control-section-label">Compressor</div>
+
       <div class="control-group">
         <div class="control-header">
           <label for="threshold">Threshold</label>
@@ -70,6 +137,8 @@
         <input type="range" id="release" min="10" max="1000" value="100" step="10">
       </div>
 
+      <div class="control-section-label">Gain</div>
+
       <div class="control-group">
         <div class="control-header">
           <label for="makeupGain">Makeup Gain</label>
@@ -77,12 +146,32 @@
         </div>
         <input type="range" id="makeupGain" min="0" max="24" value="0" step="1">
       </div>
-    </div>
 
-    <div class="presets">
-      <button class="preset-btn" data-preset="gentle">Gentle</button>
-      <button class="preset-btn" data-preset="moderate">Moderate</button>
-      <button class="preset-btn" data-preset="aggressive">Aggressive</button>
+      <div class="control-group">
+        <div class="control-header">
+          <label for="outputGain">Output Gain</label>
+          <span class="value" id="outputGainValue">0 dB</span>
+        </div>
+        <input type="range" id="outputGain" min="-24" max="24" value="0" step="1">
+      </div>
+
+      <div class="control-section-label">Filters</div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <label for="highpassFreq">Highpass (Bass Cut)</label>
+          <span class="value" id="highpassFreqValue">Off</span>
+        </div>
+        <input type="range" id="highpassFreq" min="0" max="300" value="0" step="10">
+      </div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <label for="lowpassFreq">Lowpass (Treble Cut)</label>
+          <span class="value" id="lowpassFreqValue">Off</span>
+        </div>
+        <input type="range" id="lowpassFreq" min="2000" max="20000" value="20000" step="500">
+      </div>
     </div>
 
     <footer>
