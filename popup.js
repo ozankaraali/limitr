@@ -326,7 +326,7 @@ function updateMixerList(mediaList) {
   if (isSliderActive) return;
 
   if (currentMediaList.length === 0) {
-    elements.mixerList.innerHTML = '<div class="mixer-empty">No media detected<br><span style="font-size: 9px; opacity: 0.7;">Embedded players (iframes) not supported</span></div>';
+    elements.mixerList.innerHTML = '<div class="mixer-empty">No media detected</div>';
     return;
   }
 
