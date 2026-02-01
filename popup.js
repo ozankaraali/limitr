@@ -115,7 +115,9 @@ let currentSettings = { ...defaults };
 let advancedMode = false;
 let mixerExpanded = false;
 let meterInterval = null;
-let currentMediaList = [];
+let mediaMap = new Map(); // Use Map with tabId:mediaId as key for stable storage
+let lastMixerHtml = ''; // Track last rendered HTML to avoid unnecessary DOM updates
+let isSliderActive = false; // Don't update while user is dragging
 
 // Initialize
 async function init() {
@@ -310,36 +312,57 @@ function updatePresetButtons() {
   });
 }
 
-// Update mixer list with media from all tabs
-function updateMixerList(mediaList, tabId = null, tabTitle = null) {
-  if (!elements.mixerList) return;
+// Update mixer list with media from a specific tab
+function updateMixerList(mediaList, tabId, tabTitle) {
+  if (!elements.mixerList || tabId === null || tabId === undefined) return;
 
-  // If we got media from a specific tab, merge it into our global list
-  if (tabId !== null && mediaList) {
-    // Remove old entries from this tab and add new ones
-    currentMediaList = currentMediaList.filter(m => m.tabId !== tabId);
+  // Remove old entries from this tab
+  for (const key of mediaMap.keys()) {
+    if (key.startsWith(`${tabId}:`)) {
+      mediaMap.delete(key);
+    }
+  }
+
+  // Add new entries from this tab
+  if (mediaList && mediaList.length > 0) {
     mediaList.forEach(media => {
-      media.tabId = tabId;
-      media.tabTitle = tabTitle || 'Tab';
-      currentMediaList.push(media);
+      const key = `${tabId}:${media.id}`;
+      mediaMap.set(key, {
+        ...media,
+        tabId: tabId,
+        tabTitle: tabTitle || 'Tab',
+        key: key
+      });
     });
-  } else if (mediaList && !tabId) {
-    // Legacy single-tab update
-    currentMediaList = mediaList;
   }
 
   // Update media count
   if (elements.mediaCount) {
-    elements.mediaCount.textContent = currentMediaList.length;
+    elements.mediaCount.textContent = mediaMap.size;
   }
 
-  if (currentMediaList.length === 0) {
-    elements.mixerList.innerHTML = '<div class="mixer-empty">No media detected</div>';
+  // Don't update DOM while user is dragging a slider
+  if (isSliderActive) return;
+
+  renderMixerList();
+}
+
+// Render the mixer list (separated to avoid unnecessary re-renders)
+function renderMixerList() {
+  if (!elements.mixerList) return;
+
+  const mediaArray = Array.from(mediaMap.values());
+
+  if (mediaArray.length === 0) {
+    if (lastMixerHtml !== 'empty') {
+      elements.mixerList.innerHTML = '<div class="mixer-empty">No media detected</div>';
+      lastMixerHtml = 'empty';
+    }
     return;
   }
 
   // Build mixer HTML
-  const html = currentMediaList.map(media => {
+  const html = mediaArray.map(media => {
     const icon = media.tagName === 'VIDEO' ? 'V' : 'A';
     const statusClass = media.paused ? 'paused' : 'playing';
     const displayName = media.displayName || 'Media';
@@ -347,46 +370,55 @@ function updateMixerList(mediaList, tabId = null, tabTitle = null) {
     const tabInfo = media.tabTitle ? media.tabTitle.substring(0, 30) : '';
 
     return `
-      <div class="mixer-item" data-media-id="${media.id}" data-tab-id="${media.tabId || ''}">
+      <div class="mixer-item" data-key="${media.key}">
         ${tabInfo ? `<div class="mixer-tab-title" title="${media.tabTitle}">${tabInfo}</div>` : ''}
         <div class="mixer-item-header">
           <span class="mixer-icon ${statusClass}">${icon}</span>
           <span class="mixer-name" title="${displayName}">${truncatedName}</span>
         </div>
         <div class="mixer-volume">
-          <input type="range" class="mixer-slider" min="-24" max="12" value="${media.volume || 0}" step="1" data-media-id="${media.id}" data-tab-id="${media.tabId || ''}">
+          <input type="range" class="mixer-slider" min="-24" max="12" value="${media.volume || 0}" step="1" data-key="${media.key}" data-tab-id="${media.tabId}">
           <span class="mixer-value">${formatGain(media.volume || 0)}</span>
         </div>
       </div>
     `;
   }).join('');
 
-  elements.mixerList.innerHTML = html;
+  // Only update DOM if content changed
+  if (html !== lastMixerHtml) {
+    lastMixerHtml = html;
+    elements.mixerList.innerHTML = html;
+    attachMixerSliderListeners();
+  }
+}
 
-  // Add event listeners to sliders
+// Attach event listeners to mixer sliders
+function attachMixerSliderListeners() {
   elements.mixerList.querySelectorAll('.mixer-slider').forEach(slider => {
+    slider.addEventListener('mousedown', () => { isSliderActive = true; });
+    slider.addEventListener('mouseup', () => { isSliderActive = false; });
+    slider.addEventListener('mouseleave', () => { isSliderActive = false; });
+
     slider.addEventListener('input', (e) => {
-      const mediaId = e.target.dataset.mediaId;
+      const key = e.target.dataset.key;
       const tabId = parseInt(e.target.dataset.tabId);
       const volume = parseInt(e.target.value);
 
       // Update display
       e.target.parentElement.querySelector('.mixer-value').textContent = formatGain(volume);
 
-      // Send to specific tab's content script
-      if (tabId) {
-        chrome.tabs.sendMessage(tabId, {
-          type: 'SET_MEDIA_VOLUME',
-          mediaId: mediaId,
-          volume: volume
-        });
-      } else {
-        sendToContentScript({
-          type: 'SET_MEDIA_VOLUME',
-          mediaId: mediaId,
-          volume: volume
-        });
+      // Update our stored value
+      if (mediaMap.has(key)) {
+        mediaMap.get(key).volume = volume;
       }
+
+      // Send to specific tab's content script
+      const mediaId = key.split(':')[1]; // Extract mediaId from key
+      chrome.tabs.sendMessage(tabId, {
+        type: 'SET_MEDIA_VOLUME',
+        mediaId: mediaId,
+        volume: volume
+      });
     });
   });
 }
@@ -637,10 +669,12 @@ async function queryContentScript(message) {
 
 // Handle responses from content script
 function handleContentResponse(response, tabId = null, tabTitle = null) {
+  // Only update meter (reduction) - mixer is updated separately
   if (response.reduction !== undefined) {
     updateMeter(response.reduction);
   }
-  if (response.mediaList !== undefined) {
+  // Only update mixer if we have a valid tabId (from queryAllTabsForMedia)
+  if (response.mediaList !== undefined && tabId !== null) {
     updateMixerList(response.mediaList, tabId, tabTitle);
   }
 }
@@ -657,23 +691,55 @@ function updateMeter(reductionDb) {
 async function queryAllTabsForMedia() {
   try {
     const tabs = await chrome.tabs.query({});
+    const activeTabIds = new Set();
 
     for (const tab of tabs) {
       if (tab.id && tab.url && !tab.url.startsWith('chrome://')) {
+        activeTabIds.add(tab.id);
+
         chrome.tabs.sendMessage(tab.id, { type: 'GET_MEDIA_LIST' }, (response) => {
           if (chrome.runtime.lastError) {
-            // Tab doesn't have content script
+            // Tab doesn't have content script - remove its entries
+            removeTabFromMixer(tab.id);
             return;
           }
-          if (response && response.mediaList && response.mediaList.length > 0) {
-            handleContentResponse(response, tab.id, tab.title);
+          if (response && response.mediaList) {
+            // Update even if empty (will clear old entries)
+            updateMixerList(response.mediaList, tab.id, tab.title);
           }
         });
       }
     }
+
+    // Clean up entries from tabs that no longer exist
+    for (const key of mediaMap.keys()) {
+      const tabId = parseInt(key.split(':')[0]);
+      if (!activeTabIds.has(tabId)) {
+        mediaMap.delete(key);
+      }
+    }
+
+    // Update count and render after cleanup
+    if (elements.mediaCount) {
+      elements.mediaCount.textContent = mediaMap.size;
+    }
+
   } catch (e) {
     // Tabs API error
   }
+}
+
+// Remove all entries for a specific tab
+function removeTabFromMixer(tabId) {
+  for (const key of mediaMap.keys()) {
+    if (key.startsWith(`${tabId}:`)) {
+      mediaMap.delete(key);
+    }
+  }
+  if (elements.mediaCount) {
+    elements.mediaCount.textContent = mediaMap.size;
+  }
+  renderMixerList();
 }
 
 // Start polling for meter data
