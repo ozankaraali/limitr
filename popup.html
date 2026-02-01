@@ -8,24 +8,24 @@
   <div class="container">
     <header>
       <h1>Limitr</h1>
-      <div class="header-controls">
-        <div class="mode-toggle">
-          <span class="mode-label" id="modeLabel">Simple</span>
-          <label class="toggle small">
-            <input type="checkbox" id="modeToggle">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" id="enabled">
+      <label class="toggle">
+        <input type="checkbox" id="enabled">
+        <span class="slider"></span>
+      </label>
+    </header>
+
+    <div class="status-row">
+      <div class="status" id="status">
+        <span class="status-dot"></span>
+        <span class="status-text">Inactive</span>
+      </div>
+      <div class="mode-toggle">
+        <span class="mode-label" id="modeLabel">Simple</span>
+        <label class="toggle small">
+          <input type="checkbox" id="modeToggle">
           <span class="slider"></span>
         </label>
       </div>
-    </header>
-
-    <div class="status" id="status">
-      <span class="status-dot"></span>
-      <span class="status-text">Inactive</span>
     </div>
 
     <div class="meter-container">
@@ -36,28 +36,28 @@
       </div>
     </div>
 
-    <!-- Presets (shown in both modes) -->
+    <!-- Presets (shown in both modes, ordered light to heavy) -->
     <div class="presets-section">
       <div class="presets-grid">
-        <button class="preset-btn" data-preset="nightMode">
-          <span class="preset-name">Night Mode</span>
-          <span class="preset-desc">Tame loud sounds</span>
+        <button class="preset-btn" data-preset="music">
+          <span class="preset-name">Music</span>
+          <span class="preset-desc">Light touch</span>
         </button>
         <button class="preset-btn" data-preset="voiceClarity">
           <span class="preset-name">Voice Clarity</span>
           <span class="preset-desc">Speech & podcasts</span>
         </button>
-        <button class="preset-btn" data-preset="bassTamer">
-          <span class="preset-name">Bass Tamer</span>
-          <span class="preset-desc">Reduce bass boom</span>
-        </button>
         <button class="preset-btn" data-preset="normalize">
           <span class="preset-name">Normalize</span>
           <span class="preset-desc">Balanced volume</span>
         </button>
-        <button class="preset-btn" data-preset="music">
-          <span class="preset-name">Music</span>
-          <span class="preset-desc">Light touch</span>
+        <button class="preset-btn" data-preset="nightMode">
+          <span class="preset-name">Night Mode</span>
+          <span class="preset-desc">Tame loud sounds</span>
+        </button>
+        <button class="preset-btn" data-preset="bassTamer">
+          <span class="preset-name">Bass Tamer</span>
+          <span class="preset-desc">Reduce bass boom</span>
         </button>
         <button class="preset-btn" data-preset="tv90s">
           <span class="preset-name">90s TV</span>
@@ -174,8 +174,22 @@
       </div>
     </div>
 
+    <!-- Mixer Panel -->
+    <div class="mixer-section">
+      <button class="mixer-toggle" id="mixerToggle">
+        <span class="mixer-toggle-icon">&#9658;</span>
+        <span>Media Mixer</span>
+        <span class="media-count" id="mediaCount">0</span>
+      </button>
+      <div class="mixer-panel" id="mixerPanel" style="display: none;">
+        <div class="mixer-list" id="mixerList">
+          <div class="mixer-empty">No media detected</div>
+        </div>
+      </div>
+    </div>
+
     <footer>
-      <span class="media-count" id="mediaCount">0 media elements</span>
+      <span class="footer-text">Limitr - Audio Normalizer</span>
     </footer>
   </div>
 
