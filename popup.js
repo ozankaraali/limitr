@@ -639,6 +639,7 @@ function handleContentResponse(response) {
 
 // Update gain reduction meter
 function updateMeter(reductionDb) {
+  if (!elements.reductionMeter || !elements.reductionValue) return;
   // Clamp and convert to percentage (0 to -30 dB range)
   const percentage = Math.min(100, Math.max(0, (Math.abs(reductionDb) / 30) * 100));
   elements.reductionMeter.style.width = `${percentage}%`;
