@@ -15,6 +15,7 @@ const defaults = {
 };
 
 // User-friendly presets with descriptions
+// Note: outputGain is NOT included - user's output volume is preserved across presets
 const presets = {
   nightMode: {
     name: 'Night Mode',
@@ -25,7 +26,6 @@ const presets = {
     attack: 1,
     release: 50,
     makeupGain: 6,
-    outputGain: -6,
     highpassFreq: 0,
     lowpassFreq: 20000,
     highpassEnabled: false,
@@ -40,7 +40,6 @@ const presets = {
     attack: 5,
     release: 150,
     makeupGain: 4,
-    outputGain: 0,
     highpassFreq: 80,
     lowpassFreq: 12000,
     highpassEnabled: true,
@@ -55,7 +54,6 @@ const presets = {
     attack: 2,
     release: 80,
     makeupGain: 3,
-    outputGain: -3,
     highpassFreq: 120,
     lowpassFreq: 20000,
     highpassEnabled: true,
@@ -70,7 +68,6 @@ const presets = {
     attack: 5,
     release: 100,
     makeupGain: 6,
-    outputGain: 0,
     highpassFreq: 0,
     lowpassFreq: 20000,
     highpassEnabled: false,
@@ -85,7 +82,6 @@ const presets = {
     attack: 10,
     release: 200,
     makeupGain: 2,
-    outputGain: 0,
     highpassFreq: 0,
     lowpassFreq: 20000,
     highpassEnabled: false,
@@ -100,7 +96,6 @@ const presets = {
     attack: 8,
     release: 180,
     makeupGain: 4,
-    outputGain: -2,
     highpassFreq: 200,
     lowpassFreq: 8000,
     highpassEnabled: true,
@@ -108,13 +103,19 @@ const presets = {
   }
 };
 
+// Keys to check for preset matching (excludes outputGain - that's independent)
+const presetKeys = ['threshold', 'ratio', 'knee', 'attack', 'release', 'makeupGain',
+  'highpassFreq', 'lowpassFreq', 'highpassEnabled', 'lowpassEnabled'];
+
 // UI Elements (will be populated after DOM loads)
 let elements = {};
 
 // State
 let currentSettings = { ...defaults };
 let advancedMode = false;
+let mixerExpanded = false;
 let meterInterval = null;
+let currentMediaList = [];
 
 // Initialize
 async function init() {
@@ -157,19 +158,25 @@ async function init() {
     reductionValue: document.getElementById('reductionValue'),
     mediaCount: document.getElementById('mediaCount'),
     presetsSimple: document.getElementById('presetsSimple'),
-    presetBtns: document.querySelectorAll('.preset-btn')
+    presetBtns: document.querySelectorAll('.preset-btn'),
+    // Mixer
+    mixerToggle: document.getElementById('mixerToggle'),
+    mixerPanel: document.getElementById('mixerPanel'),
+    mixerList: document.getElementById('mixerList')
   };
 
   // Load saved settings and mode
-  const stored = await chrome.storage.local.get(['limitrSettings', 'limitrAdvancedMode']);
+  const stored = await chrome.storage.local.get(['limitrSettings', 'limitrAdvancedMode', 'limitrMixerExpanded']);
   if (stored.limitrSettings) {
     currentSettings = { ...defaults, ...stored.limitrSettings };
   }
   advancedMode = stored.limitrAdvancedMode || false;
+  mixerExpanded = stored.limitrMixerExpanded || false;
 
   // Update UI with loaded settings
   updateUI();
   updateModeDisplay();
+  updateMixerDisplay();
 
   // Set up event listeners
   setupEventListeners();
@@ -269,6 +276,16 @@ function updateModeDisplay() {
   }
 }
 
+// Update mixer panel display
+function updateMixerDisplay() {
+  if (elements.mixerToggle) {
+    elements.mixerToggle.classList.toggle('expanded', mixerExpanded);
+  }
+  if (elements.mixerPanel) {
+    elements.mixerPanel.style.display = mixerExpanded ? 'block' : 'none';
+  }
+}
+
 // Update status indicator
 function updateStatusIndicator() {
   if (currentSettings.enabled) {
@@ -287,12 +304,90 @@ function updatePresetButtons() {
     const preset = presets[presetName];
     if (!preset) return;
 
-    // Check if all preset values match current settings
-    const isActive = ['threshold', 'ratio', 'knee', 'attack', 'release', 'makeupGain',
-      'outputGain', 'highpassFreq', 'lowpassFreq', 'highpassEnabled', 'lowpassEnabled']
-      .every(key => currentSettings[key] === preset[key]);
-
+    // Check if all preset values match current settings (excluding outputGain)
+    const isActive = presetKeys.every(key => currentSettings[key] === preset[key]);
     btn.classList.toggle('active', isActive);
+  });
+}
+
+// Update mixer list with media from all tabs
+function updateMixerList(mediaList, tabId = null, tabTitle = null) {
+  if (!elements.mixerList) return;
+
+  // If we got media from a specific tab, merge it into our global list
+  if (tabId !== null && mediaList) {
+    // Remove old entries from this tab and add new ones
+    currentMediaList = currentMediaList.filter(m => m.tabId !== tabId);
+    mediaList.forEach(media => {
+      media.tabId = tabId;
+      media.tabTitle = tabTitle || 'Tab';
+      currentMediaList.push(media);
+    });
+  } else if (mediaList && !tabId) {
+    // Legacy single-tab update
+    currentMediaList = mediaList;
+  }
+
+  // Update media count
+  if (elements.mediaCount) {
+    elements.mediaCount.textContent = currentMediaList.length;
+  }
+
+  if (currentMediaList.length === 0) {
+    elements.mixerList.innerHTML = '<div class="mixer-empty">No media detected</div>';
+    return;
+  }
+
+  // Build mixer HTML
+  const html = currentMediaList.map(media => {
+    const icon = media.tagName === 'VIDEO' ? 'V' : 'A';
+    const statusClass = media.paused ? 'paused' : 'playing';
+    const displayName = media.displayName || 'Media';
+    const truncatedName = displayName.length > 20 ? displayName.substring(0, 17) + '...' : displayName;
+    const tabInfo = media.tabTitle ? media.tabTitle.substring(0, 30) : '';
+
+    return `
+      <div class="mixer-item" data-media-id="${media.id}" data-tab-id="${media.tabId || ''}">
+        ${tabInfo ? `<div class="mixer-tab-title" title="${media.tabTitle}">${tabInfo}</div>` : ''}
+        <div class="mixer-item-header">
+          <span class="mixer-icon ${statusClass}">${icon}</span>
+          <span class="mixer-name" title="${displayName}">${truncatedName}</span>
+        </div>
+        <div class="mixer-volume">
+          <input type="range" class="mixer-slider" min="-24" max="12" value="${media.volume || 0}" step="1" data-media-id="${media.id}" data-tab-id="${media.tabId || ''}">
+          <span class="mixer-value">${formatGain(media.volume || 0)}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  elements.mixerList.innerHTML = html;
+
+  // Add event listeners to sliders
+  elements.mixerList.querySelectorAll('.mixer-slider').forEach(slider => {
+    slider.addEventListener('input', (e) => {
+      const mediaId = e.target.dataset.mediaId;
+      const tabId = parseInt(e.target.dataset.tabId);
+      const volume = parseInt(e.target.value);
+
+      // Update display
+      e.target.parentElement.querySelector('.mixer-value').textContent = formatGain(volume);
+
+      // Send to specific tab's content script
+      if (tabId) {
+        chrome.tabs.sendMessage(tabId, {
+          type: 'SET_MEDIA_VOLUME',
+          mediaId: mediaId,
+          volume: volume
+        });
+      } else {
+        sendToContentScript({
+          type: 'SET_MEDIA_VOLUME',
+          mediaId: mediaId,
+          volume: volume
+        });
+      }
+    });
   });
 }
 
@@ -314,6 +409,15 @@ function setupEventListeners() {
     });
   }
 
+  // Mixer toggle
+  if (elements.mixerToggle) {
+    elements.mixerToggle.addEventListener('click', () => {
+      mixerExpanded = !mixerExpanded;
+      updateMixerDisplay();
+      chrome.storage.local.set({ limitrMixerExpanded: mixerExpanded });
+    });
+  }
+
   // Simple mode controls
   if (elements.outputGainSimple) {
     elements.outputGainSimple.addEventListener('input', (e) => {
@@ -324,7 +428,6 @@ function setupEventListeners() {
         elements.outputGain.value = currentSettings.outputGain;
         elements.outputGainValue.textContent = formatGain(currentSettings.outputGain);
       }
-      updatePresetButtons();
       saveAndApply();
     });
   }
@@ -427,7 +530,6 @@ function setupEventListeners() {
         elements.outputGainSimple.value = currentSettings.outputGain;
         elements.outputGainSimpleValue.textContent = formatGain(currentSettings.outputGain);
       }
-      updatePresetButtons();
       saveAndApply();
     });
   }
@@ -475,14 +577,16 @@ function setupEventListeners() {
   });
 }
 
-// Apply a preset
+// Apply a preset (preserves outputGain)
 function applyPreset(presetName) {
   const preset = presets[presetName];
   if (!preset) return;
 
-  // Apply all preset values (excluding name and description)
+  // Apply preset values but preserve outputGain
   const { name, description, ...presetValues } = preset;
   Object.assign(currentSettings, presetValues);
+  // Note: outputGain is NOT in preset, so it stays unchanged
+
   updateUI();
   saveAndApply();
 }
@@ -532,12 +636,12 @@ async function queryContentScript(message) {
 }
 
 // Handle responses from content script
-function handleContentResponse(response) {
-  if (response.mediaCount !== undefined) {
-    elements.mediaCount.textContent = `${response.mediaCount} media element${response.mediaCount !== 1 ? 's' : ''}`;
-  }
+function handleContentResponse(response, tabId = null, tabTitle = null) {
   if (response.reduction !== undefined) {
     updateMeter(response.reduction);
+  }
+  if (response.mediaList !== undefined) {
+    updateMixerList(response.mediaList, tabId, tabTitle);
   }
 }
 
@@ -549,11 +653,39 @@ function updateMeter(reductionDb) {
   elements.reductionValue.textContent = `${reductionDb.toFixed(1)} dB`;
 }
 
+// Query all tabs for media elements
+async function queryAllTabsForMedia() {
+  try {
+    const tabs = await chrome.tabs.query({});
+
+    for (const tab of tabs) {
+      if (tab.id && tab.url && !tab.url.startsWith('chrome://')) {
+        chrome.tabs.sendMessage(tab.id, { type: 'GET_MEDIA_LIST' }, (response) => {
+          if (chrome.runtime.lastError) {
+            // Tab doesn't have content script
+            return;
+          }
+          if (response && response.mediaList && response.mediaList.length > 0) {
+            handleContentResponse(response, tab.id, tab.title);
+          }
+        });
+      }
+    }
+  } catch (e) {
+    // Tabs API error
+  }
+}
+
 // Start polling for meter data
 function startMeterPolling() {
+  // Query active tab for meter
   meterInterval = setInterval(() => {
     queryContentScript({ type: 'GET_METER' });
-  }, 50);
+  }, 100);
+
+  // Query all tabs for media list (less frequently)
+  queryAllTabsForMedia();
+  setInterval(queryAllTabsForMedia, 2000);
 }
 
 // Listen for messages from content script

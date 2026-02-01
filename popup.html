@@ -8,24 +8,24 @@
   <div class="container">
     <header>
       <h1>Limitr</h1>
-      <div class="header-controls">
-        <div class="mode-toggle">
-          <span class="mode-label" id="modeLabel">Simple</span>
-          <label class="toggle small">
-            <input type="checkbox" id="modeToggle">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" id="enabled">
+      <label class="toggle">
+        <input type="checkbox" id="enabled">
+        <span class="slider"></span>
+      </label>
+    </header>
+
+    <div class="status-row">
+      <div class="status" id="status">
+        <span class="status-dot"></span>
+        <span class="status-text">Inactive</span>
+      </div>
+      <div class="mode-toggle">
+        <span class="mode-label" id="modeLabel">Simple</span>
+        <label class="toggle small">
+          <input type="checkbox" id="modeToggle">
           <span class="slider"></span>
         </label>
       </div>
-    </header>
-
-    <div class="status" id="status">
-      <span class="status-dot"></span>
-      <span class="status-text">Inactive</span>
     </div>
 
     <div class="meter-container">
@@ -174,8 +174,22 @@
       </div>
     </div>
 
+    <!-- Mixer Panel -->
+    <div class="mixer-section">
+      <button class="mixer-toggle" id="mixerToggle">
+        <span class="mixer-toggle-icon">&#9658;</span>
+        <span>Media Mixer</span>
+        <span class="media-count" id="mediaCount">0</span>
+      </button>
+      <div class="mixer-panel" id="mixerPanel" style="display: none;">
+        <div class="mixer-list" id="mixerList">
+          <div class="mixer-empty">No media detected</div>
+        </div>
+      </div>
+    </div>
+
     <footer>
-      <span class="media-count" id="mediaCount">0 media elements</span>
+      <span class="footer-text">Limitr - Audio Normalizer</span>
     </footer>
   </div>
 

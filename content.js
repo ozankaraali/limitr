@@ -17,9 +17,12 @@
   let outputGain = null;
   let analyser = null;
 
-  // Track connected media elements with unique IDs for future per-tab control
+  // Track connected media elements with unique IDs and per-media gain
   const connectedMedia = new Map();
   let mediaIdCounter = 0;
+
+  // Per-media volume settings (persisted)
+  let mediaVolumes = {};
 
   // Current settings
   let settings = {
@@ -30,7 +33,6 @@
     attack: 5,    // ms
     release: 100, // ms
     makeupGain: 0,
-    // New settings
     outputGain: 0,        // Final output gain (-24 to +24 dB)
     highpassFreq: 0,      // Highpass filter frequency (0 = off, up to 300Hz)
     lowpassFreq: 20000,   // Lowpass filter frequency (20000 = off, down to 2000Hz)
@@ -123,6 +125,43 @@
     outputGain.gain.setValueAtTime(outputLinear, audioContext.currentTime);
   }
 
+  // Get a display name for a media element
+  function getMediaDisplayName(element) {
+    // Try to get a meaningful name from various sources
+    const src = element.src || element.currentSrc || '';
+
+    // Check for title attribute
+    if (element.title) return element.title;
+
+    // Check for aria-label
+    if (element.getAttribute('aria-label')) return element.getAttribute('aria-label');
+
+    // Try to extract filename from src
+    if (src) {
+      try {
+        const url = new URL(src, window.location.href);
+        const pathname = url.pathname;
+        const filename = pathname.split('/').pop();
+        if (filename && filename.length > 0 && filename.length < 50) {
+          // Remove extension and clean up
+          const name = filename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
+          if (name.length > 0) return name;
+        }
+        // Use hostname for external content
+        if (url.hostname !== window.location.hostname) {
+          return url.hostname;
+        }
+      } catch (e) {}
+    }
+
+    // Check page title as last resort for single video pages
+    if (document.title && connectedMedia.size <= 1) {
+      return document.title.substring(0, 40);
+    }
+
+    return `${element.tagName.toLowerCase()}`;
+  }
+
   // Connect a media element to the processing chain
   function connectMedia(element) {
     if (!element || connectedMedia.has(element)) return;
@@ -140,25 +179,41 @@
       // Create source from media element
       const source = audioContext.createMediaElementSource(element);
 
-      // Assign unique ID for future per-tab/per-media control
+      // Create per-media gain node for mixer control
+      const mediaGain = audioContext.createGain();
+
+      // Assign unique ID
       const mediaId = `media_${++mediaIdCounter}`;
+
+      // Get display name
+      const displayName = getMediaDisplayName(element);
+
+      // Restore saved volume if exists, otherwise default to 0 dB (gain = 1)
+      const savedVolume = mediaVolumes[mediaId] !== undefined ? mediaVolumes[mediaId] : 0;
+      const gainLinear = Math.pow(10, savedVolume / 20);
+      mediaGain.gain.setValueAtTime(gainLinear, audioContext.currentTime);
 
       // Store reference with metadata
       connectedMedia.set(element, {
         source,
+        mediaGain,
         id: mediaId,
         tagName: element.tagName,
-        src: element.src || element.currentSrc || 'unknown'
+        src: element.src || element.currentSrc || 'unknown',
+        displayName,
+        volume: savedVolume
       });
 
-      // Connect based on enabled state
+      // Connect: source -> mediaGain -> (compressor or destination)
+      source.connect(mediaGain);
+
       if (settings.enabled) {
-        source.connect(compressor);
+        mediaGain.connect(compressor);
       } else {
-        source.connect(audioContext.destination);
+        mediaGain.connect(audioContext.destination);
       }
 
-      console.log('[Limitr] Connected media element:', mediaId, element.tagName, element.src || element.currentSrc);
+      console.log('[Limitr] Connected media element:', mediaId, displayName);
     } catch (e) {
       if (e.name === 'InvalidStateError') {
         // Element already connected to another context - skip
@@ -169,26 +224,38 @@
     }
   }
 
+  // Set volume for a specific media element
+  function setMediaVolume(mediaId, volumeDb) {
+    connectedMedia.forEach((data, element) => {
+      if (data.id === mediaId) {
+        const gainLinear = Math.pow(10, volumeDb / 20);
+        data.mediaGain.gain.setValueAtTime(gainLinear, audioContext.currentTime);
+        data.volume = volumeDb;
+        mediaVolumes[mediaId] = volumeDb;
+      }
+    });
+  }
+
   // Reconnect all media elements (when enabled state changes)
   function reconnectAllMedia() {
     if (!audioContext) return;
 
     connectedMedia.forEach((data, element) => {
-      const { source } = data;
+      const { mediaGain } = data;
 
-      // Disconnect from everything
-      source.disconnect();
+      // Disconnect mediaGain from everything (source stays connected to mediaGain)
+      mediaGain.disconnect();
 
       // Reconnect based on enabled state
       if (settings.enabled) {
-        source.connect(compressor);
+        mediaGain.connect(compressor);
       } else {
-        source.connect(audioContext.destination);
+        mediaGain.connect(audioContext.destination);
       }
     });
   }
 
-  // Get list of connected media (for future per-tab control)
+  // Get list of connected media (for mixer panel)
   function getMediaList() {
     const list = [];
     connectedMedia.forEach((data, element) => {
@@ -196,9 +263,11 @@
         id: data.id,
         tagName: data.tagName,
         src: data.src,
+        displayName: data.displayName,
         paused: element.paused,
         currentTime: element.currentTime,
-        duration: element.duration
+        duration: element.duration,
+        volume: data.volume || 0
       });
     });
     return list;
@@ -262,7 +331,8 @@
       case 'GET_METER':
         sendResponse({
           reduction: getGainReduction(),
-          mediaCount: connectedMedia.size
+          mediaCount: connectedMedia.size,
+          mediaList: getMediaList()
         });
         break;
 
@@ -271,6 +341,11 @@
           mediaList: getMediaList()
         });
         break;
+
+      case 'SET_MEDIA_VOLUME':
+        setMediaVolume(message.mediaId, message.volume);
+        sendResponse({ success: true });
+        break;
     }
     return true; // Keep message channel open for async response
   });
@@ -278,9 +353,12 @@
   // Load settings from storage
   async function loadSettings() {
     try {
-      const stored = await chrome.storage.local.get(['limitrSettings']);
+      const stored = await chrome.storage.local.get(['limitrSettings', 'limitrMediaVolumes']);
       if (stored.limitrSettings) {
         settings = { ...settings, ...stored.limitrSettings };
+      }
+      if (stored.limitrMediaVolumes) {
+        mediaVolumes = stored.limitrMediaVolumes;
       }
     } catch (e) {
       console.error('[Limitr] Failed to load settings:', e);
