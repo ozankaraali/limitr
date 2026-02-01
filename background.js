@@ -9,7 +9,12 @@ const defaults = {
   knee: 12,
   attack: 5,
   release: 100,
-  makeupGain: 0
+  makeupGain: 0,
+  outputGain: 0,
+  highpassFreq: 0,
+  lowpassFreq: 20000,
+  highpassEnabled: false,
+  lowpassEnabled: false
 };
 
 // Initialize on install
@@ -18,6 +23,14 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     // Set default settings on first install
     await chrome.storage.local.set({ limitrSettings: defaults });
     console.log('[Limitr] Extension installed with default settings');
+  } else if (details.reason === 'update') {
+    // Merge new defaults with existing settings on update
+    const stored = await chrome.storage.local.get(['limitrSettings']);
+    if (stored.limitrSettings) {
+      const mergedSettings = { ...defaults, ...stored.limitrSettings };
+      await chrome.storage.local.set({ limitrSettings: mergedSettings });
+      console.log('[Limitr] Extension updated, settings merged');
+    }
   }
 });
 

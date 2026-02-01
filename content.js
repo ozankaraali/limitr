@@ -1,5 +1,5 @@
 // Limitr Content Script
-// Captures audio/video elements and routes through compressor
+// Captures audio/video elements and routes through compressor with filters
 
 (function() {
   'use strict';
@@ -12,10 +12,14 @@
   let audioContext = null;
   let compressor = null;
   let makeupGain = null;
+  let highpassFilter = null;
+  let lowpassFilter = null;
+  let outputGain = null;
   let analyser = null;
 
-  // Track connected media elements
+  // Track connected media elements with unique IDs for future per-tab control
   const connectedMedia = new Map();
+  let mediaIdCounter = 0;
 
   // Current settings
   let settings = {
@@ -25,7 +29,13 @@
     knee: 12,
     attack: 5,    // ms
     release: 100, // ms
-    makeupGain: 0
+    makeupGain: 0,
+    // New settings
+    outputGain: 0,        // Final output gain (-24 to +24 dB)
+    highpassFreq: 0,      // Highpass filter frequency (0 = off, up to 300Hz)
+    lowpassFreq: 20000,   // Lowpass filter frequency (20000 = off, down to 2000Hz)
+    highpassEnabled: false,
+    lowpassEnabled: false
   };
 
   // Initialize audio context and nodes
@@ -41,19 +51,37 @@
       // Create makeup gain
       makeupGain = audioContext.createGain();
 
+      // Create highpass filter (for bass cut)
+      highpassFilter = audioContext.createBiquadFilter();
+      highpassFilter.type = 'highpass';
+      highpassFilter.frequency.value = 0;
+      highpassFilter.Q.value = 0.707; // Butterworth response
+
+      // Create lowpass filter (for treble cut / 90s TV mode)
+      lowpassFilter = audioContext.createBiquadFilter();
+      lowpassFilter.type = 'lowpass';
+      lowpassFilter.frequency.value = 20000;
+      lowpassFilter.Q.value = 0.707;
+
+      // Create output gain (final volume control)
+      outputGain = audioContext.createGain();
+
       // Create analyser for metering
       analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
 
-      // Connect: compressor -> makeupGain -> analyser -> destination
+      // Connect chain: compressor -> makeupGain -> highpass -> lowpass -> outputGain -> analyser -> destination
       compressor.connect(makeupGain);
-      makeupGain.connect(analyser);
+      makeupGain.connect(highpassFilter);
+      highpassFilter.connect(lowpassFilter);
+      lowpassFilter.connect(outputGain);
+      outputGain.connect(analyser);
       analyser.connect(audioContext.destination);
 
       // Apply initial settings
       applySettings();
 
-      console.log('[Limitr] Audio context initialized');
+      console.log('[Limitr] Audio context initialized with filters');
     } catch (e) {
       console.error('[Limitr] Failed to initialize audio context:', e);
     }
@@ -61,7 +89,7 @@
 
   // Apply current settings to audio nodes
   function applySettings() {
-    if (!compressor || !makeupGain) return;
+    if (!compressor || !makeupGain || !outputGain) return;
 
     // Compressor parameters
     compressor.threshold.setValueAtTime(settings.threshold, audioContext.currentTime);
@@ -71,8 +99,28 @@
     compressor.release.setValueAtTime(settings.release / 1000, audioContext.currentTime);
 
     // Makeup gain (convert dB to linear)
-    const gainLinear = Math.pow(10, settings.makeupGain / 20);
-    makeupGain.gain.setValueAtTime(gainLinear, audioContext.currentTime);
+    const makeupLinear = Math.pow(10, settings.makeupGain / 20);
+    makeupGain.gain.setValueAtTime(makeupLinear, audioContext.currentTime);
+
+    // Highpass filter (bass cut)
+    if (settings.highpassEnabled && settings.highpassFreq > 0) {
+      highpassFilter.frequency.setValueAtTime(settings.highpassFreq, audioContext.currentTime);
+    } else {
+      // Set to very low frequency to effectively bypass
+      highpassFilter.frequency.setValueAtTime(1, audioContext.currentTime);
+    }
+
+    // Lowpass filter (treble cut)
+    if (settings.lowpassEnabled && settings.lowpassFreq < 20000) {
+      lowpassFilter.frequency.setValueAtTime(settings.lowpassFreq, audioContext.currentTime);
+    } else {
+      // Set to very high frequency to effectively bypass
+      lowpassFilter.frequency.setValueAtTime(22000, audioContext.currentTime);
+    }
+
+    // Output gain (convert dB to linear)
+    const outputLinear = Math.pow(10, settings.outputGain / 20);
+    outputGain.gain.setValueAtTime(outputLinear, audioContext.currentTime);
   }
 
   // Connect a media element to the processing chain
@@ -92,8 +140,16 @@
       // Create source from media element
       const source = audioContext.createMediaElementSource(element);
 
-      // Store reference
-      connectedMedia.set(element, { source });
+      // Assign unique ID for future per-tab/per-media control
+      const mediaId = `media_${++mediaIdCounter}`;
+
+      // Store reference with metadata
+      connectedMedia.set(element, {
+        source,
+        id: mediaId,
+        tagName: element.tagName,
+        src: element.src || element.currentSrc || 'unknown'
+      });
 
       // Connect based on enabled state
       if (settings.enabled) {
@@ -102,7 +158,7 @@
         source.connect(audioContext.destination);
       }
 
-      console.log('[Limitr] Connected media element:', element.tagName, element.src || element.currentSrc);
+      console.log('[Limitr] Connected media element:', mediaId, element.tagName, element.src || element.currentSrc);
     } catch (e) {
       if (e.name === 'InvalidStateError') {
         // Element already connected to another context - skip
@@ -130,6 +186,22 @@
         source.connect(audioContext.destination);
       }
     });
+  }
+
+  // Get list of connected media (for future per-tab control)
+  function getMediaList() {
+    const list = [];
+    connectedMedia.forEach((data, element) => {
+      list.push({
+        id: data.id,
+        tagName: data.tagName,
+        src: data.src,
+        paused: element.paused,
+        currentTime: element.currentTime,
+        duration: element.duration
+      });
+    });
+    return list;
   }
 
   // Scan for media elements
@@ -182,7 +254,8 @@
       case 'GET_STATUS':
         sendResponse({
           mediaCount: connectedMedia.size,
-          reduction: getGainReduction()
+          reduction: getGainReduction(),
+          mediaList: getMediaList()
         });
         break;
 
@@ -190,6 +263,12 @@
         sendResponse({
           reduction: getGainReduction(),
           mediaCount: connectedMedia.size
+        });
+        break;
+
+      case 'GET_MEDIA_LIST':
+        sendResponse({
+          mediaList: getMediaList()
         });
         break;
     }
