@@ -14,21 +14,21 @@ const defaults = {
   lowpassEnabled: false
 };
 
-// User-friendly presets with descriptions
+// User-friendly presets with descriptions (ordered light to heavy)
 // Note: outputGain is NOT included - user's output volume is preserved across presets
 const presets = {
-  nightMode: {
-    name: 'Night Mode',
-    description: 'Tame loud sounds for late-night viewing',
-    threshold: -40,
-    ratio: 15,
-    knee: 6,
-    attack: 1,
-    release: 50,
-    makeupGain: 6,
-    highpassFreq: 100,
+  music: {
+    name: 'Music',
+    description: 'Light touch for music videos',
+    threshold: -18,
+    ratio: 3,
+    knee: 20,
+    attack: 10,
+    release: 200,
+    makeupGain: 2,
+    highpassFreq: 0,
     lowpassFreq: 20000,
-    highpassEnabled: true,
+    highpassEnabled: false,
     lowpassEnabled: false
   },
   voiceClarity: {
@@ -45,20 +45,6 @@ const presets = {
     highpassEnabled: true,
     lowpassEnabled: true
   },
-  bassTamer: {
-    name: 'Bass Tamer',
-    description: 'Reduce boomy bass and loud peaks',
-    threshold: -35,
-    ratio: 15,
-    knee: 6,
-    attack: 1,
-    release: 80,
-    makeupGain: 4,
-    highpassFreq: 120,
-    lowpassFreq: 20000,
-    highpassEnabled: true,
-    lowpassEnabled: false
-  },
   normalize: {
     name: 'Normalize',
     description: 'Balanced volume across all content',
@@ -73,18 +59,32 @@ const presets = {
     highpassEnabled: false,
     lowpassEnabled: false
   },
-  music: {
-    name: 'Music',
-    description: 'Light touch for music videos',
-    threshold: -18,
-    ratio: 3,
-    knee: 20,
-    attack: 10,
-    release: 200,
-    makeupGain: 2,
-    highpassFreq: 0,
+  nightMode: {
+    name: 'Night Mode',
+    description: 'Tame loud sounds for late-night viewing',
+    threshold: -40,
+    ratio: 15,
+    knee: 6,
+    attack: 1,
+    release: 50,
+    makeupGain: 6,
+    highpassFreq: 100,
     lowpassFreq: 20000,
-    highpassEnabled: false,
+    highpassEnabled: true,
+    lowpassEnabled: false
+  },
+  bassTamer: {
+    name: 'Bass Tamer',
+    description: 'Reduce boomy bass and loud peaks',
+    threshold: -35,
+    ratio: 15,
+    knee: 6,
+    attack: 1,
+    release: 80,
+    makeupGain: 4,
+    highpassFreq: 120,
+    lowpassFreq: 20000,
+    highpassEnabled: true,
     lowpassEnabled: false
   },
   tv90s: {
