@@ -326,7 +326,7 @@ function updateMixerList(mediaList) {
   if (isSliderActive) return;
 
   if (currentMediaList.length === 0) {
-    elements.mixerList.innerHTML = '<div class="mixer-empty">No media detected<br><span style="font-size: 9px; opacity: 0.7;">Embedded players (iframes) not supported</span></div>';
+    elements.mixerList.innerHTML = '<div class="mixer-empty">No media detected</div>';
     return;
   }
 
@@ -639,6 +639,7 @@ function handleContentResponse(response) {
 
 // Update gain reduction meter
 function updateMeter(reductionDb) {
+  if (!elements.reductionMeter || !elements.reductionValue) return;
   // Clamp and convert to percentage (0 to -30 dB range)
   const percentage = Math.min(100, Math.max(0, (Math.abs(reductionDb) / 30) * 100));
   elements.reductionMeter.style.width = `${percentage}%`;
