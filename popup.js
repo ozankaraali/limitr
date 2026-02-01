@@ -68,10 +68,10 @@ const presets = {
     attack: 1,
     release: 50,
     makeupGain: 6,
-    highpassFreq: 100,
-    lowpassFreq: 20000,
+    highpassFreq: 150,
+    lowpassFreq: 10000,
     highpassEnabled: true,
-    lowpassEnabled: false
+    lowpassEnabled: true
   },
   bassTamer: {
     name: 'Bass Tamer',

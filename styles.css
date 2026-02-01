@@ -439,12 +439,31 @@ input[type="range"]::-moz-range-thumb {
 
 .mixer-slider {
   flex: 1;
-  height: 4px !important;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #333;
+  border-radius: 2px;
+  outline: none;
 }
 
 .mixer-slider::-webkit-slider-thumb {
-  width: 12px !important;
-  height: 12px !important;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #4f46e5;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.mixer-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: #4f46e5;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
 }
 
 .mixer-value {
