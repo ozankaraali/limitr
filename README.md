@@ -1,19 +1,34 @@
 # Limitr
 
-A browser extension for real-time audio compression, limiting, and normalization. Perfect for streaming sites like Twitch and Kick where audio levels can vary wildly.
+A browser extension for real-time audio compression, limiting, and normalization. Perfect for streaming sites where audio levels can vary wildly.
+
+![Simple Mode](docs/assets/screenshot-1-simple-mode.png)
+![Advanced Mode](docs/assets/screenshot-2-advanced-mode.png)
+![Active](docs/assets/screenshot-3-active-night-mode.png)
 
 ## Features
 
 - **Real-time audio compression** using Web Audio API's DynamicsCompressorNode
-- **Adjustable parameters**: Threshold, Ratio, Knee, Attack, Release, Makeup Gain
-- **Presets**: Gentle, Moderate, and Aggressive compression profiles
-- **Gain reduction meter**: Visual feedback showing compression activity
+- **Simple & Advanced modes**: Quick presets or full control over parameters
+- **6 Audio Presets**:
+  - **Music** - Light touch for music listening
+  - **Voice Clarity** - Optimized for speech and podcasts
+  - **Normalize** - Balanced volume leveling
+  - **Bass Tamer** - Moderate compression with bass cut
+  - **Night Mode** - Heavy compression with bass cut for quiet listening
+  - **90s TV** - Warm CRT-style sound
+- **Bass & Treble Cut** filters for additional control
+- **Gain reduction meter** showing real-time compression activity
 - **Per-page processing**: Automatically captures all audio/video elements
 - **No external dependencies**: Pure Web Audio API
 
 ## Installation
 
-### Chrome / Chromium-based browsers
+### Chrome Web Store
+
+Coming soon
+
+### Chrome / Chromium-based browsers (Manual)
 
 1. Open `chrome://extensions/`
 2. Enable "Developer mode" (toggle in top right)
@@ -32,13 +47,12 @@ Note: For permanent Firefox installation, the extension needs to be signed or in
 
 1. Click the Limitr icon in your browser toolbar
 2. Toggle the switch to enable/disable processing
-3. Adjust parameters or select a preset:
-   - **Gentle**: Light compression for slight volume evening
-   - **Moderate**: Balanced compression for streaming
-   - **Aggressive**: Heavy limiting for very dynamic content
+3. Select a preset or adjust parameters:
+   - **Simple mode**: Output volume, bass cut, treble cut
+   - **Advanced mode**: Full compressor controls (threshold, ratio, knee, attack, release, gains, filters)
 4. The gain reduction meter shows how much compression is being applied
 
-## Parameters
+## Advanced Parameters
 
 | Parameter | Range | Description |
 |-----------|-------|-------------|
@@ -48,6 +62,8 @@ Note: For permanent Firefox installation, the extension needs to be signed or in
 | Attack | 0 to 100 ms | How quickly compression engages |
 | Release | 10 to 1000 ms | How quickly compression releases |
 | Makeup Gain | 0 to 24 dB | Volume boost after compression |
+| Highpass | 0 to 300 Hz | Bass cut filter frequency |
+| Lowpass | 2000 to 20000 Hz | Treble cut filter frequency |
 
 ## How It Works
 
@@ -58,14 +74,10 @@ The extension injects a content script into web pages that:
 3. Routes their audio through the compressor chain
 4. Monitors the DOM for dynamically added media elements
 
-## Custom Icons
+## Privacy
 
-The placeholder icons are simple colored squares. To generate nicer icons:
-
-1. Open `icons/generate-icons.html` in your browser
-2. Click "Download All Icons" to save the generated PNGs
-3. Replace the existing icon files
+Limitr does not collect, store, or transmit any personal data. All audio processing happens locally in your browser. See [Privacy Policy](docs/PRIVACY.md).
 
 ## License
 
-MIT
+[MIT](LICENSE) - Ozan Karaali

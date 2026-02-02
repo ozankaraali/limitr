@@ -1,6 +1,9 @@
+// Limitr Popup - TabCapture Version
+// Communicates with service worker for per-tab audio processing
+
 // Default settings
 const defaults = {
-  enabled: false,
+  enabled: true,
   threshold: -24,
   ratio: 8,
   knee: 12,
@@ -9,114 +12,59 @@ const defaults = {
   makeupGain: 0,
   outputGain: 0,
   highpassFreq: 0,
-  lowpassFreq: 20000,
-  highpassEnabled: false,
-  lowpassEnabled: false
+  lowpassFreq: 22050,
+  noiseLevel: 0
 };
 
-// User-friendly presets with descriptions (ordered light to heavy)
-// Note: outputGain is NOT included - user's output volume is preserved across presets
+// Presets (Off first, then ordered light to heavy)
 const presets = {
-  music: {
-    name: 'Music',
-    description: 'Light touch for music videos',
-    threshold: -18,
-    ratio: 3,
-    knee: 20,
-    attack: 10,
-    release: 200,
-    makeupGain: 2,
-    highpassFreq: 0,
-    lowpassFreq: 20000,
-    highpassEnabled: false,
-    lowpassEnabled: false
+  off: {
+    name: 'Off',
+    threshold: 0, ratio: 1, knee: 0, attack: 0, release: 0,
+    makeupGain: 0, highpassFreq: 0, lowpassFreq: 22050, noiseLevel: 0
   },
+  // music: {
+  //   name: 'Music',
+  //   threshold: -18, ratio: 3, knee: 20, attack: 10, release: 200,
+  //   makeupGain: 2, highpassFreq: 0, lowpassFreq: 22050, noiseLevel: 0
+  // },
   voiceClarity: {
     name: 'Voice Clarity',
-    description: 'Optimize for speech and podcasts',
-    threshold: -30,
-    ratio: 6,
-    knee: 10,
-    attack: 5,
-    release: 150,
-    makeupGain: 4,
-    highpassFreq: 80,
-    lowpassFreq: 12000,
-    highpassEnabled: true,
-    lowpassEnabled: true
+    threshold: -30, ratio: 6, knee: 10, attack: 5, release: 150,
+    makeupGain: 4, highpassFreq: 80, lowpassFreq: 12000, noiseLevel: 0
   },
   normalize: {
     name: 'Normalize',
-    description: 'Balanced volume across all content',
-    threshold: -24,
-    ratio: 8,
-    knee: 12,
-    attack: 5,
-    release: 100,
-    makeupGain: 6,
-    highpassFreq: 0,
-    lowpassFreq: 20000,
-    highpassEnabled: false,
-    lowpassEnabled: false
+    threshold: -24, ratio: 8, knee: 12, attack: 5, release: 100,
+    makeupGain: 6, highpassFreq: 0, lowpassFreq: 22050, noiseLevel: 0
   },
   bassTamer: {
     name: 'Bass Tamer',
-    description: 'Reduce boomy bass with moderate limiting',
-    threshold: -30,
-    ratio: 10,
-    knee: 8,
-    attack: 2,
-    release: 100,
-    makeupGain: 4,
-    highpassFreq: 120,
-    lowpassFreq: 20000,
-    highpassEnabled: true,
-    lowpassEnabled: false
+    threshold: -30, ratio: 10, knee: 8, attack: 2, release: 100,
+    makeupGain: 4, highpassFreq: 120, lowpassFreq: 22050, noiseLevel: 0
   },
   nightMode: {
     name: 'Night Mode',
-    description: 'Heavy limiting + bass cut for late-night',
-    threshold: -40,
-    ratio: 15,
-    knee: 6,
-    attack: 1,
-    release: 50,
-    makeupGain: 6,
-    highpassFreq: 120,
-    lowpassFreq: 20000,
-    highpassEnabled: true,
-    lowpassEnabled: false
+    threshold: -40, ratio: 15, knee: 6, attack: 1, release: 50,
+    makeupGain: 6, highpassFreq: 120, lowpassFreq: 22050, noiseLevel: 0
   },
   tv90s: {
     name: '90s TV',
-    description: 'Flat, warm sound like old CRT speakers',
-    threshold: -35,
-    ratio: 15,
-    knee: 6,
-    attack: 2,
-    release: 100,
-    makeupGain: 5,
-    highpassFreq: 200,
-    lowpassFreq: 8000,
-    highpassEnabled: true,
-    lowpassEnabled: true
+    threshold: -35, ratio: 15, knee: 6, attack: 2, release: 100,
+    makeupGain: 5, highpassFreq: 200, lowpassFreq: 8000, noiseLevel: 0.015
   }
 };
 
-// Keys to check for preset matching (excludes outputGain - that's independent)
-const presetKeys = ['threshold', 'ratio', 'knee', 'attack', 'release', 'makeupGain',
-  'highpassFreq', 'lowpassFreq', 'highpassEnabled', 'lowpassEnabled'];
-
-// UI Elements (will be populated after DOM loads)
-let elements = {};
+const presetKeys = ['threshold', 'ratio', 'knee', 'attack', 'release', 'makeupGain', 'highpassFreq', 'lowpassFreq', 'noiseLevel'];
 
 // State
+let elements = {};
+let currentTabId = null;
 let currentSettings = { ...defaults };
 let advancedMode = false;
-let mixerExpanded = false;
-let meterInterval = null;
-let currentMediaList = [];
-let isSliderActive = false; // Don't update while user is dragging
+let isCapturing = false;
+let audibleTabs = [];
+let processingTabIds = [];
 
 // Initialize
 async function init() {
@@ -128,14 +76,12 @@ async function init() {
     modeLabel: document.getElementById('modeLabel'),
     simpleControls: document.getElementById('simpleControls'),
     advancedControls: document.getElementById('advancedControls'),
-    // Simple mode controls
     outputGainSimple: document.getElementById('outputGainSimple'),
     outputGainSimpleValue: document.getElementById('outputGainSimpleValue'),
     bassCut: document.getElementById('bassCut'),
     bassCutValue: document.getElementById('bassCutValue'),
     trebleCut: document.getElementById('trebleCut'),
     trebleCutValue: document.getElementById('trebleCutValue'),
-    // Advanced controls
     threshold: document.getElementById('threshold'),
     thresholdValue: document.getElementById('thresholdValue'),
     ratio: document.getElementById('ratio'),
@@ -154,45 +100,135 @@ async function init() {
     highpassFreqValue: document.getElementById('highpassFreqValue'),
     lowpassFreq: document.getElementById('lowpassFreq'),
     lowpassFreqValue: document.getElementById('lowpassFreqValue'),
-    // Meter and presets
     reductionMeter: document.getElementById('reductionMeter'),
     reductionValue: document.getElementById('reductionValue'),
-    mediaCount: document.getElementById('mediaCount'),
-    presetsSimple: document.getElementById('presetsSimple'),
     presetBtns: document.querySelectorAll('.preset-btn'),
-    // Mixer
     mixerToggle: document.getElementById('mixerToggle'),
     mixerPanel: document.getElementById('mixerPanel'),
-    mixerList: document.getElementById('mixerList')
+    mixerList: document.getElementById('mixerList'),
+    mediaCount: document.getElementById('mediaCount')
   };
 
-  // Load saved settings and mode
-  const stored = await chrome.storage.local.get(['limitrSettings', 'limitrAdvancedMode', 'limitrMixerExpanded']);
-  if (stored.limitrSettings) {
-    currentSettings = { ...defaults, ...stored.limitrSettings };
-  }
-  advancedMode = stored.limitrAdvancedMode || false;
-  mixerExpanded = stored.limitrMixerExpanded || false;
+  // Get current active tab
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  currentTabId = tab?.id;
 
-  // Update UI with loaded settings
+  // Load UI preferences
+  const stored = await chrome.storage.local.get(['limitrAdvancedMode']);
+  advancedMode = stored.limitrAdvancedMode || false;
+
+  // Check if this tab is already being processed
+  const stateResponse = await sendToBackground({ action: 'get-state', tabId: currentTabId });
+  if (stateResponse.success && stateResponse.state) {
+    currentSettings = { ...defaults, ...stateResponse.state.settings };
+    isCapturing = true;
+  } else {
+    // AUTO-START: Initialize capture when popup opens (user gave permission by installing)
+    await initCapture();
+  }
+
+  // Update UI
   updateUI();
   updateModeDisplay();
-  updateMixerDisplay();
+  updateStatusIndicator();
 
-  // Set up event listeners
+  // Setup event listeners
   setupEventListeners();
 
-  // Start meter polling
-  startMeterPolling();
+  // Load audible tabs for mixer
+  await refreshAudibleTabs();
 
-  // Get initial status from content script
-  queryContentScript({ type: 'GET_STATUS' });
+  // Start reduction meter polling
+  startReductionPolling();
+}
+
+// Send message to background service worker
+async function sendToBackground(message) {
+  return chrome.runtime.sendMessage({ ...message, target: 'background' });
+}
+
+// Initialize audio capture for current tab
+async function initCapture() {
+  if (!currentTabId) return false;
+
+  try {
+    const response = await sendToBackground({ action: 'init-capture', tabId: currentTabId });
+    if (response.success) {
+      isCapturing = true;
+      currentSettings = { ...defaults, ...response.settings };
+      updateUI();
+      return true;
+    } else {
+      console.error('Failed to init capture:', response.error);
+      return false;
+    }
+  } catch (error) {
+    console.error('Error initializing capture:', error);
+    return false;
+  }
+}
+
+// Update settings on current tab
+async function updateTabSettings() {
+  if (!currentTabId || !isCapturing) return;
+
+  await sendToBackground({
+    action: 'update-settings',
+    tabId: currentTabId,
+    settings: currentSettings
+  });
+}
+
+// Enable/disable processing
+async function setEnabled(enabled) {
+  currentSettings.enabled = enabled;
+
+  if (enabled && !isCapturing) {
+    // Start capture if not already capturing
+    await initCapture();
+  } else if (isCapturing) {
+    // Update enabled state
+    await sendToBackground({
+      action: 'set-enabled',
+      tabId: currentTabId,
+      enabled: enabled
+    });
+  }
+
+  updateStatusIndicator();
+}
+
+// Refresh list of audible tabs
+async function refreshAudibleTabs() {
+  try {
+    const response = await sendToBackground({ action: 'get-audible-tabs' });
+    if (response.success) {
+      audibleTabs = response.tabs;
+    }
+
+    const processingResponse = await sendToBackground({ action: 'get-processing-tabs' });
+    if (processingResponse.success) {
+      processingTabIds = processingResponse.tabIds;
+    }
+
+    // Fetch actual volumes from all processing tabs
+    const volumesResponse = await sendToBackground({ action: 'get-all-volumes' });
+    if (volumesResponse.success && volumesResponse.volumes) {
+      // Sync local tabVolumes with actual values
+      for (const [tabId, volume] of Object.entries(volumesResponse.volumes)) {
+        tabVolumes[parseInt(tabId)] = volume;
+      }
+    }
+
+    updateMixerList();
+  } catch (error) {
+    console.error('Error refreshing tabs:', error);
+  }
 }
 
 // Update UI from current settings
 function updateUI() {
   elements.enabled.checked = currentSettings.enabled;
-  updateStatusIndicator();
 
   // Simple mode controls
   if (elements.outputGainSimple) {
@@ -200,13 +236,13 @@ function updateUI() {
     elements.outputGainSimpleValue.textContent = formatGain(currentSettings.outputGain);
   }
   if (elements.bassCut) {
-    elements.bassCut.value = currentSettings.highpassEnabled ? currentSettings.highpassFreq : 0;
-    elements.bassCutValue.textContent = currentSettings.highpassEnabled && currentSettings.highpassFreq > 0
+    elements.bassCut.value = currentSettings.highpassFreq;
+    elements.bassCutValue.textContent = currentSettings.highpassFreq > 0
       ? `${currentSettings.highpassFreq} Hz` : 'Off';
   }
   if (elements.trebleCut) {
-    elements.trebleCut.value = currentSettings.lowpassEnabled ? currentSettings.lowpassFreq : 20000;
-    elements.trebleCutValue.textContent = currentSettings.lowpassEnabled && currentSettings.lowpassFreq < 20000
+    elements.trebleCut.value = currentSettings.lowpassFreq;
+    elements.trebleCutValue.textContent = currentSettings.lowpassFreq < 22050
       ? `${(currentSettings.lowpassFreq / 1000).toFixed(1)}k Hz` : 'Off';
   }
 
@@ -246,106 +282,88 @@ function updateUI() {
   }
   if (elements.lowpassFreq) {
     elements.lowpassFreq.value = currentSettings.lowpassFreq;
-    elements.lowpassFreqValue.textContent = currentSettings.lowpassFreq < 20000
+    elements.lowpassFreqValue.textContent = currentSettings.lowpassFreq < 22050
       ? `${(currentSettings.lowpassFreq / 1000).toFixed(1)}k Hz` : 'Off';
   }
 
-  // Update active preset button
   updatePresetButtons();
 }
 
-// Format gain value with sign
 function formatGain(value) {
   if (value > 0) return `+${value} dB`;
   if (value < 0) return `${value} dB`;
   return '0 dB';
 }
 
-// Update mode display (simple vs advanced)
 function updateModeDisplay() {
-  if (elements.modeToggle) {
-    elements.modeToggle.checked = advancedMode;
-  }
-  if (elements.modeLabel) {
-    elements.modeLabel.textContent = advancedMode ? 'Advanced' : 'Simple';
-  }
-  if (elements.simpleControls) {
-    elements.simpleControls.style.display = advancedMode ? 'none' : 'block';
-  }
-  if (elements.advancedControls) {
-    elements.advancedControls.style.display = advancedMode ? 'block' : 'none';
-  }
+  if (elements.modeToggle) elements.modeToggle.checked = advancedMode;
+  if (elements.modeLabel) elements.modeLabel.textContent = advancedMode ? 'Advanced' : 'Simple';
+  if (elements.simpleControls) elements.simpleControls.style.display = advancedMode ? 'none' : 'block';
+  if (elements.advancedControls) elements.advancedControls.style.display = advancedMode ? 'block' : 'none';
 }
 
-// Update mixer panel display
-function updateMixerDisplay() {
-  if (elements.mixerToggle) {
-    elements.mixerToggle.classList.toggle('expanded', mixerExpanded);
-  }
-  if (elements.mixerPanel) {
-    elements.mixerPanel.style.display = mixerExpanded ? 'block' : 'none';
-  }
-}
-
-// Update status indicator
 function updateStatusIndicator() {
-  if (currentSettings.enabled) {
-    elements.status.classList.add('active');
-    elements.status.querySelector('.status-text').textContent = 'Active';
+  const statusEl = elements.status;
+  const textEl = statusEl?.querySelector('.status-text');
+
+  if (currentSettings.enabled && isCapturing) {
+    statusEl?.classList.add('active');
+    if (textEl) textEl.textContent = 'On';
   } else {
-    elements.status.classList.remove('active');
-    elements.status.querySelector('.status-text').textContent = 'Inactive';
+    statusEl?.classList.remove('active');
+    if (textEl) textEl.textContent = 'Off';
   }
 }
 
-// Update preset button states
 function updatePresetButtons() {
   elements.presetBtns.forEach(btn => {
     const presetName = btn.dataset.preset;
     const preset = presets[presetName];
     if (!preset) return;
 
-    // Check if all preset values match current settings (excluding outputGain)
     const isActive = presetKeys.every(key => currentSettings[key] === preset[key]);
     btn.classList.toggle('active', isActive);
   });
 }
 
-// Update mixer list with media from current tab
-function updateMixerList(mediaList) {
+// Per-tab volume state (in dB)
+let tabVolumes = {};
+
+// Update mixer list with OTHER audible tabs (not current tab)
+function updateMixerList() {
   if (!elements.mixerList) return;
 
-  currentMediaList = mediaList || [];
+  // Filter out current tab - Output Volume already controls it
+  const otherTabs = audibleTabs.filter(tab => tab.id !== currentTabId);
 
-  // Update media count
+  // Update count (only other tabs)
   if (elements.mediaCount) {
-    elements.mediaCount.textContent = currentMediaList.length;
+    elements.mediaCount.textContent = otherTabs.length;
   }
 
-  // Don't update DOM while user is dragging a slider
-  if (isSliderActive) return;
-
-  if (currentMediaList.length === 0) {
-    elements.mixerList.innerHTML = '<div class="mixer-empty">No media detected</div>';
+  if (otherTabs.length === 0) {
+    elements.mixerList.innerHTML = '<div class="mixer-empty">No other tabs playing audio</div>';
     return;
   }
 
-  // Build mixer HTML
-  const html = currentMediaList.map(media => {
-    const icon = media.tagName === 'VIDEO' ? 'V' : 'A';
-    const statusClass = media.paused ? 'paused' : 'playing';
-    const displayName = media.displayName || 'Media';
-    const truncatedName = displayName.length > 25 ? displayName.substring(0, 22) + '...' : displayName;
+  const html = otherTabs.map(tab => {
+    const isProcessing = processingTabIds.includes(tab.id);
+    const statusClass = isProcessing ? 'playing' : '';
+    const favicon = tab.favIconUrl || 'icons/icon16.png';
+    const title = tab.title || 'Unknown tab';
+    const truncatedTitle = title.length > 35 ? title.substring(0, 32) + '...' : title;
+    const tabVolume = tabVolumes[tab.id] || 0;
 
     return `
-      <div class="mixer-item" data-media-id="${media.id}">
+      <div class="mixer-item" data-tab-id="${tab.id}">
         <div class="mixer-item-header">
-          <span class="mixer-icon ${statusClass}">${icon}</span>
-          <span class="mixer-name" title="${displayName}">${truncatedName}</span>
+          <img src="${favicon}" class="mixer-favicon" onerror="this.src='icons/icon16.png'">
+          <span class="mixer-name" title="${title}">${truncatedTitle}</span>
+          <span class="mixer-status ${statusClass}">${isProcessing ? '●' : '○'}</span>
         </div>
         <div class="mixer-volume">
-          <input type="range" class="mixer-slider" min="-24" max="12" value="${media.volume || 0}" step="1" data-media-id="${media.id}">
-          <span class="mixer-value">${formatGain(media.volume || 0)}</span>
+          <input type="range" class="mixer-slider" min="-24" max="12" value="${tabVolume}" step="1" data-tab-id="${tab.id}">
+          <span class="mixer-value">${formatGain(tabVolume)}</span>
         </div>
       </div>
     `;
@@ -353,40 +371,49 @@ function updateMixerList(mediaList) {
 
   elements.mixerList.innerHTML = html;
 
-  // Add event listeners to sliders
+  // Add click handlers on header to switch to that tab
+  elements.mixerList.querySelectorAll('.mixer-item-header').forEach(header => {
+    header.addEventListener('click', async () => {
+      const tabId = parseInt(header.parentElement.dataset.tabId);
+      await chrome.tabs.update(tabId, { active: true });
+      const tab = await chrome.tabs.get(tabId);
+      await chrome.windows.update(tab.windowId, { focused: true });
+    });
+  });
+
+  // Add slider event handlers for per-tab volume
   elements.mixerList.querySelectorAll('.mixer-slider').forEach(slider => {
-    slider.addEventListener('mousedown', () => { isSliderActive = true; });
-    slider.addEventListener('mouseup', () => { isSliderActive = false; });
-    slider.addEventListener('mouseleave', () => { isSliderActive = false; });
-
-    slider.addEventListener('input', (e) => {
-      const mediaId = e.target.dataset.mediaId;
+    slider.addEventListener('input', async (e) => {
+      const tabId = parseInt(e.target.dataset.tabId);
       const volume = parseInt(e.target.value);
-
-      // Update display
+      tabVolumes[tabId] = volume;
       e.target.parentElement.querySelector('.mixer-value').textContent = formatGain(volume);
 
-      // Update stored value
-      const media = currentMediaList.find(m => m.id === mediaId);
-      if (media) media.volume = volume;
-
-      // Send to content script
-      sendToContentScript({
-        type: 'SET_MEDIA_VOLUME',
-        mediaId: mediaId,
-        volume: volume
+      // Update per-tab volume via background
+      await sendToBackground({
+        action: 'set-tab-volume',
+        tabId,
+        volume
       });
     });
+
+    // Prevent click from bubbling to parent (don't switch tabs when adjusting slider)
+    slider.addEventListener('click', (e) => e.stopPropagation());
   });
 }
 
-// Set up event listeners
+function updateMeter(reductionDb) {
+  if (!elements.reductionMeter || !elements.reductionValue) return;
+  const percentage = Math.min(100, Math.max(0, (Math.abs(reductionDb) / 30) * 100));
+  elements.reductionMeter.style.width = `${percentage}%`;
+  elements.reductionValue.textContent = `${reductionDb.toFixed(1)} dB`;
+}
+
+// Setup event listeners
 function setupEventListeners() {
   // Enable toggle
   elements.enabled.addEventListener('change', (e) => {
-    currentSettings.enabled = e.target.checked;
-    updateStatusIndicator();
-    saveAndApply();
+    setEnabled(e.target.checked);
   });
 
   // Mode toggle
@@ -401,273 +428,120 @@ function setupEventListeners() {
   // Mixer toggle
   if (elements.mixerToggle) {
     elements.mixerToggle.addEventListener('click', () => {
-      mixerExpanded = !mixerExpanded;
-      updateMixerDisplay();
-      chrome.storage.local.set({ limitrMixerExpanded: mixerExpanded });
+      const panel = elements.mixerPanel;
+      const isExpanded = panel.style.display !== 'none';
+      panel.style.display = isExpanded ? 'none' : 'block';
+      elements.mixerToggle.classList.toggle('expanded', !isExpanded);
+      if (!isExpanded) refreshAudibleTabs();
     });
   }
 
   // Simple mode controls
-  if (elements.outputGainSimple) {
-    elements.outputGainSimple.addEventListener('input', (e) => {
-      currentSettings.outputGain = parseInt(e.target.value);
-      elements.outputGainSimpleValue.textContent = formatGain(currentSettings.outputGain);
-      // Sync with advanced control
-      if (elements.outputGain) {
-        elements.outputGain.value = currentSettings.outputGain;
-        elements.outputGainValue.textContent = formatGain(currentSettings.outputGain);
-      }
-      saveAndApply();
-    });
-  }
-
-  if (elements.bassCut) {
-    elements.bassCut.addEventListener('input', (e) => {
-      const value = parseInt(e.target.value);
-      currentSettings.highpassFreq = value;
-      currentSettings.highpassEnabled = value > 0;
-      elements.bassCutValue.textContent = value > 0 ? `${value} Hz` : 'Off';
-      // Sync with advanced control
-      if (elements.highpassFreq) {
-        elements.highpassFreq.value = value;
-        elements.highpassFreqValue.textContent = value > 0 ? `${value} Hz` : 'Off';
-      }
-      updatePresetButtons();
-      saveAndApply();
-    });
-  }
-
-  if (elements.trebleCut) {
-    elements.trebleCut.addEventListener('input', (e) => {
-      const value = parseInt(e.target.value);
-      currentSettings.lowpassFreq = value;
-      currentSettings.lowpassEnabled = value < 20000;
-      elements.trebleCutValue.textContent = value < 20000
-        ? `${(value / 1000).toFixed(1)}k Hz` : 'Off';
-      // Sync with advanced control
-      if (elements.lowpassFreq) {
-        elements.lowpassFreq.value = value;
-        elements.lowpassFreqValue.textContent = value < 20000
-          ? `${(value / 1000).toFixed(1)}k Hz` : 'Off';
-      }
-      updatePresetButtons();
-      saveAndApply();
-    });
-  }
+  setupSlider('outputGainSimple', 'outputGain', 'outputGainSimpleValue', formatGain, false);
+  setupSlider('bassCut', 'highpassFreq', 'bassCutValue', v => v > 0 ? `${v} Hz` : 'Off', true);
+  setupSlider('trebleCut', 'lowpassFreq', 'trebleCutValue', v => v < 22050 ? `${(v/1000).toFixed(1)}k Hz` : 'Off', true);
 
   // Advanced controls
-  if (elements.threshold) {
-    elements.threshold.addEventListener('input', (e) => {
-      currentSettings.threshold = parseInt(e.target.value);
-      elements.thresholdValue.textContent = `${currentSettings.threshold} dB`;
-      updatePresetButtons();
-      saveAndApply();
-    });
-  }
-
-  if (elements.ratio) {
-    elements.ratio.addEventListener('input', (e) => {
-      currentSettings.ratio = parseFloat(e.target.value);
-      elements.ratioValue.textContent = `${currentSettings.ratio}:1`;
-      updatePresetButtons();
-      saveAndApply();
-    });
-  }
-
-  if (elements.knee) {
-    elements.knee.addEventListener('input', (e) => {
-      currentSettings.knee = parseInt(e.target.value);
-      elements.kneeValue.textContent = `${currentSettings.knee} dB`;
-      updatePresetButtons();
-      saveAndApply();
-    });
-  }
-
-  if (elements.attack) {
-    elements.attack.addEventListener('input', (e) => {
-      currentSettings.attack = parseInt(e.target.value);
-      elements.attackValue.textContent = `${currentSettings.attack} ms`;
-      updatePresetButtons();
-      saveAndApply();
-    });
-  }
-
-  if (elements.release) {
-    elements.release.addEventListener('input', (e) => {
-      currentSettings.release = parseInt(e.target.value);
-      elements.releaseValue.textContent = `${currentSettings.release} ms`;
-      updatePresetButtons();
-      saveAndApply();
-    });
-  }
-
-  if (elements.makeupGain) {
-    elements.makeupGain.addEventListener('input', (e) => {
-      currentSettings.makeupGain = parseInt(e.target.value);
-      elements.makeupGainValue.textContent = `${currentSettings.makeupGain} dB`;
-      updatePresetButtons();
-      saveAndApply();
-    });
-  }
-
-  if (elements.outputGain) {
-    elements.outputGain.addEventListener('input', (e) => {
-      currentSettings.outputGain = parseInt(e.target.value);
-      elements.outputGainValue.textContent = formatGain(currentSettings.outputGain);
-      // Sync with simple control
-      if (elements.outputGainSimple) {
-        elements.outputGainSimple.value = currentSettings.outputGain;
-        elements.outputGainSimpleValue.textContent = formatGain(currentSettings.outputGain);
-      }
-      saveAndApply();
-    });
-  }
-
-  if (elements.highpassFreq) {
-    elements.highpassFreq.addEventListener('input', (e) => {
-      const value = parseInt(e.target.value);
-      currentSettings.highpassFreq = value;
-      currentSettings.highpassEnabled = value > 0;
-      elements.highpassFreqValue.textContent = value > 0 ? `${value} Hz` : 'Off';
-      // Sync with simple control
-      if (elements.bassCut) {
-        elements.bassCut.value = value;
-        elements.bassCutValue.textContent = value > 0 ? `${value} Hz` : 'Off';
-      }
-      updatePresetButtons();
-      saveAndApply();
-    });
-  }
-
-  if (elements.lowpassFreq) {
-    elements.lowpassFreq.addEventListener('input', (e) => {
-      const value = parseInt(e.target.value);
-      currentSettings.lowpassFreq = value;
-      currentSettings.lowpassEnabled = value < 20000;
-      elements.lowpassFreqValue.textContent = value < 20000
-        ? `${(value / 1000).toFixed(1)}k Hz` : 'Off';
-      // Sync with simple control
-      if (elements.trebleCut) {
-        elements.trebleCut.value = value;
-        elements.trebleCutValue.textContent = value < 20000
-          ? `${(value / 1000).toFixed(1)}k Hz` : 'Off';
-      }
-      updatePresetButtons();
-      saveAndApply();
-    });
-  }
+  setupSlider('threshold', 'threshold', 'thresholdValue', v => `${v} dB`, true);
+  setupSlider('ratio', 'ratio', 'ratioValue', v => `${v}:1`, true);
+  setupSlider('knee', 'knee', 'kneeValue', v => `${v} dB`, true);
+  setupSlider('attack', 'attack', 'attackValue', v => `${v} ms`, true);
+  setupSlider('release', 'release', 'releaseValue', v => `${v} ms`, true);
+  setupSlider('makeupGain', 'makeupGain', 'makeupGainValue', v => `${v} dB`, true);
+  setupSlider('outputGain', 'outputGain', 'outputGainValue', formatGain, false);
+  setupSlider('highpassFreq', 'highpassFreq', 'highpassFreqValue', v => v > 0 ? `${v} Hz` : 'Off', true);
+  setupSlider('lowpassFreq', 'lowpassFreq', 'lowpassFreqValue', v => v < 22050 ? `${(v/1000).toFixed(1)}k Hz` : 'Off', true);
 
   // Preset buttons
   elements.presetBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const presetName = btn.dataset.preset;
-      applyPreset(presetName);
-    });
+    btn.addEventListener('click', () => applyPreset(btn.dataset.preset));
   });
 }
 
-// Apply a preset (preserves outputGain)
+function setupSlider(elementId, settingKey, valueId, formatter, updatePresets) {
+  const slider = elements[elementId];
+  const valueEl = elements[valueId];
+  if (!slider) return;
+
+  slider.addEventListener('input', (e) => {
+    const value = parseFloat(e.target.value);
+    currentSettings[settingKey] = value;
+    if (valueEl) valueEl.textContent = formatter(value);
+
+    // Sync simple/advanced controls
+    syncControls(settingKey, value);
+
+    if (updatePresets) updatePresetButtons();
+    updateTabSettings();
+  });
+}
+
+function syncControls(key, value) {
+  // Sync outputGain between simple and advanced
+  if (key === 'outputGain') {
+    if (elements.outputGainSimple) elements.outputGainSimple.value = value;
+    if (elements.outputGain) elements.outputGain.value = value;
+    if (elements.outputGainSimpleValue) elements.outputGainSimpleValue.textContent = formatGain(value);
+    if (elements.outputGainValue) elements.outputGainValue.textContent = formatGain(value);
+  }
+  // Sync highpassFreq / bassCut
+  if (key === 'highpassFreq') {
+    if (elements.bassCut) elements.bassCut.value = value;
+    if (elements.highpassFreq) elements.highpassFreq.value = value;
+    const text = value > 0 ? `${value} Hz` : 'Off';
+    if (elements.bassCutValue) elements.bassCutValue.textContent = text;
+    if (elements.highpassFreqValue) elements.highpassFreqValue.textContent = text;
+  }
+  // Sync lowpassFreq / trebleCut
+  if (key === 'lowpassFreq') {
+    if (elements.trebleCut) elements.trebleCut.value = value;
+    if (elements.lowpassFreq) elements.lowpassFreq.value = value;
+    const text = value < 22050 ? `${(value/1000).toFixed(1)}k Hz` : 'Off';
+    if (elements.trebleCutValue) elements.trebleCutValue.textContent = text;
+    if (elements.lowpassFreqValue) elements.lowpassFreqValue.textContent = text;
+  }
+}
+
 function applyPreset(presetName) {
   const preset = presets[presetName];
   if (!preset) return;
 
-  // Apply preset values but preserve outputGain
-  const { name, description, ...presetValues } = preset;
-  Object.assign(currentSettings, presetValues);
-  // Note: outputGain is NOT in preset, so it stays unchanged
+  // Apply preset but preserve outputGain
+  const savedOutputGain = currentSettings.outputGain;
+  Object.assign(currentSettings, preset);
+  currentSettings.outputGain = savedOutputGain;
 
   updateUI();
-  saveAndApply();
+  updateTabSettings();
 }
 
-// Save settings and apply to content script
-async function saveAndApply() {
-  // Save to storage
-  await chrome.storage.local.set({ limitrSettings: currentSettings });
-
-  // Send to content script
-  sendToContentScript({
-    type: 'UPDATE_SETTINGS',
-    settings: currentSettings
-  });
-}
-
-// Send message to content script
-async function sendToContentScript(message) {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) {
-      chrome.tabs.sendMessage(tab.id, message);
+// Poll for reduction meter updates
+function startReductionPolling() {
+  setInterval(async () => {
+    if (!isCapturing || !currentTabId) {
+      updateMeter(0);
+      return;
     }
-  } catch (e) {
-    // Content script might not be loaded yet
-  }
-}
 
-// Query content script
-async function queryContentScript(message) {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) {
-      chrome.tabs.sendMessage(tab.id, message, (response) => {
-        if (chrome.runtime.lastError) {
-          // Content script not available
-          return;
-        }
-        if (response) {
-          handleContentResponse(response);
-        }
+    try {
+      const response = await chrome.runtime.sendMessage({
+        target: 'offscreen',
+        action: 'get-reduction',
+        tabId: currentTabId
       });
+      if (response && response.reduction !== undefined) {
+        updateMeter(response.reduction);
+      }
+    } catch (e) {
+      // Offscreen document might not exist yet
     }
-  } catch (e) {
-    // Content script might not be loaded
-  }
+  }, 50);
 }
 
-// Handle responses from content script
-function handleContentResponse(response) {
-  if (response.reduction !== undefined) {
-    updateMeter(response.reduction);
-  }
-  if (response.mediaList !== undefined) {
-    updateMixerList(response.mediaList);
-  }
-  if (response.mediaCount !== undefined && elements.mediaCount) {
-    elements.mediaCount.textContent = response.mediaCount;
-  }
-}
-
-// Update gain reduction meter
-function updateMeter(reductionDb) {
-  if (!elements.reductionMeter || !elements.reductionValue) return;
-  // Clamp and convert to percentage (0 to -30 dB range)
-  const percentage = Math.min(100, Math.max(0, (Math.abs(reductionDb) / 30) * 100));
-  elements.reductionMeter.style.width = `${percentage}%`;
-  elements.reductionValue.textContent = `${reductionDb.toFixed(1)} dB`;
-}
-
-// Start polling for meter and media data from current tab
-function startMeterPolling() {
-  // Poll every 150ms - balances meter responsiveness with performance
-  meterInterval = setInterval(() => {
-    queryContentScript({ type: 'GET_METER' });
-  }, 150);
-}
-
-// Listen for messages from content script
+// Listen for reduction updates from offscreen
 chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === 'METER_UPDATE') {
+  if (message.action === 'reduction-update' && message.tabId === currentTabId) {
     updateMeter(message.reduction);
-  }
-  if (message.type === 'MEDIA_COUNT') {
-    elements.mediaCount.textContent = `${message.count} media element${message.count !== 1 ? 's' : ''}`;
-  }
-});
-
-// Clean up on popup close
-window.addEventListener('unload', () => {
-  if (meterInterval) {
-    clearInterval(meterInterval);
   }
 });
 

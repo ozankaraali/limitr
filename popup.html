@@ -7,25 +7,28 @@
 <body>
   <div class="container">
     <header>
-      <h1>Limitr</h1>
-      <label class="toggle">
-        <input type="checkbox" id="enabled">
-        <span class="slider"></span>
-      </label>
-    </header>
-
-    <div class="status-row">
-      <div class="status" id="status">
-        <span class="status-dot"></span>
-        <span class="status-text">Inactive</span>
+      <div class="header-brand">
+        <img src="icons/icon32.png" alt="Limitr" class="header-icon">
+        <h1>Limitr</h1>
       </div>
-      <div class="mode-toggle">
-        <span class="mode-label" id="modeLabel">Simple</span>
-        <label class="toggle small">
-          <input type="checkbox" id="modeToggle">
+      <div class="header-controls">
+        <div class="status" id="status">
+          <span class="status-dot"></span>
+          <span class="status-text">Off</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="enabled">
           <span class="slider"></span>
         </label>
       </div>
+    </header>
+
+    <div class="mode-row">
+      <span class="mode-label" id="modeLabel">Simple</span>
+      <label class="toggle small">
+        <input type="checkbox" id="modeToggle">
+        <span class="slider"></span>
+      </label>
     </div>
 
     <div class="meter-container">
@@ -36,12 +39,12 @@
       </div>
     </div>
 
-    <!-- Presets (shown in both modes, ordered light to heavy) -->
+    <!-- Presets (shown in both modes, Off first then light to heavy) -->
     <div class="presets-section">
       <div class="presets-grid">
-        <button class="preset-btn" data-preset="music">
-          <span class="preset-name">Music</span>
-          <span class="preset-desc">Light touch</span>
+        <button class="preset-btn" data-preset="off">
+          <span class="preset-name">Off</span>
+          <span class="preset-desc">No compression</span>
         </button>
         <button class="preset-btn" data-preset="voiceClarity">
           <span class="preset-name">Voice Clarity</span>
@@ -74,22 +77,6 @@
           <span class="value" id="outputGainSimpleValue">0 dB</span>
         </div>
         <input type="range" id="outputGainSimple" min="-24" max="24" value="0" step="1">
-      </div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="bassCut">Bass Cut</label>
-          <span class="value" id="bassCutValue">Off</span>
-        </div>
-        <input type="range" id="bassCut" min="0" max="300" value="0" step="10">
-      </div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="trebleCut">Treble Cut</label>
-          <span class="value" id="trebleCutValue">Off</span>
-        </div>
-        <input type="range" id="trebleCut" min="2000" max="20000" value="20000" step="500">
       </div>
     </div>
 
@@ -170,28 +157,26 @@
           <label for="lowpassFreq">Lowpass (Treble Cut)</label>
           <span class="value" id="lowpassFreqValue">Off</span>
         </div>
-        <input type="range" id="lowpassFreq" min="2000" max="20000" value="20000" step="500">
+        <input type="range" id="lowpassFreq" min="2000" max="22050" value="22050" step="500">
       </div>
     </div>
 
-    <!-- Mixer Panel (disabled for now - will be tab-based later) -->
-    <!--
+    <!-- Other Tabs Mixer -->
     <div class="mixer-section">
       <button class="mixer-toggle" id="mixerToggle">
         <span class="mixer-toggle-icon">&#9658;</span>
-        <span>Media Mixer</span>
+        <span>Other Tabs with Audio</span>
         <span class="media-count" id="mediaCount">0</span>
       </button>
       <div class="mixer-panel" id="mixerPanel" style="display: none;">
         <div class="mixer-list" id="mixerList">
-          <div class="mixer-empty">No media detected</div>
+          <div class="mixer-empty">No tabs playing audio</div>
         </div>
       </div>
     </div>
-    -->
 
     <footer>
-      <span class="footer-text">Limitr - Audio Normalizer</span>
+      <span class="footer-text">Limitr - Ozan Karaali</span>
     </footer>
   </div>
 

@@ -19,28 +19,41 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
 }
 
 h1 {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   color: #fff;
   letter-spacing: 0.5px;
 }
 
-/* Status Row - contains status and mode toggle side by side */
-.status-row {
+.header-controls {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  gap: 12px;
 }
 
-.mode-toggle {
+/* Mode Row - Simple/Advanced toggle */
+.mode-row {
   display: flex;
+  justify-content: flex-end;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .mode-label {
@@ -117,23 +130,26 @@ h1 {
 .status {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: #252542;
-  border-radius: 6px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 11px;
+  color: #888;
 }
 
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #666;
+  background: #555;
+  transition: all 0.2s;
 }
 
 .status.active .status-dot {
   background: #22c55e;
   box-shadow: 0 0 8px #22c55e;
+}
+
+.status.active .status-text {
+  color: #22c55e;
 }
 
 /* Meter */
@@ -387,7 +403,31 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.mixer-item-header:hover {
+  background: #333355;
+}
+
+.mixer-favicon {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.mixer-status {
+  margin-left: auto;
+  font-size: 10px;
+  color: #666;
+}
+
+.mixer-status.playing {
+  color: #22c55e;
 }
 
 .mixer-icon {
@@ -435,15 +475,16 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-top: 8px;
 }
 
 .mixer-slider {
   flex: 1;
   -webkit-appearance: none;
   appearance: none;
-  height: 4px;
-  background: #333;
-  border-radius: 2px;
+  height: 6px;
+  background: #444466;
+  border-radius: 3px;
   outline: none;
 }
 
