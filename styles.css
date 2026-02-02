@@ -322,6 +322,34 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
+/* Dropdown */
+.dropdown {
+  width: 100%;
+  padding: 8px 12px;
+  background: #252542;
+  border: 1px solid #333355;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.dropdown:hover {
+  border-color: #4f46e5;
+}
+
+.dropdown:focus {
+  border-color: #4f46e5;
+}
+
+.dropdown option {
+  background: #1a1a2e;
+  color: #fff;
+  padding: 8px;
+}
+
 /* Mixer Section */
 .mixer-section {
   margin-bottom: 12px;

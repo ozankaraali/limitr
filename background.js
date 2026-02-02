@@ -15,7 +15,8 @@ const defaults = {
   outputGain: 0,
   highpassFreq: 0,
   lowpassFreq: 22050,
-  noiseLevel: 0
+  noiseLevel: 0,
+  noiseType: 'brown'
 };
 
 // Check if offscreen document exists

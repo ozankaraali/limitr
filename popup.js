@@ -13,7 +13,8 @@ const defaults = {
   outputGain: 0,
   highpassFreq: 0,
   lowpassFreq: 22050,
-  noiseLevel: 0
+  noiseLevel: 0,
+  noiseType: 'brown'
 };
 
 // Presets (Off first, then ordered light to heavy)
@@ -21,41 +22,36 @@ const presets = {
   off: {
     name: 'Off',
     threshold: 0, ratio: 1, knee: 0, attack: 0, release: 0,
-    makeupGain: 0, highpassFreq: 0, lowpassFreq: 22050, noiseLevel: 0
+    makeupGain: 0, highpassFreq: 0, lowpassFreq: 22050, noiseLevel: 0, noiseType: 'brown'
   },
-  // music: {
-  //   name: 'Music',
-  //   threshold: -18, ratio: 3, knee: 20, attack: 10, release: 200,
-  //   makeupGain: 2, highpassFreq: 0, lowpassFreq: 22050, noiseLevel: 0
-  // },
   voiceClarity: {
     name: 'Voice Clarity',
     threshold: -30, ratio: 6, knee: 10, attack: 5, release: 150,
-    makeupGain: 4, highpassFreq: 80, lowpassFreq: 12000, noiseLevel: 0
+    makeupGain: 4, highpassFreq: 80, lowpassFreq: 12000, noiseLevel: 0, noiseType: 'brown'
   },
   normalize: {
     name: 'Normalize',
     threshold: -24, ratio: 8, knee: 12, attack: 5, release: 100,
-    makeupGain: 6, highpassFreq: 0, lowpassFreq: 22050, noiseLevel: 0
+    makeupGain: 6, highpassFreq: 0, lowpassFreq: 22050, noiseLevel: 0, noiseType: 'brown'
   },
   bassTamer: {
     name: 'Bass Tamer',
     threshold: -30, ratio: 10, knee: 8, attack: 2, release: 100,
-    makeupGain: 4, highpassFreq: 120, lowpassFreq: 22050, noiseLevel: 0
+    makeupGain: 4, highpassFreq: 120, lowpassFreq: 22050, noiseLevel: 0, noiseType: 'brown'
   },
   nightMode: {
     name: 'Night Mode',
     threshold: -40, ratio: 15, knee: 6, attack: 1, release: 50,
-    makeupGain: 6, highpassFreq: 120, lowpassFreq: 22050, noiseLevel: 0
+    makeupGain: 6, highpassFreq: 120, lowpassFreq: 22050, noiseLevel: 0, noiseType: 'brown'
   },
   tv90s: {
     name: '90s TV',
     threshold: -35, ratio: 15, knee: 6, attack: 2, release: 100,
-    makeupGain: 5, highpassFreq: 200, lowpassFreq: 8000, noiseLevel: 0.015
+    makeupGain: 5, highpassFreq: 200, lowpassFreq: 8000, noiseLevel: 0.15, noiseType: 'brown'
   }
 };
 
-const presetKeys = ['threshold', 'ratio', 'knee', 'attack', 'release', 'makeupGain', 'highpassFreq', 'lowpassFreq', 'noiseLevel'];
+const presetKeys = ['threshold', 'ratio', 'knee', 'attack', 'release', 'makeupGain', 'highpassFreq', 'lowpassFreq', 'noiseLevel', 'noiseType'];
 
 // State
 let elements = {};
@@ -100,6 +96,9 @@ async function init() {
     highpassFreqValue: document.getElementById('highpassFreqValue'),
     lowpassFreq: document.getElementById('lowpassFreq'),
     lowpassFreqValue: document.getElementById('lowpassFreqValue'),
+    noiseLevel: document.getElementById('noiseLevel'),
+    noiseLevelValue: document.getElementById('noiseLevelValue'),
+    noiseType: document.getElementById('noiseType'),
     reductionMeter: document.getElementById('reductionMeter'),
     reductionValue: document.getElementById('reductionValue'),
     presetBtns: document.querySelectorAll('.preset-btn'),
@@ -285,6 +284,13 @@ function updateUI() {
     elements.lowpassFreqValue.textContent = currentSettings.lowpassFreq < 22050
       ? `${(currentSettings.lowpassFreq / 1000).toFixed(1)}k Hz` : 'Off';
   }
+  if (elements.noiseLevel) {
+    elements.noiseLevel.value = currentSettings.noiseLevel;
+    elements.noiseLevelValue.textContent = formatNoiseLevel(currentSettings.noiseLevel);
+  }
+  if (elements.noiseType) {
+    elements.noiseType.value = currentSettings.noiseType || 'brown';
+  }
 
   updatePresetButtons();
 }
@@ -293,6 +299,11 @@ function formatGain(value) {
   if (value > 0) return `+${value} dB`;
   if (value < 0) return `${value} dB`;
   return '0 dB';
+}
+
+function formatNoiseLevel(value) {
+  if (value <= 0) return 'Off';
+  return `${Math.round(value * 100)}%`;
 }
 
 function updateModeDisplay() {
@@ -451,6 +462,16 @@ function setupEventListeners() {
   setupSlider('outputGain', 'outputGain', 'outputGainValue', formatGain, false);
   setupSlider('highpassFreq', 'highpassFreq', 'highpassFreqValue', v => v > 0 ? `${v} Hz` : 'Off', true);
   setupSlider('lowpassFreq', 'lowpassFreq', 'lowpassFreqValue', v => v < 22050 ? `${(v/1000).toFixed(1)}k Hz` : 'Off', true);
+  setupSlider('noiseLevel', 'noiseLevel', 'noiseLevelValue', formatNoiseLevel, true);
+
+  // Noise type dropdown
+  if (elements.noiseType) {
+    elements.noiseType.addEventListener('change', (e) => {
+      currentSettings.noiseType = e.target.value;
+      updatePresetButtons();
+      updateTabSettings();
+    });
+  }
 
   // Preset buttons
   elements.presetBtns.forEach(btn => {

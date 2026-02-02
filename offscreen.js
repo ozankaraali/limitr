@@ -4,6 +4,14 @@
 // Per-tab audio state
 const tabAudioState = new Map();
 
+// Shared noise data cache (raw Float32Array) - generated once, reused across all tabs
+const noiseDataCache = {
+  white: null,
+  pink: null,
+  brown: null
+};
+const NOISE_BUFFER_SECONDS = 2;
+
 // Default compressor settings (must match popup.js and background.js)
 const defaultSettings = {
   enabled: true,
@@ -16,17 +24,63 @@ const defaultSettings = {
   outputGain: 0,
   highpassFreq: 0,
   lowpassFreq: 22050,
-  noiseLevel: 0
+  noiseLevel: 0,
+  noiseType: 'brown'
 };
 
-// Create white noise buffer for CRT effect
-function createNoiseBuffer(audioContext) {
-  const bufferSize = audioContext.sampleRate * 2; // 2 seconds of noise
-  const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < bufferSize; i++) {
-    data[i] = Math.random() * 2 - 1; // Random values between -1 and 1
+// Generate noise data (raw samples) - cached globally
+function generateNoiseData(sampleRate, noiseType) {
+  const bufferSize = sampleRate * NOISE_BUFFER_SECONDS;
+  const data = new Float32Array(bufferSize);
+
+  if (noiseType === 'white') {
+    // White noise: equal energy at all frequencies (harsh)
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+  } else if (noiseType === 'pink') {
+    // Pink noise: -3dB/octave rolloff (natural, like rain)
+    // Uses Paul Kellet's refined method
+    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1;
+      b0 = 0.99886 * b0 + white * 0.0555179;
+      b1 = 0.99332 * b1 + white * 0.0750759;
+      b2 = 0.96900 * b2 + white * 0.1538520;
+      b3 = 0.86650 * b3 + white * 0.3104856;
+      b4 = 0.55000 * b4 + white * 0.5329522;
+      b5 = -0.7616 * b5 - white * 0.0168980;
+      data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+      b6 = white * 0.115926;
+    }
+  } else {
+    // Brown/Brownian noise: -6dB/octave rolloff (deep rumble, cozy, sleep-inducing)
+    let lastOut = 0;
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1;
+      data[i] = (lastOut + (0.02 * white)) / 1.02;
+      lastOut = data[i];
+      data[i] *= 3.5; // Boost to compensate for volume loss
+    }
   }
+
+  return data;
+}
+
+// Get or create cached noise data
+function getCachedNoiseData(sampleRate, noiseType) {
+  if (!noiseDataCache[noiseType]) {
+    console.log(`[Limitr] Generating ${noiseType} noise buffer (shared across all tabs)`);
+    noiseDataCache[noiseType] = generateNoiseData(sampleRate, noiseType);
+  }
+  return noiseDataCache[noiseType];
+}
+
+// Create AudioBuffer from cached noise data for a specific AudioContext
+function createNoiseBuffer(audioContext, noiseType = 'brown') {
+  const cachedData = getCachedNoiseData(audioContext.sampleRate, noiseType);
+  const buffer = audioContext.createBuffer(1, cachedData.length, audioContext.sampleRate);
+  buffer.getChannelData(0).set(cachedData);
   return buffer;
 }
 
@@ -76,9 +130,9 @@ async function createAudioChain(tabId, mediaStreamId) {
     const outputGain = audioContext.createGain();
     outputGain.gain.value = 1;
 
-    // Create noise source for CRT effect
-    const noiseBuffer = createNoiseBuffer(audioContext);
-    const noiseSource = audioContext.createBufferSource();
+    // Create noise source for CRT/vintage effect
+    const noiseBuffer = createNoiseBuffer(audioContext, defaultSettings.noiseType);
+    let noiseSource = audioContext.createBufferSource();
     noiseSource.buffer = noiseBuffer;
     noiseSource.loop = true;
 
@@ -87,6 +141,21 @@ async function createAudioChain(tabId, mediaStreamId) {
 
     noiseSource.connect(noiseGain);
     noiseSource.start();
+
+    // Function to change noise type dynamically
+    const changeNoiseType = (newType) => {
+      const newBuffer = createNoiseBuffer(audioContext, newType);
+      const newNoiseSource = audioContext.createBufferSource();
+      newNoiseSource.buffer = newBuffer;
+      newNoiseSource.loop = true;
+
+      // Swap sources
+      noiseSource.stop();
+      noiseSource.disconnect();
+      newNoiseSource.connect(noiseGain);
+      newNoiseSource.start();
+      noiseSource = newNoiseSource;
+    };
 
     // Create destination to output processed audio
     const destination = audioContext.createMediaStreamDestination();
@@ -119,6 +188,7 @@ async function createAudioChain(tabId, mediaStreamId) {
       outputGain,
       noiseSource,
       noiseGain,
+      changeNoiseType,
       destination,
       settings: { ...defaultSettings },
       enabled: true
@@ -142,6 +212,9 @@ function updateSettings(tabId, newSettings) {
   if (!state) return false;
 
   const { compressor, makeupGain, outputGain, highpassFilter, lowpassFilter, noiseGain } = state;
+
+  // Capture old noiseType BEFORE updating (for change detection)
+  const oldNoiseType = state.settings.noiseType;
 
   // Update settings object
   Object.assign(state.settings, newSettings);
@@ -177,6 +250,10 @@ function updateSettings(tabId, newSettings) {
   }
   if (newSettings.noiseLevel !== undefined) {
     noiseGain.gain.value = s.noiseLevel;
+  }
+  if (newSettings.noiseType !== undefined && newSettings.noiseType !== oldNoiseType) {
+    console.log(`[Limitr] Switching noise type: ${oldNoiseType} -> ${newSettings.noiseType}`);
+    state.changeNoiseType(newSettings.noiseType);
   }
 
   return true;

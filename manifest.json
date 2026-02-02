@@ -1,7 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Limitr",
+  "short_name": "Limitr",
   "version": "1.1.0",
+  "author": "Ozan Karaali",
   "description": "Audio compressor, limiter, and normalizer for any browser tab",
   "permissions": [
     "storage",
