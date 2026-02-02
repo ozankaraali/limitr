@@ -61,6 +61,8 @@ let advancedMode = false;
 let isCapturing = false;
 let audibleTabs = [];
 let processingTabIds = [];
+let crtVisualEnabled = false;
+let mixerMode = false; // true = tabCapture (mixer), false = content script (default, fullscreen works)
 
 // Initialize
 async function init() {
@@ -68,6 +70,8 @@ async function init() {
   elements = {
     enabled: document.getElementById('enabled'),
     status: document.getElementById('status'),
+    mixerModeToggle: document.getElementById('mixerModeToggle'),
+    mixerModeLabel: document.getElementById('mixerModeLabel'),
     modeToggle: document.getElementById('modeToggle'),
     modeLabel: document.getElementById('modeLabel'),
     simpleControls: document.getElementById('simpleControls'),
@@ -113,17 +117,30 @@ async function init() {
   currentTabId = tab?.id;
 
   // Load UI preferences
-  const stored = await chrome.storage.local.get(['limitrAdvancedMode']);
+  const stored = await chrome.storage.local.get(['limitrAdvancedMode', 'limitrMixerMode']);
   advancedMode = stored.limitrAdvancedMode || false;
+  mixerMode = stored.limitrMixerMode || false;
 
-  // Check if this tab is already being processed
-  const stateResponse = await sendToBackground({ action: 'get-state', tabId: currentTabId });
-  if (stateResponse.success && stateResponse.state) {
-    currentSettings = { ...defaults, ...stateResponse.state.settings };
-    isCapturing = true;
+  // Update mixer mode toggle
+  if (elements.mixerModeToggle) {
+    elements.mixerModeToggle.checked = mixerMode;
+  }
+
+  // Update mixer section visibility
+  updateMixerAvailability();
+
+  if (mixerMode) {
+    // Mixer mode: use tabCapture (multi-tab, no fullscreen)
+    const stateResponse = await sendToBackground({ action: 'get-state', tabId: currentTabId });
+    if (stateResponse.success && stateResponse.state) {
+      currentSettings = { ...defaults, ...stateResponse.state.settings };
+      isCapturing = true;
+    } else {
+      await initCapture();
+    }
   } else {
-    // AUTO-START: Initialize capture when popup opens (user gave permission by installing)
-    await initCapture();
+    // Default mode: use content script (single tab, fullscreen works)
+    await initFallbackCapture();
   }
 
   // Update UI
@@ -133,6 +150,17 @@ async function init() {
 
   // Setup event listeners
   setupEventListeners();
+
+  // Check if TV+ was active (content script injected) - try to get state
+  try {
+    const crtResponse = await chrome.tabs.sendMessage(currentTabId, { action: 'get-crt-visual' });
+    if (crtResponse && crtResponse.enabled) {
+      crtVisualEnabled = true;
+      updateTvButtonState();
+    }
+  } catch (err) {
+    // Content script not injected yet - that's fine, TV+ not active
+  }
 
   // Load audible tabs for mixer
   await refreshAudibleTabs();
@@ -167,15 +195,80 @@ async function initCapture() {
   }
 }
 
+// Initialize fallback capture (content script, fullscreen compatible)
+async function initFallbackCapture() {
+  if (!currentTabId) return false;
+
+  try {
+    // Check if content script is already injected
+    let alreadyInjected = false;
+    try {
+      const response = await chrome.tabs.sendMessage(currentTabId, { action: 'fallback-ping' });
+      if (response && response.active) {
+        alreadyInjected = true;
+        isCapturing = true;
+        // Load current settings from content script
+        if (response.settings) {
+          currentSettings = { ...defaults, ...response.settings };
+        }
+      }
+    } catch (e) {
+      // Not injected yet
+    }
+
+    if (!alreadyInjected) {
+      // Inject the fallback audio content script
+      await chrome.scripting.executeScript({
+        target: { tabId: currentTabId },
+        files: ['content-audio.js']
+      });
+      isCapturing = true;
+
+      // Wait a moment for script to initialize, then sync settings
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Load settings from storage if available
+      const stored = await chrome.storage.local.get(['limitrFallbackSettings']);
+      if (stored.limitrFallbackSettings) {
+        currentSettings = { ...defaults, ...stored.limitrFallbackSettings };
+      }
+    }
+
+    updateUI();
+    return true;
+  } catch (error) {
+    console.error('Error initializing fallback capture:', error);
+    return false;
+  }
+}
+
+// Update settings for fallback mode
+async function updateFallbackSettings() {
+  if (!currentTabId) return;
+
+  try {
+    await chrome.tabs.sendMessage(currentTabId, {
+      action: 'fallback-update-settings',
+      settings: currentSettings
+    });
+  } catch (err) {
+    console.error('Failed to update fallback settings:', err);
+  }
+}
+
 // Update settings on current tab
 async function updateTabSettings() {
   if (!currentTabId || !isCapturing) return;
 
-  await sendToBackground({
-    action: 'update-settings',
-    tabId: currentTabId,
-    settings: currentSettings
-  });
+  if (mixerMode) {
+    await sendToBackground({
+      action: 'update-settings',
+      tabId: currentTabId,
+      settings: currentSettings
+    });
+  } else {
+    await updateFallbackSettings();
+  }
 }
 
 // Enable/disable processing
@@ -313,13 +406,26 @@ function updateModeDisplay() {
   if (elements.advancedControls) elements.advancedControls.style.display = advancedMode ? 'block' : 'none';
 }
 
+function updateMixerAvailability() {
+  const mixerSection = document.querySelector('.mixer-section');
+  if (mixerSection) {
+    if (mixerMode) {
+      mixerSection.classList.remove('disabled');
+      mixerSection.title = '';
+    } else {
+      mixerSection.classList.add('disabled');
+      mixerSection.title = 'Enable Mixer mode to control multiple tabs';
+    }
+  }
+}
+
 function updateStatusIndicator() {
   const statusEl = elements.status;
   const textEl = statusEl?.querySelector('.status-text');
 
   if (currentSettings.enabled && isCapturing) {
     statusEl?.classList.add('active');
-    if (textEl) textEl.textContent = 'On';
+    if (textEl) textEl.textContent = mixerMode ? 'Mix' : 'On';
   } else {
     statusEl?.classList.remove('active');
     if (textEl) textEl.textContent = 'Off';
@@ -436,6 +542,23 @@ function setupEventListeners() {
     });
   }
 
+  // Mixer mode toggle
+  if (elements.mixerModeToggle) {
+    elements.mixerModeToggle.addEventListener('change', async (e) => {
+      const newMixerMode = e.target.checked;
+
+      // Cleanup current mode before switching
+      if (mixerMode && !newMixerMode) {
+        // Switching FROM mixer mode TO default - cleanup tabCapture
+        await sendToBackground({ action: 'cleanup-tab', tabId: currentTabId });
+      }
+
+      await chrome.storage.local.set({ limitrMixerMode: newMixerMode });
+      // Reload popup to switch modes cleanly
+      window.location.reload();
+    });
+  }
+
   // Mixer toggle
   if (elements.mixerToggle) {
     elements.mixerToggle.addEventListener('click', () => {
@@ -527,6 +650,20 @@ function applyPreset(presetName) {
   const preset = presets[presetName];
   if (!preset) return;
 
+  // TV+ mode: if TV preset is already active, toggle CRT visual
+  if (presetName === 'tv90s') {
+    const isTvActive = presetKeys.every(key => currentSettings[key] === preset[key]);
+    if (isTvActive) {
+      toggleCrtVisual();
+      return;
+    }
+  } else {
+    // Switching away from TV preset - disable CRT visual
+    if (crtVisualEnabled) {
+      setCrtVisual(false);
+    }
+  }
+
   // Apply preset but preserve outputGain
   const savedOutputGain = currentSettings.outputGain;
   Object.assign(currentSettings, preset);
@@ -534,6 +671,48 @@ function applyPreset(presetName) {
 
   updateUI();
   updateTabSettings();
+}
+
+// Toggle CRT visual effect
+function toggleCrtVisual() {
+  setCrtVisual(!crtVisualEnabled);
+}
+
+// Set CRT visual effect state
+async function setCrtVisual(enabled) {
+  crtVisualEnabled = enabled;
+  try {
+    if (enabled) {
+      // Inject content script on-demand (only when TV+ is activated)
+      await chrome.scripting.executeScript({
+        target: { tabId: currentTabId },
+        files: ['content.js']
+      });
+    }
+    // Send message to toggle the effect
+    await chrome.tabs.sendMessage(currentTabId, {
+      action: 'set-crt-visual',
+      enabled: enabled
+    });
+    updateTvButtonState();
+  } catch (err) {
+    console.error('[Limitr] Failed to toggle CRT visual:', err);
+  }
+}
+
+// Update TV button appearance for TV+ mode
+function updateTvButtonState() {
+  const tvBtn = document.querySelector('[data-preset="tv90s"]');
+  if (tvBtn) {
+    const descEl = tvBtn.querySelector('.preset-desc');
+    if (crtVisualEnabled) {
+      tvBtn.classList.add('tv-plus');
+      if (descEl) descEl.textContent = 'TV+ active';
+    } else {
+      tvBtn.classList.remove('tv-plus');
+      if (descEl) descEl.textContent = 'Tap twice for TV+';
+    }
+  }
 }
 
 // Poll for reduction meter updates
@@ -545,16 +724,27 @@ function startReductionPolling() {
     }
 
     try {
-      const response = await chrome.runtime.sendMessage({
-        target: 'offscreen',
-        action: 'get-reduction',
-        tabId: currentTabId
-      });
-      if (response && response.reduction !== undefined) {
-        updateMeter(response.reduction);
+      if (mixerMode) {
+        // Mixer mode: get reduction from offscreen document
+        const response = await chrome.runtime.sendMessage({
+          target: 'offscreen',
+          action: 'get-reduction',
+          tabId: currentTabId
+        });
+        if (response && response.reduction !== undefined) {
+          updateMeter(response.reduction);
+        }
+      } else {
+        // Default mode: get reduction from content script
+        const response = await chrome.tabs.sendMessage(currentTabId, {
+          action: 'fallback-get-reduction'
+        });
+        if (response && response.reduction !== undefined) {
+          updateMeter(response.reduction);
+        }
       }
     } catch (e) {
-      // Offscreen document might not exist yet
+      // Document might not exist yet
     }
   }, 50);
 }

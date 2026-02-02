@@ -63,6 +63,15 @@ h1 {
   letter-spacing: 0.5px;
 }
 
+.mode-label.mixer-mode {
+  cursor: help;
+}
+
+.mode-divider {
+  color: #444;
+  margin: 0 4px;
+}
+
 /* Toggle Switch */
 .toggle {
   position: relative;
@@ -230,6 +239,12 @@ h1 {
   border-color: #6366f1;
 }
 
+.preset-btn.active.tv-plus {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  border-color: #a855f7;
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.4);
+}
+
 .preset-name {
   font-size: 11px;
   font-weight: 600;
@@ -353,6 +368,15 @@ input[type="range"]::-moz-range-thumb {
 /* Mixer Section */
 .mixer-section {
   margin-bottom: 12px;
+}
+
+.mixer-section.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.mixer-section.disabled .mixer-toggle {
+  cursor: not-allowed;
 }
 
 .mixer-toggle {
