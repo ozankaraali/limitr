@@ -17,6 +17,7 @@
   let noiseSource = null;
 
   const connectedMedia = new Map();
+  let currentNoiseType = 'brown';
 
   let settings = {
     enabled: true,
@@ -102,6 +103,7 @@
       noiseSource.loop = true;
       noiseSource.connect(noiseGain);
       noiseSource.start();
+      currentNoiseType = settings.noiseType;
 
       // Chain: compressor -> makeupGain -> highpass -> lowpass -> outputGain -> destination
       compressor.connect(makeupGain);
@@ -118,22 +120,69 @@
     }
   }
 
+  // Change noise type dynamically
+  function changeNoiseType(newType) {
+    if (!audioContext || !noiseSource) return;
+
+    const noiseData = generateNoiseBuffer(audioContext.sampleRate, newType);
+    const noiseBuffer = audioContext.createBuffer(1, noiseData.length, audioContext.sampleRate);
+    noiseBuffer.getChannelData(0).set(noiseData);
+
+    const newNoiseSource = audioContext.createBufferSource();
+    newNoiseSource.buffer = noiseBuffer;
+    newNoiseSource.loop = true;
+
+    // Swap sources
+    noiseSource.stop();
+    noiseSource.disconnect();
+    newNoiseSource.connect(noiseGain);
+    newNoiseSource.start();
+    noiseSource = newNoiseSource;
+    currentNoiseType = newType;
+
+    console.log(`[Limitr Fallback] Noise type changed to: ${newType}`);
+  }
+
   function applySettings() {
     if (!compressor) return;
 
-    compressor.threshold.value = settings.threshold;
-    compressor.knee.value = settings.knee;
-    compressor.ratio.value = settings.ratio;
-    compressor.attack.value = settings.attack / 1000;
-    compressor.release.value = settings.release / 1000;
+    // Handle enabled/disabled state
+    if (settings.enabled) {
+      // Re-connect through processing chain if bypassed
+      connectedMedia.forEach(({ source }) => {
+        try {
+          source.disconnect();
+          source.connect(compressor);
+        } catch (e) { /* already connected */ }
+      });
+      // Apply compressor settings
+      compressor.threshold.value = settings.threshold;
+      compressor.knee.value = settings.knee;
+      compressor.ratio.value = settings.ratio;
+      compressor.attack.value = settings.attack / 1000;
+      compressor.release.value = settings.release / 1000;
+      makeupGain.gain.value = Math.pow(10, settings.makeupGain / 20);
+      noiseGain.gain.value = settings.noiseLevel;
+    } else {
+      // Bypass: connect sources directly to output, disable noise
+      connectedMedia.forEach(({ source }) => {
+        try {
+          source.disconnect();
+          source.connect(outputGain);
+        } catch (e) { /* already connected */ }
+      });
+      noiseGain.gain.value = 0;
+    }
 
-    makeupGain.gain.value = Math.pow(10, settings.makeupGain / 20);
+    // Always apply output gain and filters
     outputGain.gain.value = Math.pow(10, settings.outputGain / 20);
-
     highpassFilter.frequency.value = settings.highpassFreq > 0 ? settings.highpassFreq : 1;
     lowpassFilter.frequency.value = settings.lowpassFreq < 22050 ? settings.lowpassFreq : 22050;
 
-    noiseGain.gain.value = settings.noiseLevel;
+    // Handle noise type change
+    if (settings.noiseType && settings.noiseType !== currentNoiseType) {
+      changeNoiseType(settings.noiseType);
+    }
   }
 
   function connectMedia(element) {
@@ -148,7 +197,12 @@
 
     try {
       const source = audioContext.createMediaElementSource(element);
-      source.connect(compressor);
+      // Connect based on enabled state
+      if (settings.enabled) {
+        source.connect(compressor);
+      } else {
+        source.connect(outputGain);
+      }
       connectedMedia.set(element, { source });
       console.log('[Limitr Fallback] Connected media element');
     } catch (e) {

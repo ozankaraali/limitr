@@ -13,13 +13,14 @@ const noiseDataCache = {
 const NOISE_BUFFER_SECONDS = 2;
 
 // Default compressor settings (must match popup.js and background.js)
+// IMPORTANT: attack/release are in MILLISECONDS to match UI, converted to seconds when applied
 const defaultSettings = {
   enabled: true,
   threshold: -24,
   ratio: 8,
   knee: 12,
-  attack: 0.005,
-  release: 0.1,
+  attack: 5,      // ms (converted to seconds when applied to compressor)
+  release: 100,   // ms (converted to seconds when applied to compressor)
   makeupGain: 0,
   outputGain: 0,
   highpassFreq: 0,
@@ -121,8 +122,8 @@ async function createAudioChain(tabId, mediaStreamId) {
     compressor.threshold.value = defaultSettings.threshold;
     compressor.ratio.value = defaultSettings.ratio;
     compressor.knee.value = defaultSettings.knee;
-    compressor.attack.value = defaultSettings.attack;
-    compressor.release.value = defaultSettings.release;
+    compressor.attack.value = defaultSettings.attack / 1000;   // Convert ms to seconds
+    compressor.release.value = defaultSettings.release / 1000; // Convert ms to seconds
 
     const makeupGain = audioContext.createGain();
     makeupGain.gain.value = 1;
@@ -267,16 +268,19 @@ function setEnabled(tabId, enabled) {
   state.enabled = enabled;
   state.settings.enabled = enabled;
 
-  const { source, highpassFilter, compressor, outputGain, audioContext } = state;
+  const { source, highpassFilter, outputGain, noiseGain, audioContext } = state;
 
   if (enabled) {
     // Reconnect through processing chain
     source.disconnect();
     source.connect(highpassFilter);
+    // Restore noise level
+    noiseGain.gain.value = state.settings.noiseLevel;
   } else {
-    // Bypass: connect source directly to output
+    // Bypass: connect source directly to output, silence noise
     source.disconnect();
-    source.connect(audioContext.destination);
+    source.connect(outputGain);
+    noiseGain.gain.value = 0;
   }
 
   return true;

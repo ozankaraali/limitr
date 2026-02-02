@@ -1,6 +1,6 @@
 # Privacy Policy for Limitr
 
-**Last updated:** February 2, 2025
+**Last updated:** February 2, 2026
 
 ## Overview
 
@@ -25,9 +25,12 @@ This data is stored locally in your browser using Chrome's storage API and never
 
 ## Permissions Explained
 
-- **activeTab / host_permissions**: Required to access and process audio elements on web pages
-- **scripting**: Required to inject the audio processing code into pages
 - **storage**: Required to save your preferences locally
+- **tabCapture**: Required to capture and process audio from browser tabs (Mixer mode)
+- **offscreen**: Required to run audio processing in an offscreen document
+- **tabs**: Required to identify which tabs are playing audio
+- **scripting**: Required to inject audio processing code into pages (Default mode)
+- **host_permissions (`<all_urls>`)**: Required to access audio elements on any website
 
 ## Open Source
 

@@ -109,7 +109,9 @@ async function init() {
     mixerToggle: document.getElementById('mixerToggle'),
     mixerPanel: document.getElementById('mixerPanel'),
     mixerList: document.getElementById('mixerList'),
-    mediaCount: document.getElementById('mediaCount')
+    mediaCount: document.getElementById('mediaCount'),
+    crtToggle: document.getElementById('crtToggle'),
+    crtLabel: document.getElementById('crtLabel')
   };
 
   // Get current active tab
@@ -275,16 +277,24 @@ async function updateTabSettings() {
 async function setEnabled(enabled) {
   currentSettings.enabled = enabled;
 
-  if (enabled && !isCapturing) {
-    // Start capture if not already capturing
-    await initCapture();
-  } else if (isCapturing) {
-    // Update enabled state
-    await sendToBackground({
-      action: 'set-enabled',
-      tabId: currentTabId,
-      enabled: enabled
-    });
+  if (mixerMode) {
+    // Mixer mode: use background/offscreen
+    if (enabled && !isCapturing) {
+      await initCapture();
+    } else if (isCapturing) {
+      await sendToBackground({
+        action: 'set-enabled',
+        tabId: currentTabId,
+        enabled: enabled
+      });
+    }
+  } else {
+    // Default mode: use content script
+    if (enabled && !isCapturing) {
+      await initFallbackCapture();
+    } else if (isCapturing) {
+      await updateFallbackSettings();
+    }
   }
 
   updateStatusIndicator();
@@ -559,6 +569,13 @@ function setupEventListeners() {
     });
   }
 
+  // CRT visual toggle
+  if (elements.crtToggle) {
+    elements.crtToggle.addEventListener('change', (e) => {
+      setCrtVisual(e.target.checked);
+    });
+  }
+
   // Mixer toggle
   if (elements.mixerToggle) {
     elements.mixerToggle.addEventListener('click', () => {
@@ -700,8 +717,17 @@ async function setCrtVisual(enabled) {
   }
 }
 
-// Update TV button appearance for TV+ mode
+// Update CRT toggle and TV button appearance
 function updateTvButtonState() {
+  // Sync CRT toggle checkbox
+  if (elements.crtToggle) {
+    elements.crtToggle.checked = crtVisualEnabled;
+  }
+  // Sync CRT label styling
+  if (elements.crtLabel) {
+    elements.crtLabel.classList.toggle('active', crtVisualEnabled);
+  }
+  // Update TV preset button
   const tvBtn = document.querySelector('[data-preset="tv90s"]');
   if (tvBtn) {
     const descEl = tvBtn.querySelector('.preset-desc');

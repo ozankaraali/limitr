@@ -41,6 +41,9 @@ async function ensureOffscreenDocument() {
   });
 }
 
+// Track muted state before capture (to restore on cleanup)
+const tabMutedState = new Map();
+
 // Initialize audio capture for a tab
 async function initAudioCapture(tabId) {
   // Ensure offscreen document exists
@@ -63,6 +66,13 @@ async function initAudioCapture(tabId) {
     return stateResponse.state;
   }
 
+  // Get current muted state before we mute
+  const tab = await chrome.tabs.get(tabId);
+  tabMutedState.set(tabId, tab.mutedInfo?.muted || false);
+
+  // Mute the tab to prevent double audio (processed + original)
+  await chrome.tabs.update(tabId, { muted: true });
+
   // Get media stream ID for the tab
   const mediaStreamId = await chrome.tabCapture.getMediaStreamId({
     targetTabId: tabId
@@ -77,6 +87,10 @@ async function initAudioCapture(tabId) {
   });
 
   if (!response.success) {
+    // Restore muted state on failure
+    const wasMuted = tabMutedState.get(tabId) || false;
+    await chrome.tabs.update(tabId, { muted: wasMuted });
+    tabMutedState.delete(tabId);
     throw new Error(response.error || 'Failed to initialize audio');
   }
 
@@ -175,8 +189,9 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
     });
   }
 
-  // Clean up stored settings
+  // Clean up stored settings and muted state tracking
   await chrome.storage.local.remove([`tabSettings_${tabId}`]);
+  tabMutedState.delete(tabId);
 });
 
 // Handle messages from popup
@@ -273,6 +288,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
         .then(response => sendResponse({ success: true, volumes: response?.volumes || {} }))
         .catch(error => sendResponse({ success: false, volumes: {} }));
+      return true;
+    }
+
+    case 'cleanup-tab': {
+      // Forward cleanup to offscreen document and remove stored settings
+      const tabId = message.tabId;
+      hasOffscreenDocument()
+        .then(async (exists) => {
+          if (exists) {
+            await chrome.runtime.sendMessage({
+              target: 'offscreen',
+              action: 'cleanup-tab',
+              tabId
+            });
+          }
+          // Restore original muted state only if we tracked it
+          if (tabMutedState.has(tabId)) {
+            const wasMuted = tabMutedState.get(tabId);
+            try {
+              await chrome.tabs.update(tabId, { muted: wasMuted });
+            } catch (e) {
+              // Tab might be closed already
+            }
+            tabMutedState.delete(tabId);
+          }
+          // Remove stored settings for this tab
+          await chrome.storage.local.remove([`tabSettings_${tabId}`]);
+          return { success: true };
+        })
+        .then(response => sendResponse(response))
+        .catch(error => sendResponse({ success: false, error: error.message }));
       return true;
     }
   }

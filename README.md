@@ -11,15 +11,16 @@ A browser extension for real-time audio compression, limiting, and normalization
 - **Real-time audio compression** using Web Audio API's DynamicsCompressorNode
 - **Simple & Advanced modes**: Quick presets or full control over parameters
 - **6 Audio Presets**:
-  - **Music** - Light touch for music listening
+  - **Off** - No compression (bypass)
   - **Voice Clarity** - Optimized for speech and podcasts
   - **Normalize** - Balanced volume leveling
   - **Bass Tamer** - Moderate compression with bass cut
   - **Night Mode** - Heavy compression with bass cut for quiet listening
-  - **90s TV** - Warm CRT-style sound
+  - **90s TV** - Warm CRT-style sound with optional TV+ visual mode
 - **Bass & Treble Cut** filters for additional control
+- **Background noise** (white/pink/brown) for vintage audio effect
 - **Gain reduction meter** showing real-time compression activity
-- **Per-page processing**: Automatically captures all audio/video elements
+- **Dual processing modes**: Default (fullscreen-friendly) or Mixer (multi-tab)
 - **No external dependencies**: Pure Web Audio API
 
 ## Installation
@@ -48,8 +49,8 @@ Note: For permanent Firefox installation, the extension needs to be signed or in
 1. Click the Limitr icon in your browser toolbar
 2. Toggle the switch to enable/disable processing
 3. Select a preset or adjust parameters:
-   - **Simple mode**: Output volume, bass cut, treble cut
-   - **Advanced mode**: Full compressor controls (threshold, ratio, knee, attack, release, gains, filters)
+   - **Simple mode**: Output volume control
+   - **Advanced mode**: Full compressor controls (threshold, ratio, knee, attack, release, gains, filters, noise)
 4. The gain reduction meter shows how much compression is being applied
 
 ## Advanced Parameters
@@ -62,17 +63,27 @@ Note: For permanent Firefox installation, the extension needs to be signed or in
 | Attack | 0 to 100 ms | How quickly compression engages |
 | Release | 10 to 1000 ms | How quickly compression releases |
 | Makeup Gain | 0 to 24 dB | Volume boost after compression |
+| Output Gain | -24 to +24 dB | Final volume adjustment |
 | Highpass | 0 to 300 Hz | Bass cut filter frequency |
-| Lowpass | 2000 to 20000 Hz | Treble cut filter frequency |
+| Lowpass | 2000 to 22050 Hz | Treble cut filter frequency |
+| Noise Level | 0 to 30% | Background noise amount |
+| Noise Type | White/Pink/Brown | Noise character (harsh to cozy) |
 
 ## How It Works
 
-The extension injects a content script into web pages that:
+Limitr offers two processing modes:
 
-1. Creates a Web Audio API context with a DynamicsCompressorNode
-2. Scans for all `<video>` and `<audio>` elements
-3. Routes their audio through the compressor chain
-4. Monitors the DOM for dynamically added media elements
+**Default Mode** (fullscreen compatible):
+- Injects a content script that uses `MediaElementSource` to process audio
+- Scans for all `<video>` and `<audio>` elements
+- Routes audio through a processing chain (compressor → gains → filters → output)
+- Works in fullscreen video playback
+
+**Mixer Mode** (multi-tab control):
+- Uses Chrome's `tabCapture` API to capture tab audio
+- Processes audio in an offscreen document
+- Allows individual volume control of multiple tabs
+- Note: Fullscreen may be restricted in this mode
 
 ## Privacy
 
