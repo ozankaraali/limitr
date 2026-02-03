@@ -51,12 +51,16 @@
       </div>
     </div>
 
-    <!-- Presets (shown in both modes, Off first then light to heavy) -->
+    <!-- Presets -->
     <div class="presets-section">
       <div class="presets-grid">
         <button class="preset-btn" data-preset="off">
           <span class="preset-name">Off</span>
           <span class="preset-desc">No compression</span>
+        </button>
+        <button class="preset-btn preset-featured" data-preset="voiceFocus">
+          <span class="preset-name">Voice Focus</span>
+          <span class="preset-desc">Multiband + EQ</span>
         </button>
         <button class="preset-btn" data-preset="voiceClarity">
           <span class="preset-name">Voice Clarity</span>
@@ -154,24 +158,6 @@
         <input type="range" id="outputGain" min="-24" max="24" value="0" step="1">
       </div>
 
-      <div class="control-section-label">Filters</div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="highpassFreq">Highpass (Bass Cut)</label>
-          <span class="value" id="highpassFreqValue">Off</span>
-        </div>
-        <input type="range" id="highpassFreq" min="0" max="300" value="0" step="10">
-      </div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="lowpassFreq">Lowpass (Treble Cut)</label>
-          <span class="value" id="lowpassFreqValue">Off</span>
-        </div>
-        <input type="range" id="lowpassFreq" min="2000" max="22050" value="22050" step="500">
-      </div>
-
       <div class="control-section-label">Effects</div>
 
       <div class="control-group">
@@ -191,6 +177,229 @@
           <option value="pink">Pink (Rain/CRT hum)</option>
           <option value="white">White (Harsh static)</option>
         </select>
+      </div>
+
+      <!-- 5-Band Parametric EQ Section -->
+      <div class="control-section-label eq-header">
+        <span>5-Band EQ</span>
+        <label class="toggle small">
+          <input type="checkbox" id="eqToggle">
+          <span class="slider"></span>
+        </label>
+        <span class="eq-label" id="eqLabel">Off</span>
+      </div>
+
+      <div id="eqControls" style="display: none;">
+        <!-- EQ Canvas Visualization -->
+        <div class="eq-canvas-container">
+          <canvas id="eqCanvas" width="268" height="100"></canvas>
+          <div class="eq-legend">
+            <span class="eq-legend-item band1">1</span>
+            <span class="eq-legend-item band2">2</span>
+            <span class="eq-legend-item band3">3</span>
+            <span class="eq-legend-item band4">4</span>
+            <span class="eq-legend-item band5">5</span>
+          </div>
+        </div>
+
+        <!-- EQ Band 1 -->
+        <div class="eq-band">
+          <div class="eq-band-header">
+            <span class="eq-band-label band1">Band 1</span>
+            <select id="eq1Type" class="dropdown-small">
+              <option value="highpass">Highpass</option>
+              <option value="lowshelf">Low Shelf</option>
+              <option value="peaking">Bell</option>
+            </select>
+          </div>
+          <div class="eq-band-controls">
+            <div class="eq-control">
+              <label>Freq</label>
+              <input type="range" id="eq1Freq" min="20" max="500" value="80" step="1">
+              <span class="value" id="eq1FreqValue">80 Hz</span>
+            </div>
+            <div class="eq-control">
+              <label>Gain</label>
+              <input type="range" id="eq1Gain" min="-12" max="12" value="0" step="1">
+              <span class="value" id="eq1GainValue">0 dB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- EQ Band 2 -->
+        <div class="eq-band">
+          <div class="eq-band-header">
+            <span class="eq-band-label band2">Band 2</span>
+            <select id="eq2Type" class="dropdown-small">
+              <option value="lowshelf">Low Shelf</option>
+              <option value="peaking" selected>Bell</option>
+              <option value="notch">Notch</option>
+            </select>
+          </div>
+          <div class="eq-band-controls">
+            <div class="eq-control">
+              <label>Freq</label>
+              <input type="range" id="eq2Freq" min="100" max="1000" value="250" step="5">
+              <span class="value" id="eq2FreqValue">250 Hz</span>
+            </div>
+            <div class="eq-control">
+              <label>Gain</label>
+              <input type="range" id="eq2Gain" min="-12" max="12" value="0" step="1">
+              <span class="value" id="eq2GainValue">0 dB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- EQ Band 3 -->
+        <div class="eq-band">
+          <div class="eq-band-header">
+            <span class="eq-band-label band3">Band 3</span>
+            <select id="eq3Type" class="dropdown-small">
+              <option value="peaking" selected>Bell</option>
+              <option value="notch">Notch</option>
+            </select>
+          </div>
+          <div class="eq-band-controls">
+            <div class="eq-control">
+              <label>Freq</label>
+              <input type="range" id="eq3Freq" min="500" max="4000" value="1000" step="10">
+              <span class="value" id="eq3FreqValue">1.0k</span>
+            </div>
+            <div class="eq-control">
+              <label>Gain</label>
+              <input type="range" id="eq3Gain" min="-12" max="12" value="0" step="1">
+              <span class="value" id="eq3GainValue">0 dB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- EQ Band 4 -->
+        <div class="eq-band">
+          <div class="eq-band-header">
+            <span class="eq-band-label band4">Band 4</span>
+            <select id="eq4Type" class="dropdown-small">
+              <option value="peaking" selected>Bell</option>
+              <option value="highshelf">High Shelf</option>
+              <option value="notch">Notch</option>
+            </select>
+          </div>
+          <div class="eq-band-controls">
+            <div class="eq-control">
+              <label>Freq</label>
+              <input type="range" id="eq4Freq" min="2000" max="10000" value="4000" step="50">
+              <span class="value" id="eq4FreqValue">4.0k</span>
+            </div>
+            <div class="eq-control">
+              <label>Gain</label>
+              <input type="range" id="eq4Gain" min="-12" max="12" value="0" step="1">
+              <span class="value" id="eq4GainValue">0 dB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- EQ Band 5 -->
+        <div class="eq-band">
+          <div class="eq-band-header">
+            <span class="eq-band-label band5">Band 5</span>
+            <select id="eq5Type" class="dropdown-small">
+              <option value="highshelf" selected>High Shelf</option>
+              <option value="peaking">Bell</option>
+              <option value="lowpass">Lowpass</option>
+            </select>
+          </div>
+          <div class="eq-band-controls">
+            <div class="eq-control">
+              <label>Freq</label>
+              <input type="range" id="eq5Freq" min="5000" max="20000" value="12000" step="100">
+              <span class="value" id="eq5FreqValue">12.0k</span>
+            </div>
+            <div class="eq-control">
+              <label>Gain</label>
+              <input type="range" id="eq5Gain" min="-12" max="12" value="0" step="1">
+              <span class="value" id="eq5GainValue">0 dB</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3-Band Multiband Compressor Section -->
+      <div class="control-section-label multiband-header">
+        <span>3-Band Multiband</span>
+        <label class="toggle small">
+          <input type="checkbox" id="multibandToggle">
+          <span class="slider"></span>
+        </label>
+        <span class="multiband-label" id="multibandLabel">Off</span>
+      </div>
+
+      <div id="multibandControls" style="display: none;">
+        <!-- Crossover Frequencies (2 crossovers for 3 bands) -->
+        <div class="multiband-crossovers">
+          <div class="control-group half">
+            <div class="control-header">
+              <label for="crossover1">Sub/Mid</label>
+              <span class="value" id="crossover1Value">200 Hz</span>
+            </div>
+            <input type="range" id="crossover1" min="80" max="500" value="200" step="10">
+          </div>
+          <div class="control-group half">
+            <div class="control-header">
+              <label for="crossover2">Mid/High</label>
+              <span class="value" id="crossover2Value">3.0k Hz</span>
+            </div>
+            <input type="range" id="crossover2" min="1000" max="8000" value="3000" step="100">
+          </div>
+        </div>
+
+        <!-- Per-Band Thresholds (3 bands) -->
+        <div class="multiband-thresholds">
+          <div class="control-group third">
+            <div class="control-header">
+              <label for="subThreshold" class="band-label sub">Sub</label>
+              <span class="value" id="subThresholdValue">-20 dB</span>
+            </div>
+            <input type="range" id="subThreshold" min="-60" max="0" value="-20" step="1">
+          </div>
+          <div class="control-group third">
+            <div class="control-header">
+              <label for="midThreshold" class="band-label mid">Mid</label>
+              <span class="value" id="midThresholdValue">-24 dB</span>
+            </div>
+            <input type="range" id="midThreshold" min="-60" max="0" value="-24" step="1">
+          </div>
+          <div class="control-group third">
+            <div class="control-header">
+              <label for="highThreshold" class="band-label high">High</label>
+              <span class="value" id="highThresholdValue">-24 dB</span>
+            </div>
+            <input type="range" id="highThreshold" min="-60" max="0" value="-24" step="1">
+          </div>
+        </div>
+
+        <!-- Per-Band Gains (3 bands) -->
+        <div class="multiband-gains">
+          <div class="control-group third">
+            <div class="control-header">
+              <label for="subGain" class="band-label sub">Sub</label>
+              <span class="value" id="subGainValue">0 dB</span>
+            </div>
+            <input type="range" id="subGain" min="-12" max="12" value="0" step="1">
+          </div>
+          <div class="control-group third">
+            <div class="control-header">
+              <label for="midGain" class="band-label mid">Mid</label>
+              <span class="value" id="midGainValue">0 dB</span>
+            </div>
+            <input type="range" id="midGain" min="-12" max="12" value="0" step="1">
+          </div>
+          <div class="control-group third">
+            <div class="control-header">
+              <label for="highGain" class="band-label high">High</label>
+              <span class="value" id="highGainValue">0 dB</span>
+            </div>
+            <input type="range" id="highGain" min="-12" max="12" value="0" step="1">
+          </div>
+        </div>
       </div>
     </div>
 

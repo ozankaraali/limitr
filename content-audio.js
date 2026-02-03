@@ -11,30 +11,97 @@
   let compressor = null;
   let makeupGain = null;
   let outputGain = null;
-  let highpassFilter = null;
-  let lowpassFilter = null;
   let noiseGain = null;
   let noiseSource = null;
+
+  // 3-Band Multiband Compressor nodes
+  let crossover1 = null;
+  let crossover2 = null;
+  let subBand = null;
+  let midBand = null;
+  let highBand = null;
+  let multibandSum = null;
+  let multibandActive = false;
+
+  // 5-Band Parametric EQ nodes
+  let eqBands = [];
+  let eqActive = false;
 
   const connectedMedia = new Map();
   let currentNoiseType = 'brown';
 
   let settings = {
     enabled: true,
+    outputGain: 0,
+
+    // Global compressor
+    compressorEnabled: true,
     threshold: -24,
     ratio: 8,
     knee: 12,
     attack: 5,
     release: 100,
     makeupGain: 0,
-    outputGain: 0,
-    highpassFreq: 0,
-    lowpassFreq: 22050,
+
+    // 3-Band Multiband Compressor
+    multibandEnabled: false,
+    crossover1: 200,
+    crossover2: 3000,
+    subThreshold: -20,
+    subRatio: 8,
+    subGain: 0,
+    midThreshold: -24,
+    midRatio: 4,
+    midGain: 0,
+    highThreshold: -24,
+    highRatio: 6,
+    highGain: 0,
+
+    // 5-Band Parametric EQ
+    eqEnabled: false,
+    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 12000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
+
+    // Effects
     noiseLevel: 0,
     noiseType: 'brown'
   };
 
-  // Noise generation (same as offscreen.js)
+  // Create a crossover filter pair
+  function createCrossoverPair(frequency) {
+    const lowpass = audioContext.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = frequency;
+    lowpass.Q.value = 0.707;
+
+    const highpass = audioContext.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = frequency;
+    highpass.Q.value = 0.707;
+
+    return { lowpass, highpass };
+  }
+
+  // Create a per-band processor
+  function createBandProcessor(threshold, ratio, knee, attack, release, gain) {
+    const comp = audioContext.createDynamicsCompressor();
+    comp.threshold.value = threshold;
+    comp.ratio.value = ratio;
+    comp.knee.value = knee;
+    comp.attack.value = attack / 1000;
+    comp.release.value = release / 1000;
+
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = Math.pow(10, gain / 20);
+
+    comp.connect(gainNode);
+    return { compressor: comp, gainNode };
+  }
+
+  // Noise generation
   function generateNoiseBuffer(sampleRate, type) {
     const bufferSize = sampleRate * 2;
     const data = new Float32Array(bufferSize);
@@ -57,6 +124,7 @@
         b6 = white * 0.115926;
       }
     } else {
+      // Brown noise
       let lastOut = 0;
       for (let i = 0; i < bufferSize; i++) {
         const white = Math.random() * 2 - 1;
@@ -74,25 +142,68 @@
     try {
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-      // Compressor
+      // Global compressor
       compressor = audioContext.createDynamicsCompressor();
+      compressor.threshold.value = settings.threshold;
+      compressor.ratio.value = settings.ratio;
+      compressor.knee.value = settings.knee;
+      compressor.attack.value = settings.attack / 1000;
+      compressor.release.value = settings.release / 1000;
 
-      // Gains
       makeupGain = audioContext.createGain();
+      makeupGain.gain.value = Math.pow(10, settings.makeupGain / 20);
+
       outputGain = audioContext.createGain();
+      outputGain.gain.value = Math.pow(10, settings.outputGain / 20);
 
-      // Filters
-      highpassFilter = audioContext.createBiquadFilter();
-      highpassFilter.type = 'highpass';
-      highpassFilter.frequency.value = 1;
+      // 3-Band Multiband Compressor
+      crossover1 = createCrossoverPair(settings.crossover1);
+      crossover2 = createCrossoverPair(settings.crossover2);
 
-      lowpassFilter = audioContext.createBiquadFilter();
-      lowpassFilter.type = 'lowpass';
-      lowpassFilter.frequency.value = 22050;
+      subBand = createBandProcessor(
+        settings.subThreshold, settings.subRatio, settings.knee,
+        settings.attack, settings.release, settings.subGain
+      );
+      midBand = createBandProcessor(
+        settings.midThreshold, settings.midRatio, settings.knee,
+        settings.attack, settings.release, settings.midGain
+      );
+      highBand = createBandProcessor(
+        settings.highThreshold, settings.highRatio, settings.knee,
+        settings.attack, settings.release, settings.highGain
+      );
+
+      multibandSum = audioContext.createGain();
+      multibandSum.gain.value = 1;
+
+      // Connect multiband internal routing
+      crossover1.lowpass.connect(subBand.compressor);
+      crossover1.highpass.connect(crossover2.lowpass);
+      crossover1.highpass.connect(crossover2.highpass);
+      crossover2.lowpass.connect(midBand.compressor);
+      crossover2.highpass.connect(highBand.compressor);
+      subBand.gainNode.connect(multibandSum);
+      midBand.gainNode.connect(multibandSum);
+      highBand.gainNode.connect(multibandSum);
+
+      // 5-Band Parametric EQ
+      eqBands = [];
+      for (let i = 1; i <= 5; i++) {
+        const band = audioContext.createBiquadFilter();
+        band.type = settings[`eq${i}Type`];
+        band.frequency.value = settings[`eq${i}Freq`];
+        band.gain.value = settings[`eq${i}Gain`];
+        band.Q.value = settings[`eq${i}Q`];
+        eqBands.push(band);
+      }
+      // Connect EQ bands in series
+      for (let i = 0; i < 4; i++) {
+        eqBands[i].connect(eqBands[i + 1]);
+      }
 
       // Noise
       noiseGain = audioContext.createGain();
-      noiseGain.gain.value = 0;
+      noiseGain.gain.value = settings.noiseLevel;
 
       const noiseData = generateNoiseBuffer(audioContext.sampleRate, settings.noiseType);
       const noiseBuffer = audioContext.createBuffer(1, noiseData.length, audioContext.sampleRate);
@@ -102,25 +213,21 @@
       noiseSource.buffer = noiseBuffer;
       noiseSource.loop = true;
       noiseSource.connect(noiseGain);
+      noiseGain.connect(outputGain);
       noiseSource.start();
       currentNoiseType = settings.noiseType;
 
-      // Chain: compressor -> makeupGain -> highpass -> lowpass -> outputGain -> destination
+      // Default chain: compressor -> makeupGain -> outputGain -> destination
       compressor.connect(makeupGain);
-      makeupGain.connect(highpassFilter);
-      highpassFilter.connect(lowpassFilter);
-      lowpassFilter.connect(outputGain);
-      noiseGain.connect(outputGain);
+      makeupGain.connect(outputGain);
       outputGain.connect(audioContext.destination);
 
-      applySettings();
-      console.log('[Limitr Fallback] Audio chain initialized');
+      console.log('[Limitr Fallback] Audio chain initialized with EQ + Multiband support');
     } catch (e) {
       console.error('[Limitr Fallback] Init failed:', e);
     }
   }
 
-  // Change noise type dynamically
   function changeNoiseType(newType) {
     if (!audioContext || !noiseSource) return;
 
@@ -132,55 +239,142 @@
     newNoiseSource.buffer = noiseBuffer;
     newNoiseSource.loop = true;
 
-    // Swap sources
     noiseSource.stop();
     noiseSource.disconnect();
     newNoiseSource.connect(noiseGain);
     newNoiseSource.start();
     noiseSource = newNoiseSource;
     currentNoiseType = newType;
+  }
 
-    console.log(`[Limitr Fallback] Noise type changed to: ${newType}`);
+  // Rebuild signal chain based on settings
+  function rebuildSignalChain() {
+    if (!audioContext) return;
+
+    // Disconnect all sources from their current routing
+    connectedMedia.forEach(({ source }) => {
+      try { source.disconnect(); } catch (e) {}
+    });
+
+    // Disconnect shared processing nodes
+    try { compressor.disconnect(); } catch (e) {}
+    try { makeupGain.disconnect(); } catch (e) {}
+    try { multibandSum.disconnect(); } catch (e) {}
+    try { eqBands[4].disconnect(); } catch (e) {}
+
+    // Determine the entry point for sources based on current settings
+    let entryNode;
+
+    if (!settings.enabled) {
+      // Bypass: sources connect directly to output
+      entryNode = outputGain;
+      eqActive = false;
+      multibandActive = false;
+    } else {
+      // Build the processing chain (shared nodes connected once)
+      if (settings.eqEnabled) {
+        entryNode = eqBands[0];
+        eqActive = true;
+
+        // EQ output goes to dynamics stage
+        if (settings.multibandEnabled) {
+          eqBands[4].connect(crossover1.lowpass);
+          eqBands[4].connect(crossover1.highpass);
+          multibandSum.connect(outputGain);
+          multibandActive = true;
+        } else if (settings.compressorEnabled) {
+          eqBands[4].connect(compressor);
+          compressor.connect(makeupGain);
+          makeupGain.connect(outputGain);
+          multibandActive = false;
+        } else {
+          eqBands[4].connect(outputGain);
+          multibandActive = false;
+        }
+      } else {
+        eqActive = false;
+
+        // No EQ - determine entry based on dynamics
+        if (settings.multibandEnabled) {
+          // Sources will connect to crossover filters via a summing node
+          // Create implicit sum by having each source connect to crossovers
+          entryNode = null; // Special case: each source connects to crossovers
+          multibandSum.connect(outputGain);
+          multibandActive = true;
+        } else if (settings.compressorEnabled) {
+          entryNode = compressor;
+          compressor.connect(makeupGain);
+          makeupGain.connect(outputGain);
+          multibandActive = false;
+        } else {
+          entryNode = outputGain;
+          multibandActive = false;
+        }
+      }
+    }
+
+    // Connect all sources to the entry point
+    connectedMedia.forEach(({ source }) => {
+      if (entryNode === null) {
+        // Multiband without EQ: each source connects to crossover filters
+        source.connect(crossover1.lowpass);
+        source.connect(crossover1.highpass);
+      } else {
+        source.connect(entryNode);
+      }
+    });
+
+    // Handle noise
+    noiseGain.gain.value = settings.enabled ? settings.noiseLevel : 0;
   }
 
   function applySettings() {
-    if (!compressor) return;
+    if (!audioContext) return;
 
-    // Handle enabled/disabled state
-    if (settings.enabled) {
-      // Re-connect through processing chain if bypassed
-      connectedMedia.forEach(({ source }) => {
-        try {
-          source.disconnect();
-          source.connect(compressor);
-        } catch (e) { /* already connected */ }
-      });
-      // Apply compressor settings
-      compressor.threshold.value = settings.threshold;
-      compressor.knee.value = settings.knee;
-      compressor.ratio.value = settings.ratio;
-      compressor.attack.value = settings.attack / 1000;
-      compressor.release.value = settings.release / 1000;
-      makeupGain.gain.value = Math.pow(10, settings.makeupGain / 20);
-      noiseGain.gain.value = settings.noiseLevel;
-    } else {
-      // Bypass: connect sources directly to output, disable noise
-      connectedMedia.forEach(({ source }) => {
-        try {
-          source.disconnect();
-          source.connect(outputGain);
-        } catch (e) { /* already connected */ }
-      });
-      noiseGain.gain.value = 0;
+    // Global compressor
+    compressor.threshold.value = settings.threshold;
+    compressor.ratio.value = settings.ratio;
+    compressor.knee.value = settings.knee;
+    compressor.attack.value = settings.attack / 1000;
+    compressor.release.value = settings.release / 1000;
+    makeupGain.gain.value = Math.pow(10, settings.makeupGain / 20);
+    outputGain.gain.value = Math.pow(10, settings.outputGain / 20);
+
+    // Multiband crossovers
+    crossover1.lowpass.frequency.value = settings.crossover1;
+    crossover1.highpass.frequency.value = settings.crossover1;
+    crossover2.lowpass.frequency.value = settings.crossover2;
+    crossover2.highpass.frequency.value = settings.crossover2;
+
+    // Multiband per-band settings
+    subBand.compressor.threshold.value = settings.subThreshold;
+    subBand.compressor.ratio.value = settings.subRatio;
+    subBand.gainNode.gain.value = Math.pow(10, settings.subGain / 20);
+    midBand.compressor.threshold.value = settings.midThreshold;
+    midBand.compressor.ratio.value = settings.midRatio;
+    midBand.gainNode.gain.value = Math.pow(10, settings.midGain / 20);
+    highBand.compressor.threshold.value = settings.highThreshold;
+    highBand.compressor.ratio.value = settings.highRatio;
+    highBand.gainNode.gain.value = Math.pow(10, settings.highGain / 20);
+
+    // Apply shared settings to multiband
+    [subBand, midBand, highBand].forEach(band => {
+      band.compressor.knee.value = settings.knee;
+      band.compressor.attack.value = settings.attack / 1000;
+      band.compressor.release.value = settings.release / 1000;
+    });
+
+    // EQ bands
+    for (let i = 1; i <= 5; i++) {
+      const band = eqBands[i - 1];
+      band.type = settings[`eq${i}Type`];
+      band.frequency.value = settings[`eq${i}Freq`];
+      band.gain.value = settings[`eq${i}Gain`];
+      band.Q.value = settings[`eq${i}Q`];
     }
 
-    // Always apply output gain and filters
-    outputGain.gain.value = Math.pow(10, settings.outputGain / 20);
-    highpassFilter.frequency.value = settings.highpassFreq > 0 ? settings.highpassFreq : 1;
-    lowpassFilter.frequency.value = settings.lowpassFreq < 22050 ? settings.lowpassFreq : 22050;
-
-    // Handle noise type change
-    if (settings.noiseType && settings.noiseType !== currentNoiseType) {
+    // Noise
+    if (settings.noiseType !== currentNoiseType) {
       changeNoiseType(settings.noiseType);
     }
   }
@@ -197,13 +391,11 @@
 
     try {
       const source = audioContext.createMediaElementSource(element);
-      // Connect based on enabled state
-      if (settings.enabled) {
-        source.connect(compressor);
-      } else {
-        source.connect(outputGain);
-      }
       connectedMedia.set(element, { source });
+
+      // Connect based on current settings
+      rebuildSignalChain();
+
       console.log('[Limitr Fallback] Connected media element');
     } catch (e) {
       if (e.name === 'InvalidStateError') {
@@ -229,13 +421,52 @@
   // Message handler
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'fallback-update-settings') {
+      const oldEq = settings.eqEnabled;
+      const oldMultiband = settings.multibandEnabled;
+      const oldCompressor = settings.compressorEnabled;
+      const oldEnabled = settings.enabled;
+
       settings = { ...settings, ...message.settings };
+
+      // Check if routing needs rebuild
+      const needsRebuild = (
+        oldEq !== settings.eqEnabled ||
+        oldMultiband !== settings.multibandEnabled ||
+        oldCompressor !== settings.compressorEnabled ||
+        oldEnabled !== settings.enabled
+      );
+
+      if (needsRebuild) {
+        rebuildSignalChain();
+      }
       applySettings();
-      // Save to storage for persistence
+
       chrome.storage.local.set({ limitrFallbackSettings: settings });
       sendResponse({ success: true });
     } else if (message.action === 'fallback-get-reduction') {
-      sendResponse({ reduction: compressor ? compressor.reduction : 0 });
+      let reduction = 0;
+      if (multibandActive && subBand && midBand && highBand) {
+        reduction = Math.min(
+          subBand.compressor.reduction,
+          midBand.compressor.reduction,
+          highBand.compressor.reduction
+        );
+      } else if (compressor) {
+        reduction = compressor.reduction;
+      }
+      sendResponse({ reduction });
+    } else if (message.action === 'fallback-get-multiband-reduction') {
+      if (subBand && midBand && highBand) {
+        sendResponse({
+          reduction: {
+            sub: subBand.compressor.reduction,
+            mid: midBand.compressor.reduction,
+            high: highBand.compressor.reduction
+          }
+        });
+      } else {
+        sendResponse({ reduction: { sub: 0, mid: 0, high: 0 } });
+      }
     } else if (message.action === 'fallback-ping') {
       sendResponse({ active: true, mediaCount: connectedMedia.size, settings });
     }
@@ -264,7 +495,7 @@
     }
 
     setInterval(scanMedia, 2000);
-    console.log('[Limitr Fallback] Content script loaded - fullscreen compatible mode');
+    console.log('[Limitr Fallback] Content script loaded - EQ + Multiband + fullscreen compatible');
   }
 
   init();

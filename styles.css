@@ -377,6 +377,28 @@ input[type="range"]::-moz-range-thumb {
   padding: 8px;
 }
 
+/* Small dropdown for EQ filter types */
+.dropdown-small {
+  padding: 4px 8px;
+  background: #252542;
+  border: 1px solid #333355;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 10px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.dropdown-small:hover {
+  border-color: #4f46e5;
+}
+
+.dropdown-small option {
+  background: #1a1a2e;
+  color: #fff;
+}
+
 /* Mixer Section */
 .mixer-section {
   margin-bottom: 12px;
@@ -577,6 +599,258 @@ input[type="range"]::-moz-range-thumb {
   width: 45px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* ============ 5-BAND PARAMETRIC EQ STYLES ============ */
+
+/* EQ header with inline toggle */
+.eq-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.eq-header .toggle {
+  margin-left: auto;
+}
+
+.eq-label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.eq-label.active {
+  color: #22c55e;
+}
+
+/* EQ Canvas Container */
+.eq-canvas-container {
+  margin: 12px 0;
+  padding: 8px;
+  background: #1a1a2e;
+  border-radius: 8px;
+  border: 1px solid #252542;
+}
+
+#eqCanvas {
+  width: 100%;
+  height: 100px;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.eq-legend {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.eq-legend-item {
+  font-size: 10px;
+  font-weight: 600;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+/* 5-band EQ legend colors */
+.eq-legend-item.band1 {
+  background: #ef4444;
+}
+
+.eq-legend-item.band2 {
+  background: #f97316;
+}
+
+.eq-legend-item.band3 {
+  background: #22c55e;
+}
+
+.eq-legend-item.band4 {
+  background: #3b82f6;
+}
+
+.eq-legend-item.band5 {
+  background: #a855f7;
+}
+
+/* EQ Band Controls */
+.eq-band {
+  background: #1e1e36;
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
+.eq-band:last-child {
+  margin-bottom: 0;
+}
+
+.eq-band-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.eq-band-label {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.eq-band-label.band1 { color: #ef4444; }
+.eq-band-label.band2 { color: #f97316; }
+.eq-band-label.band3 { color: #22c55e; }
+.eq-band-label.band4 { color: #3b82f6; }
+.eq-band-label.band5 { color: #a855f7; }
+
+.eq-band-controls {
+  display: flex;
+  gap: 12px;
+}
+
+.eq-control {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eq-control label {
+  font-size: 9px;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.eq-control input[type="range"] {
+  height: 6px;
+  margin-bottom: 2px;
+}
+
+.eq-control input[type="range"]::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+}
+
+.eq-control .value {
+  font-size: 10px;
+  color: #aaa;
+  text-align: center;
+}
+
+/* ============ 3-BAND MULTIBAND COMPRESSOR STYLES ============ */
+
+/* Featured preset (Voice Focus) */
+.preset-btn.preset-featured {
+  background: linear-gradient(135deg, #252542, #2d2d50);
+  border: 1px solid #4f46e5;
+}
+
+.preset-btn.preset-featured:hover {
+  background: linear-gradient(135deg, #333355, #3a3a60);
+  border-color: #6366f1;
+}
+
+.preset-btn.preset-featured.active {
+  background: linear-gradient(135deg, #4f46e5, #5b52f0);
+  border-color: #818cf8;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+}
+
+/* Multiband header with inline toggle */
+.multiband-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.multiband-header .toggle {
+  margin-left: auto;
+}
+
+.multiband-label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.multiband-label.active {
+  color: #22c55e;
+}
+
+/* Multiband control rows */
+.multiband-crossovers,
+.multiband-thresholds,
+.multiband-gains {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.control-group.half {
+  flex: 1;
+}
+
+.control-group.third {
+  flex: 1;
+  min-width: 0;
+}
+
+.control-group.third .control-header label {
+  font-size: 10px;
+}
+
+.control-group.third .control-header .value {
+  font-size: 10px;
+}
+
+/* Band-colored labels (3 bands) */
+.band-label.sub {
+  color: #ef4444;
+}
+
+.band-label.mid {
+  color: #22c55e;
+}
+
+.band-label.high {
+  color: #3b82f6;
+}
+
+/* Smaller sliders for multiband (compact 3-band layout) */
+.multiband-thresholds input[type="range"],
+.multiband-gains input[type="range"],
+.multiband-crossovers input[type="range"] {
+  height: 6px;
+}
+
+.multiband-thresholds input[type="range"]::-webkit-slider-thumb,
+.multiband-gains input[type="range"]::-webkit-slider-thumb,
+.multiband-crossovers input[type="range"]::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+}
+
+/* Band-colored slider thumbs (3 bands) */
+.multiband-thresholds .control-group:nth-child(1) input[type="range"]::-webkit-slider-thumb,
+.multiband-gains .control-group:nth-child(1) input[type="range"]::-webkit-slider-thumb {
+  background: #ef4444; /* Sub - red */
+}
+
+.multiband-thresholds .control-group:nth-child(2) input[type="range"]::-webkit-slider-thumb,
+.multiband-gains .control-group:nth-child(2) input[type="range"]::-webkit-slider-thumb {
+  background: #22c55e; /* Mid - green */
+}
+
+.multiband-thresholds .control-group:nth-child(3) input[type="range"]::-webkit-slider-thumb,
+.multiband-gains .control-group:nth-child(3) input[type="range"]::-webkit-slider-thumb {
+  background: #3b82f6; /* High - blue */
 }
 
 /* Footer */
