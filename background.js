@@ -13,8 +13,8 @@ const defaults = {
   release: 100,
   makeupGain: 0,
   outputGain: 0,
-  highpassFreq: 0,
-  lowpassFreq: 22050,
+  bassCutFreq: 0,
+  trebleCutFreq: 22050,
   noiseLevel: 0,
   noiseType: 'brown'
 };

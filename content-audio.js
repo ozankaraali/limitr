@@ -27,6 +27,10 @@
   let eqBands = [];
   let eqActive = false;
 
+  // Bass/Treble cut filters
+  let bassCutFilter = null;
+  let trebleCutFilter = null;
+
   const connectedMedia = new Map();
   let currentNoiseType = 'brown';
 
@@ -64,6 +68,21 @@
     eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 12000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
+
+    // Filters (independent bass/treble cut)
+    bassCutFreq: 0,
+    trebleCutFreq: 22050,
+
+    // AI Noise Suppression (not supported in fallback mode - requires AudioWorklet)
+    noiseSuppressionEnabled: false,
+
+    // Limiter (not fully supported in fallback mode)
+    limiterEnabled: true,
+    limiterThreshold: -1,
+
+    // Auto-Gain (not supported in fallback mode - requires AudioWorklet)
+    autoGainEnabled: false,
+    autoGainTarget: -16,
 
     // Effects
     noiseLevel: 0,
@@ -201,6 +220,17 @@
         eqBands[i].connect(eqBands[i + 1]);
       }
 
+      // Bass Cut / Treble Cut filters
+      bassCutFilter = audioContext.createBiquadFilter();
+      bassCutFilter.type = 'highpass';
+      bassCutFilter.frequency.value = settings.bassCutFreq || 20;
+      bassCutFilter.Q.value = 0.707;
+
+      trebleCutFilter = audioContext.createBiquadFilter();
+      trebleCutFilter.type = 'lowpass';
+      trebleCutFilter.frequency.value = settings.trebleCutFreq || 22050;
+      trebleCutFilter.Q.value = 0.707;
+
       // Noise
       noiseGain = audioContext.createGain();
       noiseGain.gain.value = settings.noiseLevel;
@@ -248,6 +278,7 @@
   }
 
   // Rebuild signal chain based on settings
+  // Chain: Source → [Bass Cut] → [EQ] → [Dynamics] → [Treble Cut] → Output
   function rebuildSignalChain() {
     if (!audioContext) return;
 
@@ -257,13 +288,17 @@
     });
 
     // Disconnect shared processing nodes
+    try { bassCutFilter.disconnect(); } catch (e) {}
     try { compressor.disconnect(); } catch (e) {}
     try { makeupGain.disconnect(); } catch (e) {}
     try { multibandSum.disconnect(); } catch (e) {}
     try { eqBands[4].disconnect(); } catch (e) {}
+    try { trebleCutFilter.disconnect(); } catch (e) {}
 
     // Determine the entry point for sources based on current settings
     let entryNode;
+    const bassCutActive = settings.bassCutFreq > 20;
+    const trebleCutActive = settings.trebleCutFreq < 20000;
 
     if (!settings.enabled) {
       // Bypass: sources connect directly to output
@@ -271,52 +306,79 @@
       eqActive = false;
       multibandActive = false;
     } else {
-      // Build the processing chain (shared nodes connected once)
+      // Determine where bass cut output should go
+      let afterBassCut;
       if (settings.eqEnabled) {
-        entryNode = eqBands[0];
+        afterBassCut = eqBands[0];
         eqActive = true;
+      } else if (settings.multibandEnabled) {
+        afterBassCut = null; // Special: connect to crossovers
+        eqActive = false;
+      } else if (settings.compressorEnabled) {
+        afterBassCut = compressor;
+        eqActive = false;
+      } else {
+        afterBassCut = trebleCutActive ? trebleCutFilter : outputGain;
+        eqActive = false;
+      }
 
+      // Entry point: bass cut if active, otherwise afterBassCut
+      if (bassCutActive) {
+        entryNode = bassCutFilter;
+        if (afterBassCut === null) {
+          bassCutFilter.connect(crossover1.lowpass);
+          bassCutFilter.connect(crossover1.highpass);
+        } else {
+          bassCutFilter.connect(afterBassCut);
+        }
+      } else {
+        entryNode = afterBassCut;
+      }
+
+      // Dynamics output (where dynamics connects to)
+      const dynamicsOutput = trebleCutActive ? trebleCutFilter : outputGain;
+
+      // Wire up the rest of the chain based on settings
+      if (settings.eqEnabled) {
         // EQ output goes to dynamics stage
         if (settings.multibandEnabled) {
           eqBands[4].connect(crossover1.lowpass);
           eqBands[4].connect(crossover1.highpass);
-          multibandSum.connect(outputGain);
+          multibandSum.connect(dynamicsOutput);
           multibandActive = true;
         } else if (settings.compressorEnabled) {
           eqBands[4].connect(compressor);
           compressor.connect(makeupGain);
-          makeupGain.connect(outputGain);
+          makeupGain.connect(dynamicsOutput);
           multibandActive = false;
         } else {
-          eqBands[4].connect(outputGain);
+          eqBands[4].connect(dynamicsOutput);
           multibandActive = false;
         }
       } else {
-        eqActive = false;
-
-        // No EQ - determine entry based on dynamics
+        // No EQ
         if (settings.multibandEnabled) {
-          // Sources will connect to crossover filters via a summing node
-          // Create implicit sum by having each source connect to crossovers
-          entryNode = null; // Special case: each source connects to crossovers
-          multibandSum.connect(outputGain);
+          multibandSum.connect(dynamicsOutput);
           multibandActive = true;
         } else if (settings.compressorEnabled) {
-          entryNode = compressor;
           compressor.connect(makeupGain);
-          makeupGain.connect(outputGain);
+          makeupGain.connect(dynamicsOutput);
           multibandActive = false;
         } else {
-          entryNode = outputGain;
           multibandActive = false;
         }
+      }
+
+      // Connect treble cut to output if active
+      if (trebleCutActive) {
+        trebleCutFilter.connect(outputGain);
       }
     }
 
     // Connect all sources to the entry point
     connectedMedia.forEach(({ source }) => {
       if (entryNode === null) {
-        // Multiband without EQ: each source connects to crossover filters
+        // Multiband without EQ and without bass cut: sources connect to crossovers
         source.connect(crossover1.lowpass);
         source.connect(crossover1.highpass);
       } else {
@@ -373,6 +435,10 @@
       band.Q.value = settings[`eq${i}Q`];
     }
 
+    // Bass/Treble cut filters
+    bassCutFilter.frequency.value = Math.max(20, settings.bassCutFreq);
+    trebleCutFilter.frequency.value = Math.min(22050, settings.trebleCutFreq);
+
     // Noise
     if (settings.noiseType !== currentNoiseType) {
       changeNoiseType(settings.noiseType);
@@ -425,15 +491,22 @@
       const oldMultiband = settings.multibandEnabled;
       const oldCompressor = settings.compressorEnabled;
       const oldEnabled = settings.enabled;
+      const oldBassCut = settings.bassCutFreq;
+      const oldTrebleCut = settings.trebleCutFreq;
 
       settings = { ...settings, ...message.settings };
+
+      // Check if bass/treble cut routing needs to change (crossing the active threshold)
+      const bassCutRoutingChanged = (settings.bassCutFreq > 20) !== (oldBassCut > 20);
+      const trebleCutRoutingChanged = (settings.trebleCutFreq < 20000) !== (oldTrebleCut < 20000);
 
       // Check if routing needs rebuild
       const needsRebuild = (
         oldEq !== settings.eqEnabled ||
         oldMultiband !== settings.multibandEnabled ||
         oldCompressor !== settings.compressorEnabled ||
-        oldEnabled !== settings.enabled
+        oldEnabled !== settings.enabled ||
+        bassCutRoutingChanged || trebleCutRoutingChanged
       );
 
       if (needsRebuild) {

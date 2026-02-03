@@ -37,6 +37,21 @@ const defaults = {
   eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
   eq5Freq: 12000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
 
+  // Filters (independent bass/treble cut)
+  bassCutFreq: 0,       // 0 = off, otherwise highpass Hz (e.g., 80, 120, 200)
+  trebleCutFreq: 22050, // 22050 = off, otherwise lowpass Hz (e.g., 8000, 12000)
+
+  // AI Noise Suppression (RNNoise)
+  noiseSuppressionEnabled: false,
+
+  // Limiter (brick wall, prevents clipping)
+  limiterEnabled: true,
+  limiterThreshold: -1,
+
+  // Auto-Gain (AGC - automatic level control)
+  autoGainEnabled: false,
+  autoGainTarget: -16,
+
   // Effects
   noiseLevel: 0,
   noiseType: 'brown'
@@ -50,7 +65,8 @@ const presets = {
     multibandEnabled: false,
     eqEnabled: false,
     threshold: 0, ratio: 1, knee: 0, attack: 0, release: 0,
-    makeupGain: 0, noiseLevel: 0, noiseType: 'brown'
+    makeupGain: 0, bassCutFreq: 0, trebleCutFreq: 22050,
+    noiseLevel: 0, noiseType: 'brown'
   },
   voiceFocus: {
     name: 'Voice Focus',
@@ -132,14 +148,12 @@ const presets = {
     name: '90s TV',
     compressorEnabled: true,
     multibandEnabled: false,
-    eqEnabled: true,
+    eqEnabled: false,
     threshold: -35, ratio: 15, knee: 6, attack: 2, release: 100,
     makeupGain: 5,
-    eq1Freq: 200, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 400, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 3000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'lowpass',
+    // Dedicated filters for that classic narrow bandwidth TV sound
+    bassCutFreq: 200,    // Remove deep bass (old TV speakers can't reproduce)
+    trebleCutFreq: 8000, // Roll off highs (limited HF response)
     noiseLevel: 0.15, noiseType: 'brown'
   }
 };
@@ -149,6 +163,13 @@ const presetKeys = [
   'compressorEnabled', 'multibandEnabled', 'eqEnabled',
   'threshold', 'ratio', 'knee', 'attack', 'release', 'makeupGain',
   'noiseLevel', 'noiseType',
+  // Filters
+  'bassCutFreq', 'trebleCutFreq',
+  // Noise suppression
+  'noiseSuppressionEnabled',
+  // Limiter & Auto-Gain
+  'limiterEnabled', 'limiterThreshold',
+  'autoGainEnabled', 'autoGainTarget',
   // Multiband
   'crossover1', 'crossover2',
   'subThreshold', 'subRatio', 'subGain',
@@ -257,6 +278,25 @@ async function init() {
     eq5Gain: document.getElementById('eq5Gain'),
     eq5GainValue: document.getElementById('eq5GainValue'),
     eq5Type: document.getElementById('eq5Type'),
+    // Bass/Treble Cut filters
+    bassCutFreq: document.getElementById('bassCutFreq'),
+    bassCutFreqValue: document.getElementById('bassCutFreqValue'),
+    trebleCutFreq: document.getElementById('trebleCutFreq'),
+    trebleCutFreqValue: document.getElementById('trebleCutFreqValue'),
+    // AI Noise Suppression
+    noiseSuppressionToggle: document.getElementById('noiseSuppressionToggle'),
+    noiseSuppressionLabel: document.getElementById('noiseSuppressionLabel'),
+    noiseSuppressionNote: document.getElementById('noiseSuppressionNote'),
+    // Limiter
+    limiterToggle: document.getElementById('limiterToggle'),
+    limiterLabel: document.getElementById('limiterLabel'),
+    limiterThreshold: document.getElementById('limiterThreshold'),
+    limiterThresholdValue: document.getElementById('limiterThresholdValue'),
+    // Auto-Gain
+    autoGainToggle: document.getElementById('autoGainToggle'),
+    autoGainLabel: document.getElementById('autoGainLabel'),
+    autoGainTarget: document.getElementById('autoGainTarget'),
+    autoGainTargetValue: document.getElementById('autoGainTargetValue'),
     presetBtns: document.querySelectorAll('.preset-btn'),
     mixerToggle: document.getElementById('mixerToggle'),
     mixerPanel: document.getElementById('mixerPanel'),
@@ -540,6 +580,52 @@ function updateUI() {
     elements.highGainValue.textContent = formatGain(currentSettings.highGain);
   }
 
+  // Bass/Treble Cut filters
+  if (elements.bassCutFreq) {
+    elements.bassCutFreq.value = currentSettings.bassCutFreq;
+    elements.bassCutFreqValue.textContent = currentSettings.bassCutFreq <= 20 ? 'Off' : `${currentSettings.bassCutFreq} Hz`;
+  }
+  if (elements.trebleCutFreq) {
+    elements.trebleCutFreq.value = currentSettings.trebleCutFreq;
+    const v = currentSettings.trebleCutFreq;
+    elements.trebleCutFreqValue.textContent = v >= 20000 ? 'Off' : v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v} Hz`;
+  }
+
+  // AI Noise Suppression
+  if (elements.noiseSuppressionToggle) {
+    elements.noiseSuppressionToggle.checked = currentSettings.noiseSuppressionEnabled;
+  }
+  if (elements.noiseSuppressionLabel) {
+    elements.noiseSuppressionLabel.textContent = currentSettings.noiseSuppressionEnabled ? 'On' : 'Off';
+    elements.noiseSuppressionLabel.classList.toggle('active', currentSettings.noiseSuppressionEnabled);
+  }
+
+  // Limiter
+  if (elements.limiterToggle) {
+    elements.limiterToggle.checked = currentSettings.limiterEnabled;
+  }
+  if (elements.limiterLabel) {
+    elements.limiterLabel.textContent = currentSettings.limiterEnabled ? 'On' : 'Off';
+    elements.limiterLabel.classList.toggle('active', currentSettings.limiterEnabled);
+  }
+  if (elements.limiterThreshold) {
+    elements.limiterThreshold.value = currentSettings.limiterThreshold;
+    elements.limiterThresholdValue.textContent = `${currentSettings.limiterThreshold} dB`;
+  }
+
+  // Auto-Gain
+  if (elements.autoGainToggle) {
+    elements.autoGainToggle.checked = currentSettings.autoGainEnabled;
+  }
+  if (elements.autoGainLabel) {
+    elements.autoGainLabel.textContent = currentSettings.autoGainEnabled ? 'On' : 'Off';
+    elements.autoGainLabel.classList.toggle('active', currentSettings.autoGainEnabled);
+  }
+  if (elements.autoGainTarget) {
+    elements.autoGainTarget.value = currentSettings.autoGainTarget;
+    elements.autoGainTargetValue.textContent = `${currentSettings.autoGainTarget} dB`;
+  }
+
   // 5-Band EQ controls
   if (elements.eqToggle) {
     elements.eqToggle.checked = currentSettings.eqEnabled;
@@ -809,6 +895,41 @@ function setupEventListeners() {
   setupSlider('subGain', 'subGain', 'subGainValue', formatGain, true);
   setupSlider('midGain', 'midGain', 'midGainValue', formatGain, true);
   setupSlider('highGain', 'highGain', 'highGainValue', formatGain, true);
+
+  // Bass/Treble Cut filter sliders
+  const formatBassCut = v => v <= 20 ? 'Off' : `${v} Hz`;
+  const formatTrebleCut = v => v >= 20000 ? 'Off' : v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v} Hz`;
+  setupSlider('bassCutFreq', 'bassCutFreq', 'bassCutFreqValue', formatBassCut, true);
+  setupSlider('trebleCutFreq', 'trebleCutFreq', 'trebleCutFreqValue', formatTrebleCut, true);
+
+  // AI Noise Suppression toggle
+  if (elements.noiseSuppressionToggle) {
+    elements.noiseSuppressionToggle.addEventListener('change', (e) => {
+      currentSettings.noiseSuppressionEnabled = e.target.checked;
+      updateUI();
+      updateTabSettings();
+    });
+  }
+
+  // Limiter toggle and threshold
+  if (elements.limiterToggle) {
+    elements.limiterToggle.addEventListener('change', (e) => {
+      currentSettings.limiterEnabled = e.target.checked;
+      updateUI();
+      updateTabSettings();
+    });
+  }
+  setupSlider('limiterThreshold', 'limiterThreshold', 'limiterThresholdValue', v => `${v} dB`, true);
+
+  // Auto-Gain toggle and target
+  if (elements.autoGainToggle) {
+    elements.autoGainToggle.addEventListener('change', (e) => {
+      currentSettings.autoGainEnabled = e.target.checked;
+      updateUI();
+      updateTabSettings();
+    });
+  }
+  setupSlider('autoGainTarget', 'autoGainTarget', 'autoGainTargetValue', v => `${v} dB`, true);
 
   // 5-Band EQ toggle
   if (elements.eqToggle) {

@@ -603,6 +603,76 @@ input[type="range"]::-moz-range-thumb {
 
 /* ============ 5-BAND PARAMETRIC EQ STYLES ============ */
 
+/* Noise Suppression header with inline toggle */
+.noise-suppression-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.noise-suppression-header .toggle {
+  margin-left: auto;
+}
+
+.noise-suppression-label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.noise-suppression-label.active {
+  color: #22c55e;
+}
+
+.control-note {
+  font-size: 10px;
+  color: #666;
+  margin: 4px 0 12px 0;
+  padding-left: 2px;
+}
+
+/* Auto-Gain header with inline toggle */
+.auto-gain-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auto-gain-header .toggle {
+  margin-left: auto;
+}
+
+.auto-gain-label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.auto-gain-label.active {
+  color: #22c55e;
+}
+
+/* Limiter header with inline toggle */
+.limiter-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.limiter-header .toggle {
+  margin-left: auto;
+}
+
+.limiter-label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.limiter-label.active {
+  color: #22c55e;
+}
+
 /* EQ header with inline toggle */
 .eq-header {
   display: flex;

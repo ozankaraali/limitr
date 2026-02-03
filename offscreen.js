@@ -71,6 +71,21 @@ const defaultSettings = {
   eq5Q: 0.7,
   eq5Type: 'highshelf',
 
+  // === FILTERS (independent bass/treble cut) ===
+  bassCutFreq: 0,        // Highpass: 0 = off, otherwise Hz (e.g., 80, 120, 200)
+  trebleCutFreq: 22050,  // Lowpass: 22050 = off, otherwise Hz (e.g., 8000, 12000)
+
+  // === AI NOISE SUPPRESSION (RNNoise) ===
+  noiseSuppressionEnabled: false,
+
+  // === LIMITER (brick wall, prevents clipping) ===
+  limiterEnabled: true,
+  limiterThreshold: -1,  // dB ceiling
+
+  // === AUTO-GAIN (AGC - automatic level control) ===
+  autoGainEnabled: false,
+  autoGainTarget: -16,   // Target level in dB (RMS)
+
   // === EFFECTS ===
   noiseLevel: 0,
   noiseType: 'brown'
@@ -231,6 +246,154 @@ async function createAudioChain(tabId, mediaStreamId) {
       eqBands[i].connect(eqBands[i + 1]);
     }
 
+    // === BASS CUT / TREBLE CUT FILTERS ===
+    const bassCutFilter = audioContext.createBiquadFilter();
+    bassCutFilter.type = 'highpass';
+    bassCutFilter.frequency.value = defaultSettings.bassCutFreq || 20;
+    bassCutFilter.Q.value = 0.707; // Butterworth response
+
+    const trebleCutFilter = audioContext.createBiquadFilter();
+    trebleCutFilter.type = 'lowpass';
+    trebleCutFilter.frequency.value = defaultSettings.trebleCutFreq || 22050;
+    trebleCutFilter.Q.value = 0.707;
+
+    // === LIMITER (brick wall, prevents clipping) ===
+    const limiter = audioContext.createDynamicsCompressor();
+    limiter.threshold.value = defaultSettings.limiterThreshold;
+    limiter.ratio.value = 20;        // Very high ratio = limiting
+    limiter.knee.value = 0;          // Hard knee for true limiting
+    limiter.attack.value = 0.001;    // 1ms - very fast attack
+    limiter.release.value = 0.1;     // 100ms release
+
+    // === AUTO-GAIN (AGC) ===
+    const autoGainNode = audioContext.createGain();
+    autoGainNode.gain.value = 1;
+
+    // Analyser for measuring levels (used by AGC)
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    const analyserBuffer = new Float32Array(analyser.fftSize);
+
+    // AGC state
+    let agcEnabled = defaultSettings.autoGainEnabled;
+    let agcTarget = defaultSettings.autoGainTarget;
+    let agcCurrentGain = 1;
+    let agcIntervalId = null;
+
+    // AGC measurement and adjustment function
+    const updateAutoGain = () => {
+      if (!agcEnabled) return;
+
+      analyser.getFloatTimeDomainData(analyserBuffer);
+
+      // Calculate RMS (root mean square)
+      let sumSquares = 0;
+      for (let i = 0; i < analyserBuffer.length; i++) {
+        sumSquares += analyserBuffer[i] * analyserBuffer[i];
+      }
+      const rms = Math.sqrt(sumSquares / analyserBuffer.length);
+
+      // Convert to dB
+      const currentDb = rms > 0 ? 20 * Math.log10(rms) : -100;
+
+      // Only adjust if we have meaningful audio (not silence)
+      if (currentDb > -60) {
+        // Calculate needed gain adjustment
+        const targetDb = agcTarget;
+        const diffDb = targetDb - currentDb;
+
+        // Convert to linear gain
+        const targetGain = Math.pow(10, diffDb / 20);
+
+        // Smooth the gain change (slower attack, faster release)
+        const smoothing = targetGain > agcCurrentGain ? 0.05 : 0.1;
+        agcCurrentGain = agcCurrentGain + (targetGain - agcCurrentGain) * smoothing;
+
+        // Clamp gain to reasonable range (0.1x to 10x = -20dB to +20dB)
+        agcCurrentGain = Math.max(0.1, Math.min(10, agcCurrentGain));
+
+        autoGainNode.gain.setTargetAtTime(agcCurrentGain, audioContext.currentTime, 0.1);
+      }
+    };
+
+    // Start AGC interval
+    const startAgc = () => {
+      if (agcIntervalId) return;
+      agcIntervalId = setInterval(updateAutoGain, 50); // 20Hz update rate
+    };
+
+    const stopAgc = () => {
+      if (agcIntervalId) {
+        clearInterval(agcIntervalId);
+        agcIntervalId = null;
+      }
+      // Reset gain to unity
+      agcCurrentGain = 1;
+      autoGainNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.1);
+    };
+
+    // === AI NOISE SUPPRESSION (RNNoise) ===
+    // Will be initialized asynchronously
+    let noiseSuppressorNode = null;
+    let noiseSuppressorReady = false;
+
+    const initNoiseSuppressor = async () => {
+      console.log('[Limitr] Starting noise suppressor initialization...');
+      try {
+        // Load the AudioWorklet module
+        const workletUrl = chrome.runtime.getURL('lib/noise-suppressor-worklet.js');
+        console.log('[Limitr] Loading worklet from:', workletUrl);
+        await audioContext.audioWorklet.addModule(workletUrl);
+        console.log('[Limitr] Worklet module loaded');
+
+        // Create the AudioWorkletNode
+        noiseSuppressorNode = new AudioWorkletNode(audioContext, 'noise-suppressor-processor');
+        console.log('[Limitr] AudioWorkletNode created');
+
+        // Set up message handler IMMEDIATELY after creating node (before any async work)
+        noiseSuppressorNode.port.onmessage = (event) => {
+          if (event.data.type === 'initialized') {
+            noiseSuppressorReady = true;
+            console.log('[Limitr] RNNoise noise suppressor ready');
+            // Rebuild signal chain if noise suppression is enabled
+            const currentState = tabAudioState.get(tabId);
+            if (currentState && currentState.settings.noiseSuppressionEnabled) {
+              rebuildSignalChain(currentState);
+            }
+          } else if (event.data.type === 'error') {
+            console.error('[Limitr] Noise suppressor error:', event.data.error);
+          }
+        };
+
+        // Load and compile WASM in main thread (avoids CSP issues in worklet)
+        const wasmUrl = chrome.runtime.getURL('lib/rnnoise.wasm');
+        console.log('[Limitr] Loading WASM from:', wasmUrl);
+        const wasmResponse = await fetch(wasmUrl);
+        if (!wasmResponse.ok) {
+          throw new Error(`WASM fetch failed: ${wasmResponse.status}`);
+        }
+        const wasmBinary = await wasmResponse.arrayBuffer();
+        console.log('[Limitr] WASM loaded, size:', wasmBinary.byteLength);
+
+        // Send WASM binary to worklet (ArrayBuffer can be transferred)
+        // Worklet will compile it - CSP with wasm-unsafe-eval should allow this
+        // The worklet will compile it - CSP should now allow this with wasm-unsafe-eval
+        console.log('[Limitr] Sending WASM binary to worklet...');
+        noiseSuppressorNode.port.postMessage({
+          type: 'wasm-binary',
+          binary: wasmBinary
+        }, [wasmBinary]); // Transfer the ArrayBuffer for efficiency
+
+        console.log('[Limitr] Noise suppressor worklet loaded, waiting for WASM init...');
+      } catch (error) {
+        console.error('[Limitr] Failed to initialize noise suppressor:', error);
+      }
+    };
+
+    // Start async initialization (don't await - let it complete in background)
+    console.log('[Limitr] Scheduling noise suppressor init...');
+    initNoiseSuppressor();
+
     // === OUTPUT ===
     const outputGain = audioContext.createGain();
     outputGain.gain.value = Math.pow(10, defaultSettings.outputGain / 20);
@@ -290,6 +453,32 @@ async function createAudioChain(tabId, mediaStreamId) {
       // 5-band EQ
       eqBands,
       eqActive: false,
+      // Bass/Treble cut filters
+      bassCutFilter,
+      trebleCutFilter,
+      // Limiter
+      limiter,
+      // Auto-gain (AGC)
+      autoGainNode,
+      analyser,
+      setAgcEnabled: (enabled) => {
+        agcEnabled = enabled;
+        if (enabled) {
+          startAgc();
+        } else {
+          stopAgc();
+        }
+      },
+      setAgcTarget: (target) => {
+        agcTarget = target;
+      },
+      // Noise suppression
+      getNoiseSuppressor: () => ({ node: noiseSuppressorNode, ready: noiseSuppressorReady }),
+      setNoiseSuppressorEnabled: (enabled) => {
+        if (noiseSuppressorNode) {
+          noiseSuppressorNode.port.postMessage({ type: 'enable', enabled });
+        }
+      },
       // Noise
       noiseSource,
       noiseGain,
@@ -312,26 +501,74 @@ async function createAudioChain(tabId, mediaStreamId) {
 // Rebuild the signal chain based on current settings
 function rebuildSignalChain(state) {
   const { source, compressor, makeupGain, outputGain,
-          crossover1, multibandSum, eqBands, settings } = state;
+          crossover1, multibandSum, eqBands, bassCutFilter, trebleCutFilter,
+          limiter, autoGainNode, analyser, setAgcEnabled,
+          getNoiseSuppressor, setNoiseSuppressorEnabled, settings } = state;
 
-  // Disconnect everything from source
+  // Get noise suppressor state
+  const { node: noiseSuppressorNode, ready: noiseSuppressorReady } = getNoiseSuppressor();
+
+  // Disconnect everything
   source.disconnect();
+  if (noiseSuppressorNode) {
+    try { noiseSuppressorNode.disconnect(); } catch (e) {}
+  }
+  bassCutFilter.disconnect();
   compressor.disconnect();
   makeupGain.disconnect();
   multibandSum.disconnect();
   eqBands[4].disconnect();
+  trebleCutFilter.disconnect();
+  autoGainNode.disconnect();
+  analyser.disconnect();
+  limiter.disconnect();
 
   // If disabled, bypass all processing
   if (!settings.enabled) {
     source.connect(outputGain);
     state.eqActive = false;
     state.multibandActive = false;
+    if (noiseSuppressorNode) setNoiseSuppressorEnabled(false);
+    setAgcEnabled(false);
     console.log('[Limitr] Signal chain: BYPASSED (disabled)');
     return;
   }
 
-  // Signal chain: source -> [EQ if enabled] -> [Compressor or Multiband] -> outputGain
+  // Signal chain: source -> [Dynamics] -> [NoiseSuppression] -> [BassCut] -> [EQ] -> [TrebleCut] -> [AutoGain] -> [Limiter] -> outputGain
+  // Dynamics FIRST so loud sounds (donation alerts, SFX) get tamed before hitting RNNoise
   let currentNode = source;
+
+  // Dynamics stage FIRST (compressor tames loud peaks before noise suppression)
+  if (settings.multibandEnabled) {
+    currentNode.connect(crossover1.lowpass);
+    currentNode.connect(crossover1.highpass);
+    currentNode = multibandSum;
+    state.multibandActive = true;
+  } else if (settings.compressorEnabled) {
+    currentNode.connect(compressor);
+    compressor.connect(makeupGain);
+    currentNode = makeupGain;
+    state.multibandActive = false;
+  } else {
+    state.multibandActive = false;
+  }
+
+  // Noise suppression (AI denoise) - after dynamics so it receives controlled signal
+  const noiseSuppressionActive = settings.noiseSuppressionEnabled && noiseSuppressorReady && noiseSuppressorNode;
+  if (noiseSuppressionActive) {
+    currentNode.connect(noiseSuppressorNode);
+    currentNode = noiseSuppressorNode;
+    setNoiseSuppressorEnabled(true);
+  } else if (noiseSuppressorNode) {
+    setNoiseSuppressorEnabled(false);
+  }
+
+  // Bass cut filter (highpass) - active when freq > 20Hz
+  const bassCutActive = settings.bassCutFreq > 20;
+  if (bassCutActive) {
+    currentNode.connect(bassCutFilter);
+    currentNode = bassCutFilter;
+  }
 
   // EQ stage (5 bands in series)
   if (settings.eqEnabled) {
@@ -342,24 +579,32 @@ function rebuildSignalChain(state) {
     state.eqActive = false;
   }
 
-  // Dynamics stage (either single compressor or multiband)
-  if (settings.multibandEnabled) {
-    currentNode.connect(crossover1.lowpass);
-    currentNode.connect(crossover1.highpass);
-    multibandSum.connect(outputGain);
-    state.multibandActive = true;
-  } else if (settings.compressorEnabled) {
-    currentNode.connect(compressor);
-    compressor.connect(makeupGain);
-    makeupGain.connect(outputGain);
-    state.multibandActive = false;
-  } else {
-    // No dynamics processing
-    currentNode.connect(outputGain);
-    state.multibandActive = false;
+  // Treble cut filter (lowpass) - active when freq < 20kHz
+  if (settings.trebleCutFreq < 20000) {
+    currentNode.connect(trebleCutFilter);
+    currentNode = trebleCutFilter;
   }
 
-  console.log(`[Limitr] Signal chain: EQ=${settings.eqEnabled}, Multiband=${settings.multibandEnabled}, Compressor=${settings.compressorEnabled}`);
+  // Auto-Gain (AGC) - measures and adjusts level
+  if (settings.autoGainEnabled) {
+    currentNode.connect(analyser);      // Analyser for measurement (parallel)
+    currentNode.connect(autoGainNode);  // Gain adjustment
+    currentNode = autoGainNode;
+    setAgcEnabled(true);
+  } else {
+    setAgcEnabled(false);
+  }
+
+  // Limiter (brick wall, prevents clipping) - always last before output
+  if (settings.limiterEnabled) {
+    currentNode.connect(limiter);
+    currentNode = limiter;
+  }
+
+  // Final output
+  currentNode.connect(outputGain);
+
+  console.log(`[Limitr] Signal chain: Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.trebleCutFreq < 20000 ? settings.trebleCutFreq + 'Hz' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'}`);
 }
 
 // Update settings for a tab
@@ -368,13 +613,27 @@ function updateSettings(tabId, newSettings) {
   if (!state) return false;
 
   const { compressor, makeupGain, outputGain, noiseGain,
-          crossover1, crossover2, subBand, midBand, highBand, eqBands } = state;
+          crossover1, crossover2, subBand, midBand, highBand, eqBands,
+          bassCutFilter, trebleCutFilter, limiter, setAgcTarget } = state;
 
   const oldNoiseType = state.settings.noiseType;
+  const oldBassCut = state.settings.bassCutFreq;
+  const oldTrebleCut = state.settings.trebleCutFreq;
+
+  // Check if bass/treble cut routing needs to change (crossing the active threshold)
+  const bassCutRoutingChanged = newSettings.bassCutFreq !== undefined &&
+    ((newSettings.bassCutFreq > 20) !== (oldBassCut > 20));
+  const trebleCutRoutingChanged = newSettings.trebleCutFreq !== undefined &&
+    ((newSettings.trebleCutFreq < 20000) !== (oldTrebleCut < 20000));
+
   const needsRebuild = (
     newSettings.eqEnabled !== undefined && newSettings.eqEnabled !== state.settings.eqEnabled ||
     newSettings.multibandEnabled !== undefined && newSettings.multibandEnabled !== state.settings.multibandEnabled ||
-    newSettings.compressorEnabled !== undefined && newSettings.compressorEnabled !== state.settings.compressorEnabled
+    newSettings.compressorEnabled !== undefined && newSettings.compressorEnabled !== state.settings.compressorEnabled ||
+    newSettings.noiseSuppressionEnabled !== undefined && newSettings.noiseSuppressionEnabled !== state.settings.noiseSuppressionEnabled ||
+    newSettings.limiterEnabled !== undefined && newSettings.limiterEnabled !== state.settings.limiterEnabled ||
+    newSettings.autoGainEnabled !== undefined && newSettings.autoGainEnabled !== state.settings.autoGainEnabled ||
+    bassCutRoutingChanged || trebleCutRoutingChanged
   );
 
   Object.assign(state.settings, newSettings);
@@ -431,6 +690,24 @@ function updateSettings(tabId, newSettings) {
     if (newSettings[`eq${i}Gain`] !== undefined) band.gain.value = s[`eq${i}Gain`];
     if (newSettings[`eq${i}Q`] !== undefined) band.Q.value = s[`eq${i}Q`];
     if (newSettings[`eq${i}Type`] !== undefined) band.type = s[`eq${i}Type`];
+  }
+
+  // Bass/Treble cut filters
+  if (newSettings.bassCutFreq !== undefined) {
+    bassCutFilter.frequency.value = Math.max(20, s.bassCutFreq);
+  }
+  if (newSettings.trebleCutFreq !== undefined) {
+    trebleCutFilter.frequency.value = Math.min(22050, s.trebleCutFreq);
+  }
+
+  // Limiter
+  if (newSettings.limiterThreshold !== undefined) {
+    limiter.threshold.value = s.limiterThreshold;
+  }
+
+  // Auto-Gain
+  if (newSettings.autoGainTarget !== undefined) {
+    setAgcTarget(s.autoGainTarget);
   }
 
   // Noise
