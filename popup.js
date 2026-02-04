@@ -90,8 +90,8 @@ const presets = {
     eq4Freq: 5000, eq4Gain: 2, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 12000, eq5Gain: -2, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050,
-    // AI denoise for clean voice (Exclusive mode)
-    noiseSuppressionEnabled: true,
+    // AI denoise available but user-toggled (Exclusive mode)
+    noiseSuppressionEnabled: false,
     // Limiter catches loud donation alerts
     limiterEnabled: true, limiterThreshold: -1,
     // AGC off - multiband handles dynamics
@@ -113,8 +113,8 @@ const presets = {
     eq4Freq: 6000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 10000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050,
-    // AI denoise for cleaner streamer audio
-    noiseSuppressionEnabled: true,
+    // AI denoise available but user-toggled
+    noiseSuppressionEnabled: false,
     // AGC for consistent volume across different streamers
     autoGainEnabled: true, autoGainTarget: -18,
     // Limiter for loud moments
@@ -262,6 +262,16 @@ let audibleTabs = [];
 let processingTabIds = [];
 let crtVisualEnabled = false;
 let mixerMode = false;
+let collapseState = {
+  exclusive: false,
+  limiter: false,
+  compressor: false,
+  gain: false,
+  effects: false,
+  filters: false,
+  eq: true,
+  multiband: true
+};
 
 // Initialize
 async function init() {
@@ -356,6 +366,10 @@ async function init() {
     noiseSuppressionToggle: document.getElementById('noiseSuppressionToggle'),
     noiseSuppressionLabel: document.getElementById('noiseSuppressionLabel'),
     noiseSuppressionNote: document.getElementById('noiseSuppressionNote'),
+    // Simple mode ANC
+    noiseSuppressionToggleSimple: document.getElementById('noiseSuppressionToggleSimple'),
+    noiseSuppressionLabelSimple: document.getElementById('noiseSuppressionLabelSimple'),
+    simpleAncRow: document.getElementById('simpleAncRow'),
     // Limiter
     limiterToggle: document.getElementById('limiterToggle'),
     limiterLabel: document.getElementById('limiterLabel'),
@@ -379,15 +393,26 @@ async function init() {
     modeNote: document.getElementById('modeNote'),
     // Exclusive features group
     exclusiveFeaturesGroup: document.getElementById('exclusiveFeaturesGroup'),
-    exclusiveBadge: document.getElementById('exclusiveBadge')
+    exclusiveBadge: document.getElementById('exclusiveBadge'),
+    // Collapsible sections
+    limiterSection: document.getElementById('limiterSection'),
+    compressorSection: document.getElementById('compressorSection'),
+    gainSection: document.getElementById('gainSection'),
+    effectsSection: document.getElementById('effectsSection'),
+    filtersSection: document.getElementById('filtersSection'),
+    eqSection: document.getElementById('eqSection'),
+    multibandSection: document.getElementById('multibandSection')
   };
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTabId = tab?.id;
 
-  const stored = await chrome.storage.local.get(['limitrAdvancedMode', 'limitrMixerMode']);
+  const stored = await chrome.storage.local.get(['limitrAdvancedMode', 'limitrMixerMode', 'limitrCollapseState']);
   advancedMode = stored.limitrAdvancedMode || false;
   mixerMode = stored.limitrMixerMode || false;
+  if (stored.limitrCollapseState) {
+    collapseState = { ...collapseState, ...stored.limitrCollapseState };
+  }
 
   if (elements.mixerModeToggle) {
     elements.mixerModeToggle.checked = mixerMode;
@@ -411,6 +436,8 @@ async function init() {
   updateModeDisplay();
   updateStatusIndicator();
   setupEventListeners();
+  applyCollapseState();
+  setupCollapsibleSections();
 
   try {
     const crtResponse = await chrome.tabs.sendMessage(currentTabId, { action: 'get-crt-visual' });
@@ -617,9 +644,7 @@ function updateUI() {
     elements.multibandLabel.textContent = currentSettings.multibandEnabled ? 'On' : 'Off';
     elements.multibandLabel.classList.toggle('active', currentSettings.multibandEnabled);
   }
-  if (elements.multibandControls) {
-    elements.multibandControls.style.display = currentSettings.multibandEnabled ? 'block' : 'none';
-  }
+  // Multiband body visibility now handled by collapsible-section CSS
   // Crossovers
   if (elements.crossover1) {
     elements.crossover1.value = currentSettings.crossover1;
@@ -675,6 +700,14 @@ function updateUI() {
     elements.noiseSuppressionLabel.textContent = currentSettings.noiseSuppressionEnabled ? 'On' : 'Off';
     elements.noiseSuppressionLabel.classList.toggle('active', currentSettings.noiseSuppressionEnabled);
   }
+  // Simple mode ANC sync
+  if (elements.noiseSuppressionToggleSimple) {
+    elements.noiseSuppressionToggleSimple.checked = currentSettings.noiseSuppressionEnabled;
+  }
+  if (elements.noiseSuppressionLabelSimple) {
+    elements.noiseSuppressionLabelSimple.textContent = currentSettings.noiseSuppressionEnabled ? 'On' : 'Off';
+    elements.noiseSuppressionLabelSimple.classList.toggle('active', currentSettings.noiseSuppressionEnabled);
+  }
 
   // Limiter
   if (elements.limiterToggle) {
@@ -710,9 +743,7 @@ function updateUI() {
     elements.eqLabel.textContent = currentSettings.eqEnabled ? 'On' : 'Off';
     elements.eqLabel.classList.toggle('active', currentSettings.eqEnabled);
   }
-  if (elements.eqControls) {
-    elements.eqControls.style.display = currentSettings.eqEnabled ? 'block' : 'none';
-  }
+  // EQ body visibility now handled by collapsible-section CSS
 
   // EQ band sliders
   for (let i = 1; i <= 5; i++) {
@@ -798,6 +829,11 @@ function updateExclusiveFeatureVisibility() {
   // Update exclusive features group
   if (elements.exclusiveFeaturesGroup) {
     elements.exclusiveFeaturesGroup.classList.toggle('unavailable', !mixerMode);
+  }
+
+  // Update simple mode ANC row
+  if (elements.simpleAncRow) {
+    elements.simpleAncRow.classList.toggle('unavailable', !mixerMode);
   }
 
   if (elements.exclusiveBadge) {
@@ -926,6 +962,53 @@ function updateMeter(reductionDb) {
   elements.reductionValue.textContent = `${reductionDb.toFixed(1)} dB`;
 }
 
+function applyCollapseState() {
+  const sections = {
+    exclusive: elements.exclusiveFeaturesGroup,
+    limiter: elements.limiterSection,
+    compressor: elements.compressorSection,
+    gain: elements.gainSection,
+    effects: elements.effectsSection,
+    filters: elements.filtersSection,
+    eq: elements.eqSection,
+    multiband: elements.multibandSection
+  };
+
+  Object.entries(sections).forEach(([key, el]) => {
+    if (el) el.classList.toggle('collapsed', collapseState[key]);
+  });
+}
+
+function setupCollapsibleSections() {
+  const sections = [
+    { id: 'exclusiveFeaturesGroup', key: 'exclusive' },
+    { id: 'limiterSection', key: 'limiter' },
+    { id: 'compressorSection', key: 'compressor' },
+    { id: 'gainSection', key: 'gain' },
+    { id: 'effectsSection', key: 'effects' },
+    { id: 'filtersSection', key: 'filters' },
+    { id: 'eqSection', key: 'eq' },
+    { id: 'multibandSection', key: 'multiband' }
+  ];
+
+  sections.forEach(({ id, key }) => {
+    const section = document.getElementById(id);
+    if (!section) return;
+
+    const header = section.querySelector('.section-header');
+    if (!header) return;
+
+    header.addEventListener('click', (e) => {
+      // Don't collapse when clicking toggle or input elements
+      if (e.target.closest('.toggle') || e.target.closest('input')) return;
+
+      collapseState[key] = !collapseState[key];
+      section.classList.toggle('collapsed', collapseState[key]);
+      chrome.storage.local.set({ limitrCollapseState: collapseState });
+    });
+  });
+}
+
 function setupEventListeners() {
   elements.enabled.addEventListener('change', (e) => {
     setEnabled(e.target.checked);
@@ -1000,6 +1083,12 @@ function setupEventListeners() {
         // If disabling multiband, re-enable global compressor
         currentSettings.compressorEnabled = true;
       }
+      // Auto-expand when toggled on, auto-collapse when off
+      if (elements.multibandSection) {
+        collapseState.multiband = !e.target.checked;
+        elements.multibandSection.classList.toggle('collapsed', collapseState.multiband);
+        chrome.storage.local.set({ limitrCollapseState: collapseState });
+      }
       updateUI();
       updateTabSettings();
     });
@@ -1021,9 +1110,18 @@ function setupEventListeners() {
   setupSlider('bassCutFreq', 'bassCutFreq', 'bassCutFreqValue', formatBassCut, true);
   setupSlider('trebleCutFreq', 'trebleCutFreq', 'trebleCutFreqValue', formatTrebleCut, true);
 
-  // AI Noise Suppression toggle
+  // AI Noise Suppression toggle (Advanced)
   if (elements.noiseSuppressionToggle) {
     elements.noiseSuppressionToggle.addEventListener('change', (e) => {
+      currentSettings.noiseSuppressionEnabled = e.target.checked;
+      updateUI();
+      updateTabSettings();
+    });
+  }
+
+  // AI Noise Suppression toggle (Simple)
+  if (elements.noiseSuppressionToggleSimple) {
+    elements.noiseSuppressionToggleSimple.addEventListener('change', (e) => {
       currentSettings.noiseSuppressionEnabled = e.target.checked;
       updateUI();
       updateTabSettings();
@@ -1054,6 +1152,12 @@ function setupEventListeners() {
   if (elements.eqToggle) {
     elements.eqToggle.addEventListener('change', (e) => {
       currentSettings.eqEnabled = e.target.checked;
+      // Auto-expand when toggled on, auto-collapse when off
+      if (elements.eqSection) {
+        collapseState.eq = !e.target.checked;
+        elements.eqSection.classList.toggle('collapsed', collapseState.eq);
+        chrome.storage.local.set({ limitrCollapseState: collapseState });
+      }
       updateUI();
       updateTabSettings();
     });

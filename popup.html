@@ -103,130 +103,66 @@
         </div>
         <input type="range" id="outputGainSimple" min="-24" max="24" value="0" step="1">
       </div>
+
+      <!-- AI Noise Suppression (Exclusive mode only) -->
+      <div class="simple-anc-row" id="simpleAncRow">
+        <div class="control-header">
+          <label>AI Noise Suppression</label>
+          <label class="toggle small">
+            <input type="checkbox" id="noiseSuppressionToggleSimple">
+            <span class="slider"></span>
+          </label>
+          <span class="noise-suppression-label" id="noiseSuppressionLabelSimple">Off</span>
+        </div>
+        <div class="control-note">RNNoise AI — Exclusive mode only</div>
+      </div>
     </div>
 
     <!-- Advanced Mode Controls -->
     <div id="advancedControls" class="controls" style="display: none;">
-      <div class="control-section-label">Compressor</div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="threshold">Threshold</label>
-          <span class="value" id="thresholdValue">-24 dB</span>
-        </div>
-        <input type="range" id="threshold" min="-60" max="0" value="-24" step="1">
-      </div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="ratio">Ratio</label>
-          <span class="value" id="ratioValue">8:1</span>
-        </div>
-        <input type="range" id="ratio" min="1" max="20" value="8" step="0.5">
-      </div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="knee">Knee</label>
-          <span class="value" id="kneeValue">12 dB</span>
-        </div>
-        <input type="range" id="knee" min="0" max="40" value="12" step="1">
-      </div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="attack">Attack</label>
-          <span class="value" id="attackValue">5 ms</span>
-        </div>
-        <input type="range" id="attack" min="0" max="100" value="5" step="1">
-      </div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="release">Release</label>
-          <span class="value" id="releaseValue">100 ms</span>
-        </div>
-        <input type="range" id="release" min="10" max="1000" value="100" step="10">
-      </div>
-
-      <div class="control-section-label">Gain</div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="makeupGain">Makeup Gain</label>
-          <span class="value" id="makeupGainValue">0 dB</span>
-        </div>
-        <input type="range" id="makeupGain" min="0" max="24" value="0" step="1">
-      </div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="outputGain">Output Gain</label>
-          <span class="value" id="outputGainValue">0 dB</span>
-        </div>
-        <input type="range" id="outputGain" min="-24" max="24" value="0" step="1">
-      </div>
-
-      <div class="control-section-label">Effects</div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="noiseLevel">Noise Amount</label>
-          <span class="value" id="noiseLevelValue">Off</span>
-        </div>
-        <input type="range" id="noiseLevel" min="0" max="0.3" value="0" step="0.01">
-      </div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="noiseType">Noise Type</label>
-        </div>
-        <select id="noiseType" class="dropdown">
-          <option value="brown">Brown (Cozy rumble)</option>
-          <option value="pink">Pink (Rain/CRT hum)</option>
-          <option value="white">White (Harsh static)</option>
-        </select>
-      </div>
-
-      <!-- Exclusive Mode Features (AI Noise Suppression, Auto-Gain, Limiter) -->
-      <div class="exclusive-features-group" id="exclusiveFeaturesGroup">
-        <div class="exclusive-features-header">
+      <!-- Exclusive Mode Features (AI Noise Suppression, Auto-Gain) -->
+      <div class="exclusive-features-group collapsible-section" id="exclusiveFeaturesGroup">
+        <div class="exclusive-features-header section-header">
           <span>Exclusive Features</span>
           <span class="exclusive-badge" id="exclusiveBadge">Requires Exclusive Mode</span>
         </div>
 
-        <!-- AI Noise Suppression -->
-        <div class="control-section-label noise-suppression-header">
-          <span>AI Noise Suppression</span>
-          <label class="toggle small">
-            <input type="checkbox" id="noiseSuppressionToggle">
-            <span class="slider"></span>
-          </label>
-          <span class="noise-suppression-label" id="noiseSuppressionLabel">Off</span>
-        </div>
-        <div class="control-note" id="noiseSuppressionNote">
-          RNNoise AI removes background noise (keyboard, fan, etc.)
-        </div>
-
-        <!-- Auto-Gain (AGC) -->
-        <div class="control-section-label auto-gain-header">
-          <span>Auto-Gain (AGC)</span>
-          <label class="toggle small">
-            <input type="checkbox" id="autoGainToggle">
-            <span class="slider"></span>
-          </label>
-          <span class="auto-gain-label" id="autoGainLabel">Off</span>
-        </div>
-        <div class="control-group">
-          <div class="control-header">
-            <label for="autoGainTarget">Target Level</label>
-            <span class="value" id="autoGainTargetValue">-16 dB</span>
+        <div class="section-body">
+          <!-- AI Noise Suppression -->
+          <div class="control-section-label noise-suppression-header">
+            <span>AI Noise Suppression</span>
+            <label class="toggle small">
+              <input type="checkbox" id="noiseSuppressionToggle">
+              <span class="slider"></span>
+            </label>
+            <span class="noise-suppression-label" id="noiseSuppressionLabel">Off</span>
           </div>
-          <input type="range" id="autoGainTarget" min="-30" max="-6" value="-16" step="1">
-        </div>
+          <div class="control-note" id="noiseSuppressionNote">
+            RNNoise AI removes background noise (keyboard, fan, etc.)
+          </div>
 
-        <!-- Limiter -->
-        <div class="control-section-label limiter-header">
+          <!-- Auto-Gain (AGC) -->
+          <div class="control-section-label auto-gain-header">
+            <span>Auto-Gain (AGC)</span>
+            <label class="toggle small">
+              <input type="checkbox" id="autoGainToggle">
+              <span class="slider"></span>
+            </label>
+            <span class="auto-gain-label" id="autoGainLabel">Off</span>
+          </div>
+          <div class="control-group">
+            <div class="control-header">
+              <label for="autoGainTarget">Target Level</label>
+              <span class="value" id="autoGainTargetValue">-16 dB</span>
+            </div>
+            <input type="range" id="autoGainTarget" min="-30" max="-6" value="-16" step="1">
+          </div>
+        </div>
+      </div>
+
+      <!-- Limiter (works in both Regular and Exclusive modes) -->
+      <div class="collapsible-section" id="limiterSection">
+        <div class="control-section-label limiter-header section-header">
           <span>Limiter</span>
           <label class="toggle small">
             <input type="checkbox" id="limiterToggle" checked>
@@ -234,45 +170,141 @@
           </label>
           <span class="limiter-label active" id="limiterLabel">On</span>
         </div>
-        <div class="control-group">
-          <div class="control-header">
-            <label for="limiterThreshold">Ceiling</label>
-            <span class="value" id="limiterThresholdValue">-1 dB</span>
+        <div class="section-body">
+          <div class="control-group">
+            <div class="control-header">
+              <label for="limiterThreshold">Ceiling</label>
+              <span class="value" id="limiterThresholdValue">-1 dB</span>
+            </div>
+            <input type="range" id="limiterThreshold" min="-30" max="0" value="-1" step="0.5">
           </div>
-          <input type="range" id="limiterThreshold" min="-6" max="0" value="-1" step="0.5">
+        </div>
+      </div>
+
+      <div class="collapsible-section" id="compressorSection">
+        <div class="control-section-label section-header">Compressor</div>
+        <div class="section-body">
+          <div class="control-group">
+            <div class="control-header">
+              <label for="threshold">Threshold</label>
+              <span class="value" id="thresholdValue">-24 dB</span>
+            </div>
+            <input type="range" id="threshold" min="-60" max="0" value="-24" step="1">
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label for="ratio">Ratio</label>
+              <span class="value" id="ratioValue">8:1</span>
+            </div>
+            <input type="range" id="ratio" min="1" max="20" value="8" step="0.5">
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label for="knee">Knee</label>
+              <span class="value" id="kneeValue">12 dB</span>
+            </div>
+            <input type="range" id="knee" min="0" max="40" value="12" step="1">
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label for="attack">Attack</label>
+              <span class="value" id="attackValue">5 ms</span>
+            </div>
+            <input type="range" id="attack" min="0" max="100" value="5" step="1">
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label for="release">Release</label>
+              <span class="value" id="releaseValue">100 ms</span>
+            </div>
+            <input type="range" id="release" min="10" max="1000" value="100" step="10">
+          </div>
+        </div>
+      </div>
+
+      <div class="collapsible-section" id="gainSection">
+        <div class="control-section-label section-header">Gain</div>
+        <div class="section-body">
+          <div class="control-group">
+            <div class="control-header">
+              <label for="makeupGain">Makeup Gain</label>
+              <span class="value" id="makeupGainValue">0 dB</span>
+            </div>
+            <input type="range" id="makeupGain" min="0" max="24" value="0" step="1">
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label for="outputGain">Output Gain</label>
+              <span class="value" id="outputGainValue">0 dB</span>
+            </div>
+            <input type="range" id="outputGain" min="-24" max="24" value="0" step="1">
+          </div>
+        </div>
+      </div>
+
+      <div class="collapsible-section" id="effectsSection">
+        <div class="control-section-label section-header">Effects</div>
+        <div class="section-body">
+          <div class="control-group">
+            <div class="control-header">
+              <label for="noiseLevel">Noise Amount</label>
+              <span class="value" id="noiseLevelValue">Off</span>
+            </div>
+            <input type="range" id="noiseLevel" min="0" max="0.3" value="0" step="0.01">
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label for="noiseType">Noise Type</label>
+            </div>
+            <select id="noiseType" class="dropdown">
+              <option value="brown">Brown (Cozy rumble)</option>
+              <option value="pink">Pink (Rain/CRT hum)</option>
+              <option value="white">White (Harsh static)</option>
+            </select>
+          </div>
         </div>
       </div>
 
       <!-- Filters Section (Bass/Treble Cut) -->
-      <div class="control-section-label">Filters</div>
+      <div class="collapsible-section" id="filtersSection">
+        <div class="control-section-label section-header">Filters</div>
+        <div class="section-body">
+          <div class="control-group">
+            <div class="control-header">
+              <label for="bassCutFreq">Bass Cut (Highpass)</label>
+              <span class="value" id="bassCutFreqValue">Off</span>
+            </div>
+            <input type="range" id="bassCutFreq" min="0" max="400" value="0" step="10">
+          </div>
 
-      <div class="control-group">
-        <div class="control-header">
-          <label for="bassCutFreq">Bass Cut (Highpass)</label>
-          <span class="value" id="bassCutFreqValue">Off</span>
+          <div class="control-group">
+            <div class="control-header">
+              <label for="trebleCutFreq">Treble Cut (Lowpass)</label>
+              <span class="value" id="trebleCutFreqValue">Off</span>
+            </div>
+            <input type="range" id="trebleCutFreq" min="4000" max="22050" value="22050" step="100">
+          </div>
         </div>
-        <input type="range" id="bassCutFreq" min="0" max="400" value="0" step="10">
-      </div>
-
-      <div class="control-group">
-        <div class="control-header">
-          <label for="trebleCutFreq">Treble Cut (Lowpass)</label>
-          <span class="value" id="trebleCutFreqValue">Off</span>
-        </div>
-        <input type="range" id="trebleCutFreq" min="4000" max="22050" value="22050" step="100">
       </div>
 
       <!-- 5-Band Parametric EQ Section -->
-      <div class="control-section-label eq-header">
-        <span>5-Band EQ</span>
-        <label class="toggle small">
-          <input type="checkbox" id="eqToggle">
-          <span class="slider"></span>
-        </label>
-        <span class="eq-label" id="eqLabel">Off</span>
-      </div>
+      <div class="collapsible-section collapsed" id="eqSection">
+        <div class="control-section-label eq-header section-header">
+          <span>5-Band EQ</span>
+          <label class="toggle small">
+            <input type="checkbox" id="eqToggle">
+            <span class="slider"></span>
+          </label>
+          <span class="eq-label" id="eqLabel">Off</span>
+        </div>
 
-      <div id="eqControls" style="display: none;">
+        <div class="section-body" id="eqControls">
         <!-- EQ Canvas Visualization -->
         <div class="eq-canvas-container">
           <canvas id="eqCanvas" width="268" height="100"></canvas>
@@ -404,18 +436,20 @@
           </div>
         </div>
       </div>
-
-      <!-- 3-Band Multiband Compressor Section -->
-      <div class="control-section-label multiband-header">
-        <span>3-Band Multiband</span>
-        <label class="toggle small">
-          <input type="checkbox" id="multibandToggle">
-          <span class="slider"></span>
-        </label>
-        <span class="multiband-label" id="multibandLabel">Off</span>
       </div>
 
-      <div id="multibandControls" style="display: none;">
+      <!-- 3-Band Multiband Compressor Section -->
+      <div class="collapsible-section collapsed" id="multibandSection">
+        <div class="control-section-label multiband-header section-header">
+          <span>3-Band Multiband</span>
+          <label class="toggle small">
+            <input type="checkbox" id="multibandToggle">
+            <span class="slider"></span>
+          </label>
+          <span class="multiband-label" id="multibandLabel">Off</span>
+        </div>
+
+        <div class="section-body" id="multibandControls">
         <!-- Crossover Frequencies (2 crossovers for 3 bands) -->
         <div class="multiband-crossovers">
           <div class="control-group half">
@@ -483,6 +517,7 @@
             <input type="range" id="highGain" min="-12" max="12" value="0" step="1">
           </div>
         </div>
+      </div>
       </div>
     </div>
 

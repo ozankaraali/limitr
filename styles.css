@@ -651,6 +651,23 @@ input[type="range"]::-moz-range-thumb {
   font-variant-numeric: tabular-nums;
 }
 
+/* ============ SIMPLE MODE ANC ROW ============ */
+
+.simple-anc-row {
+  margin-top: 8px;
+  padding: 8px;
+  background: #1a1a2e;
+  border-radius: 6px;
+  border: 1px solid #252542;
+  transition: opacity 0.2s, filter 0.2s;
+}
+
+.simple-anc-row.unavailable {
+  opacity: 0.5;
+  pointer-events: none;
+  filter: grayscale(50%);
+}
+
 /* ============ EXCLUSIVE FEATURES GROUP ============ */
 
 .exclusive-features-group {
@@ -1027,6 +1044,39 @@ input[type="range"]::-moz-range-thumb {
 .multiband-thresholds .control-group:nth-child(3) input[type="range"]::-webkit-slider-thumb,
 .multiband-gains .control-group:nth-child(3) input[type="range"]::-webkit-slider-thumb {
   background: #3b82f6; /* High - blue */
+}
+
+/* ============ COLLAPSIBLE SECTIONS ============ */
+
+.collapsible-section .section-header {
+  cursor: pointer;
+  user-select: none;
+}
+
+.collapsible-section .section-header::before {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 5px solid #666;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  margin-right: 6px;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.collapsible-section:not(.collapsed) > .section-header::before {
+  transform: rotate(90deg);
+}
+
+.collapsible-section.collapsed > .section-body {
+  display: none;
+}
+
+/* Allow collapsing exclusive group even when greyed out */
+.exclusive-features-group.unavailable > .section-header {
+  pointer-events: auto;
 }
 
 /* Footer */

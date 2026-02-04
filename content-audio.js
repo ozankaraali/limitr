@@ -31,6 +31,9 @@
   let bassCutFilter = null;
   let trebleCutFilter = null;
 
+  // Limiter (brick wall)
+  let limiter = null;
+
   const connectedMedia = new Map();
   let currentNoiseType = 'brown';
 
@@ -76,7 +79,7 @@
     // AI Noise Suppression (not supported in fallback mode - requires AudioWorklet)
     noiseSuppressionEnabled: false,
 
-    // Limiter (not fully supported in fallback mode)
+    // Limiter (brick wall, prevents clipping / auto-level)
     limiterEnabled: true,
     limiterThreshold: -1,
 
@@ -231,6 +234,14 @@
       trebleCutFilter.frequency.value = settings.trebleCutFreq || 22050;
       trebleCutFilter.Q.value = 0.707;
 
+      // Limiter (brick wall, prevents clipping / auto-level)
+      limiter = audioContext.createDynamicsCompressor();
+      limiter.threshold.value = settings.limiterThreshold;
+      limiter.ratio.value = 20;
+      limiter.knee.value = 0;
+      limiter.attack.value = 0.001;
+      limiter.release.value = 0.1;
+
       // Noise
       noiseGain = audioContext.createGain();
       noiseGain.gain.value = settings.noiseLevel;
@@ -252,7 +263,7 @@
       makeupGain.connect(outputGain);
       outputGain.connect(audioContext.destination);
 
-      console.log('[Limitr Fallback] Audio chain initialized with EQ + Multiband support');
+      console.log('[Limitr Fallback] Audio chain initialized with EQ + Multiband + Limiter support');
     } catch (e) {
       console.error('[Limitr Fallback] Init failed:', e);
     }
@@ -295,9 +306,16 @@
     try { bassCutFilter.disconnect(); } catch (e) {}
     try { eqBands[4].disconnect(); } catch (e) {}
     try { trebleCutFilter.disconnect(); } catch (e) {}
+    try { limiter.disconnect(); } catch (e) {}
 
     const bassCutActive = settings.bassCutFreq > 20;
     const trebleCutActive = settings.trebleCutFreq < 20000;
+
+    // finalNode: limiter (if enabled) sits between frequency processing and outputGain
+    const finalNode = settings.limiterEnabled ? limiter : outputGain;
+    if (settings.limiterEnabled) {
+      limiter.connect(outputGain);
+    }
 
     if (!settings.enabled) {
       // Bypass: sources connect directly to output
@@ -310,7 +328,7 @@
       return;
     }
 
-    // Build the chain from dynamics -> bass cut -> EQ -> treble cut -> output
+    // Build the chain from dynamics -> bass cut -> EQ -> treble cut -> [limiter] -> output
     // Step 1: Determine dynamics output (where dynamics connects to)
     let dynamicsOutput;
     if (bassCutActive) {
@@ -320,7 +338,7 @@
     } else if (trebleCutActive) {
       dynamicsOutput = trebleCutFilter;
     } else {
-      dynamicsOutput = outputGain;
+      dynamicsOutput = finalNode;
     }
 
     // Step 2: Connect dynamics stage
@@ -335,32 +353,32 @@
       multibandActive = false;
     }
 
-    // Step 3: Connect bass cut -> next stage (EQ or treble cut or output)
+    // Step 3: Connect bass cut -> next stage (EQ or treble cut or finalNode)
     if (bassCutActive) {
       if (settings.eqEnabled) {
         bassCutFilter.connect(eqBands[0]);
       } else if (trebleCutActive) {
         bassCutFilter.connect(trebleCutFilter);
       } else {
-        bassCutFilter.connect(outputGain);
+        bassCutFilter.connect(finalNode);
       }
     }
 
-    // Step 4: Connect EQ -> next stage (treble cut or output)
+    // Step 4: Connect EQ -> next stage (treble cut or finalNode)
     if (settings.eqEnabled) {
       eqActive = true;
       if (trebleCutActive) {
         eqBands[4].connect(trebleCutFilter);
       } else {
-        eqBands[4].connect(outputGain);
+        eqBands[4].connect(finalNode);
       }
     } else {
       eqActive = false;
     }
 
-    // Step 5: Connect treble cut -> output
+    // Step 5: Connect treble cut -> finalNode
     if (trebleCutActive) {
-      trebleCutFilter.connect(outputGain);
+      trebleCutFilter.connect(finalNode);
     }
 
     // Step 6: Determine entry point for sources (dynamics stage)
@@ -376,7 +394,7 @@
     } else if (trebleCutActive) {
       entryNode = trebleCutFilter;
     } else {
-      entryNode = outputGain;
+      entryNode = finalNode;
     }
 
     // Connect all sources to the entry point
@@ -443,6 +461,11 @@
     bassCutFilter.frequency.value = Math.max(20, settings.bassCutFreq);
     trebleCutFilter.frequency.value = Math.min(22050, settings.trebleCutFreq);
 
+    // Limiter
+    if (limiter) {
+      limiter.threshold.value = settings.limiterThreshold;
+    }
+
     // Noise
     noiseGain.gain.value = settings.enabled ? settings.noiseLevel : 0;
     if (settings.noiseType !== currentNoiseType) {
@@ -498,6 +521,7 @@
       const oldEnabled = settings.enabled;
       const oldBassCut = settings.bassCutFreq;
       const oldTrebleCut = settings.trebleCutFreq;
+      const oldLimiter = settings.limiterEnabled;
 
       settings = { ...settings, ...message.settings };
 
@@ -511,6 +535,7 @@
         oldMultiband !== settings.multibandEnabled ||
         oldCompressor !== settings.compressorEnabled ||
         oldEnabled !== settings.enabled ||
+        oldLimiter !== settings.limiterEnabled ||
         bassCutRoutingChanged || trebleCutRoutingChanged
       );
 
@@ -573,7 +598,7 @@
     }
 
     setInterval(scanMedia, 2000);
-    console.log('[Limitr Fallback] Content script loaded - EQ + Multiband + fullscreen compatible');
+    console.log('[Limitr Fallback] Content script loaded - EQ + Multiband + Limiter + fullscreen compatible');
   }
 
   init();
