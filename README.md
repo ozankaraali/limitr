@@ -1,6 +1,6 @@
 # Limitr
 
-A browser extension for real-time audio compression, limiting, and normalization. Perfect for streaming sites where audio levels can vary wildly.
+A browser extension for real-time audio compression, limiting, EQ, and normalization. Perfect for streaming sites where audio levels can vary wildly.
 
 ![Simple Mode](docs/assets/screenshot-1-simple-mode.png)
 ![Advanced Mode](docs/assets/screenshot-2-advanced-mode.png)
@@ -8,20 +8,28 @@ A browser extension for real-time audio compression, limiting, and normalization
 
 ## Features
 
-- **Real-time audio compression** using Web Audio API's DynamicsCompressorNode
-- **Simple & Advanced modes**: Quick presets or full control over parameters
-- **6 Audio Presets**:
-  - **Off** - No compression (bypass)
-  - **Voice Clarity** - Optimized for speech and podcasts
-  - **Normalize** - Balanced volume leveling
-  - **Bass Tamer** - Moderate compression with bass cut
-  - **Night Mode** - Heavy compression with bass cut for quiet listening
-  - **90s TV** - Warm CRT-style sound with optional TV+ visual mode
-- **Bass & Treble Cut** filters for additional control
+- **Real-time audio processing** using the Web Audio API
+- **Simple & Advanced modes**: Quick presets or full control over every parameter
+- **8 Audio Presets**:
+  - **Off** - No processing (bypass)
+  - **Voice Focus** - Multiband compression + EQ optimized for speech and podcasts
+  - **Stream Watch** - Single-band compression with auto-gain for streams
+  - **Music** - Light compression preserving dynamics
+  - **Night Mode** - Aggressive compression + auto-gain for quiet listening
+  - **Movie** - Multiband compression taming explosions while preserving dialog
+  - **Bass Tamer** - Heavy compression with bass reduction
+  - **90s TV** - Warm CRT-style sound with bass/treble cut, noise, and optional TV+ visual mode
+- **Single-band compressor** with full parameter control (threshold, ratio, knee, attack, release)
+- **3-band multiband compressor** with independent per-band threshold, ratio, and gain
+- **5-band parametric EQ** with selectable filter types per band
+- **Brick-wall limiter** with adjustable threshold (-30 to 0 dB) for auto-leveling and clipping prevention
+- **Bass & Treble Cut** filters for additional frequency shaping
 - **Background noise** (white/pink/brown) for vintage audio effect
 - **Gain reduction meter** showing real-time compression activity
-- **Dual processing modes**: Default (fullscreen-friendly) or Mixer (multi-tab)
-- **No external dependencies**: Pure Web Audio API
+- **Collapsible sections** with independent on/off toggles per processing block
+- **Two processing modes**: Regular (fullscreen-friendly) or Exclusive (multi-tab with AI features)
+- **Exclusive mode extras**: AI noise suppression (RNNoise) and auto-gain (AGC)
+- **No external dependencies** (except RNNoise WASM for AI noise suppression)
 
 ## Installation
 
@@ -47,13 +55,14 @@ Note: For permanent Firefox installation, the extension needs to be signed or in
 ## Usage
 
 1. Click the Limitr icon in your browser toolbar
-2. Toggle the switch to enable/disable processing
-3. Select a preset or adjust parameters:
-   - **Simple mode**: Output volume control
-   - **Advanced mode**: Full compressor controls (threshold, ratio, knee, attack, release, gains, filters, noise)
-4. The gain reduction meter shows how much compression is being applied
+2. Toggle the master switch to enable/disable processing
+3. Select a preset or switch to Advanced mode for full control
+4. Each processing section (Compressor, Gain, EQ, Limiter, Filters, Effects) can be independently toggled on/off and collapsed
+5. The gain reduction meter shows real-time compression activity
 
 ## Advanced Parameters
+
+### Compressor
 
 | Parameter | Range | Description |
 |-----------|-------|-------------|
@@ -62,27 +71,83 @@ Note: For permanent Firefox installation, the extension needs to be signed or in
 | Knee | 0 to 40 dB | Smoothness of compression onset |
 | Attack | 0 to 100 ms | How quickly compression engages |
 | Release | 10 to 1000 ms | How quickly compression releases |
+
+### Gain
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
 | Makeup Gain | 0 to 24 dB | Volume boost after compression |
-| Output Gain | -24 to +24 dB | Final volume adjustment |
-| Highpass | 0 to 300 Hz | Bass cut filter frequency |
-| Lowpass | 2000 to 22050 Hz | Treble cut filter frequency |
+| Output Gain | -24 to +24 dB | Final volume adjustment (master) |
+
+### 5-Band Parametric EQ
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| Frequency | 20 to 20000 Hz | Center frequency per band |
+| Gain | -12 to +12 dB | Boost/cut per band |
+| Q | 0.1 to 10 | Bandwidth (narrow to wide) |
+| Type | Highpass/Lowshelf/Peaking/Highshelf/Lowpass | Filter shape per band |
+
+### Limiter
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| Threshold | -30 to 0 dB | Ceiling above which audio is brick-wall limited |
+
+### Multiband Compressor
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| Crossover 1 | 20 to 500 Hz | Split point between sub and mid bands |
+| Crossover 2 | 500 to 10000 Hz | Split point between mid and high bands |
+| Band Threshold | -60 to 0 dB | Per-band compression threshold |
+| Band Ratio | 1:1 to 20:1 | Per-band compression amount |
+| Band Gain | -12 to +12 dB | Per-band output gain |
+
+### Filters
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| Bass Cut (Highpass) | 0 to 300 Hz | Removes frequencies below this value |
+| Treble Cut (Lowpass) | 2000 to 22050 Hz | Removes frequencies above this value |
+
+### Effects
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
 | Noise Level | 0 to 30% | Background noise amount |
 | Noise Type | White/Pink/Brown | Noise character (harsh to cozy) |
 
+### Exclusive Mode Only
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| AI Noise Suppression | On/Off | RNNoise-based background noise removal |
+| Auto-Gain (AGC) | On/Off | Automatic level control |
+| AGC Target | -30 to 0 dB | Target loudness for auto-gain |
+
 ## How It Works
 
-Limitr offers two processing modes:
+### Signal Chain
 
-**Default Mode** (fullscreen compatible):
+```
+Source → [Compressor OR Multiband] → [Bass Cut] → [5-Band EQ] → [Treble Cut] → [Limiter] → Output Gain → Destination
+```
+
+Each block in brackets is optional — only wired into the chain when its toggle is enabled. The compressor and multiband compressor are mutually exclusive (enabling one disables the other).
+
+### Processing Modes
+
+**Regular Mode** (fullscreen compatible):
 - Injects a content script that uses `MediaElementSource` to process audio
 - Scans for all `<video>` and `<audio>` elements
-- Routes audio through a processing chain (compressor → gains → filters → output)
 - Works in fullscreen video playback
+- Supports: Compressor, Multiband, EQ, Limiter, Filters, Gain, Effects
 
-**Mixer Mode** (multi-tab control):
+**Exclusive Mode** (multi-tab with AI features):
 - Uses Chrome's `tabCapture` API to capture tab audio
 - Processes audio in an offscreen document
-- Allows individual volume control of multiple tabs
+- All Regular mode features plus: AI Noise Suppression (RNNoise) and Auto-Gain (AGC)
 - Note: Fullscreen may be restricted in this mode
 
 ## Privacy
