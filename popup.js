@@ -1139,8 +1139,10 @@ function applyPreset(presetName) {
   }
 
   const savedOutputGain = currentSettings.outputGain;
-  Object.assign(currentSettings, preset);
+  const savedEnabled = currentSettings.enabled;
+  Object.assign(currentSettings, defaults, preset);
   currentSettings.outputGain = savedOutputGain;
+  currentSettings.enabled = savedEnabled;
 
   updateUI();
   updateTabSettings();

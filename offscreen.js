@@ -265,6 +265,14 @@ async function createAudioChain(tabId, mediaStreamId) {
     limiter.attack.value = 0.001;    // 1ms - very fast attack
     limiter.release.value = 0.1;     // 100ms release
 
+    // === PRE-RNNOISE SAFETY LIMITER (protects noise suppressor from loud transients) ===
+    const preLimiter = audioContext.createDynamicsCompressor();
+    preLimiter.threshold.value = -1;     // -1dB ceiling
+    preLimiter.ratio.value = 20;         // Hard limiting
+    preLimiter.knee.value = 0;
+    preLimiter.attack.value = 0.001;     // 1ms
+    preLimiter.release.value = 0.1;      // 100ms
+
     // === AUTO-GAIN (AGC) ===
     const autoGainNode = audioContext.createGain();
     autoGainNode.gain.value = 1;
@@ -458,6 +466,7 @@ async function createAudioChain(tabId, mediaStreamId) {
       trebleCutFilter,
       // Limiter
       limiter,
+      preLimiter,
       // Auto-gain (AGC)
       autoGainNode,
       analyser,
@@ -502,7 +511,7 @@ async function createAudioChain(tabId, mediaStreamId) {
 function rebuildSignalChain(state) {
   const { source, compressor, makeupGain, outputGain,
           crossover1, multibandSum, eqBands, bassCutFilter, trebleCutFilter,
-          limiter, autoGainNode, analyser, setAgcEnabled,
+          limiter, preLimiter, autoGainNode, analyser, setAgcEnabled,
           getNoiseSuppressor, setNoiseSuppressorEnabled, settings } = state;
 
   // Get noise suppressor state
@@ -522,6 +531,7 @@ function rebuildSignalChain(state) {
   autoGainNode.disconnect();
   analyser.disconnect();
   limiter.disconnect();
+  preLimiter.disconnect();
 
   // If disabled, bypass all processing
   if (!settings.enabled) {
@@ -534,8 +544,9 @@ function rebuildSignalChain(state) {
     return;
   }
 
-  // Signal chain: source -> [Dynamics] -> [NoiseSuppression] -> [BassCut] -> [EQ] -> [TrebleCut] -> [AutoGain] -> [Limiter] -> outputGain
-  // Dynamics FIRST so loud sounds (donation alerts, SFX) get tamed before hitting RNNoise
+  // Signal chain: source -> [Dynamics] -> [PreLimiter*] -> [NoiseSuppression] -> [BassCut] -> [EQ] -> [TrebleCut] -> [AutoGain] -> [Limiter] -> outputGain
+  // *PreLimiter is a fixed safety limiter, only active when noise suppression is on (protects RNNoise from loud transients)
+  // Limiter is the user-controllable output limiter at the end (prevents clipping from EQ/AGC boosts)
   let currentNode = source;
 
   // Dynamics stage FIRST (compressor tames loud peaks before noise suppression)
@@ -553,8 +564,14 @@ function rebuildSignalChain(state) {
     state.multibandActive = false;
   }
 
-  // Noise suppression (AI denoise) - after dynamics so it receives controlled signal
+  // Pre-RNNoise safety limiter (fixed, not user-controllable) - only when noise suppression is active
   const noiseSuppressionActive = settings.noiseSuppressionEnabled && noiseSuppressorReady && noiseSuppressorNode;
+  if (noiseSuppressionActive) {
+    currentNode.connect(preLimiter);
+    currentNode = preLimiter;
+  }
+
+  // Noise suppression (AI denoise) - after dynamics+preLimiter so it receives controlled signal
   if (noiseSuppressionActive) {
     currentNode.connect(noiseSuppressorNode);
     currentNode = noiseSuppressorNode;
@@ -595,7 +612,7 @@ function rebuildSignalChain(state) {
     setAgcEnabled(false);
   }
 
-  // Limiter (brick wall, prevents clipping) - always last before output
+  // Limiter (user-controllable, brick wall output limiter - prevents clipping from EQ/AGC boosts)
   if (settings.limiterEnabled) {
     currentNode.connect(limiter);
     currentNode = limiter;
@@ -604,7 +621,7 @@ function rebuildSignalChain(state) {
   // Final output
   currentNode.connect(outputGain);
 
-  console.log(`[Limitr] Signal chain: Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.trebleCutFreq < 20000 ? settings.trebleCutFreq + 'Hz' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'}`);
+  console.log(`[Limitr] Signal chain: Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> PreLimiter=${noiseSuppressionActive ? '-1dB' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.trebleCutFreq < 20000 ? settings.trebleCutFreq + 'Hz' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'}`);
 }
 
 // Update settings for a tab

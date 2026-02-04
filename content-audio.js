@@ -444,6 +444,7 @@
     trebleCutFilter.frequency.value = Math.min(22050, settings.trebleCutFreq);
 
     // Noise
+    noiseGain.gain.value = settings.enabled ? settings.noiseLevel : 0;
     if (settings.noiseType !== currentNoiseType) {
       changeNoiseType(settings.noiseType);
     }

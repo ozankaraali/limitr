@@ -43,10 +43,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Technical Notes - RNNoise
 ================================================================================
 RNNoise was trained on normal speaking levels. Very loud audio could cause
-artifacts if fed directly to the neural network. Limitr addresses this by
-placing the compressor/limiter BEFORE noise suppression in the signal chain:
+artifacts if fed directly to the neural network. Limitr addresses this with
+a dual-limiter architecture:
 
-  Source → Compressor → NoiseSuppression → EQ → Output
+  Source → Compressor → [PreLimiter] → NoiseSuppression → EQ → [Limiter] → Output
 
-This ensures loud sounds (donation alerts, meme SFX, etc.) are tamed before
-reaching RNNoise, preventing robotic/static artifacts.
+The PreLimiter is a fixed safety limiter (always -1dB) that only activates
+when noise suppression is enabled, protecting RNNoise from loud transients.
+The user-controllable Limiter sits at the end of the chain, preventing
+clipping from EQ boosts or auto-gain adjustments.
