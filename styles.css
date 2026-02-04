@@ -775,24 +775,40 @@ input[type="range"]::-moz-range-thumb {
   color: #22c55e;
 }
 
-/* Limiter header with inline toggle */
-.limiter-header {
+/* Limiter, Compressor, Gain, Effects, Filters headers with inline toggle */
+.limiter-header,
+.compressor-header,
+.gain-header,
+.effects-header,
+.filters-header {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.limiter-header .toggle {
+.limiter-header .toggle,
+.compressor-header .toggle,
+.gain-header .toggle,
+.effects-header .toggle,
+.filters-header .toggle {
   margin-left: auto;
 }
 
-.limiter-label {
+.limiter-label,
+.compressor-label,
+.gain-label,
+.effects-label,
+.filters-label {
   font-size: 10px;
   color: #888;
   text-transform: uppercase;
 }
 
-.limiter-label.active {
+.limiter-label.active,
+.compressor-label.active,
+.gain-label.active,
+.effects-label.active,
+.filters-label.active {
   color: #22c55e;
 }
 
@@ -1074,9 +1090,28 @@ input[type="range"]::-moz-range-thumb {
   display: none;
 }
 
+.collapsible-section.collapsed > .section-header {
+  margin-bottom: 0;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 /* Allow collapsing exclusive group even when greyed out */
 .exclusive-features-group.unavailable > .section-header {
   pointer-events: auto;
+}
+
+/* Compact exclusive group when collapsed */
+.exclusive-features-group.collapsed {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.exclusive-features-group.collapsed .exclusive-features-header {
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 /* Footer */

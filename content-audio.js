@@ -49,6 +49,7 @@
     attack: 5,
     release: 100,
     makeupGain: 0,
+    gainEnabled: true,
 
     // 3-Band Multiband Compressor
     multibandEnabled: false,
@@ -75,6 +76,7 @@
     // Filters (independent bass/treble cut)
     bassCutFreq: 0,
     trebleCutFreq: 22050,
+    filtersEnabled: false,
 
     // AI Noise Suppression (not supported in fallback mode - requires AudioWorklet)
     noiseSuppressionEnabled: false,
@@ -89,7 +91,8 @@
 
     // Effects
     noiseLevel: 0,
-    noiseType: 'brown'
+    noiseType: 'brown',
+    effectsEnabled: false
   };
 
   // Create a crossover filter pair
@@ -308,8 +311,8 @@
     try { trebleCutFilter.disconnect(); } catch (e) {}
     try { limiter.disconnect(); } catch (e) {}
 
-    const bassCutActive = settings.bassCutFreq > 20;
-    const trebleCutActive = settings.trebleCutFreq < 20000;
+    const bassCutActive = settings.filtersEnabled && settings.bassCutFreq > 20;
+    const trebleCutActive = settings.filtersEnabled && settings.trebleCutFreq < 20000;
 
     // finalNode: limiter (if enabled) sits between frequency processing and outputGain
     const finalNode = settings.limiterEnabled ? limiter : outputGain;
@@ -409,7 +412,7 @@
     });
 
     // Handle noise
-    noiseGain.gain.value = settings.noiseLevel;
+    noiseGain.gain.value = settings.effectsEnabled ? settings.noiseLevel : 0;
   }
 
   function applySettings() {
@@ -421,7 +424,7 @@
     compressor.knee.value = settings.knee;
     compressor.attack.value = settings.attack / 1000;
     compressor.release.value = settings.release / 1000;
-    makeupGain.gain.value = Math.pow(10, settings.makeupGain / 20);
+    makeupGain.gain.value = settings.gainEnabled ? Math.pow(10, settings.makeupGain / 20) : 1;
     outputGain.gain.value = Math.pow(10, settings.outputGain / 20);
 
     // Multiband crossovers
@@ -467,7 +470,7 @@
     }
 
     // Noise
-    noiseGain.gain.value = settings.enabled ? settings.noiseLevel : 0;
+    noiseGain.gain.value = (settings.enabled && settings.effectsEnabled) ? settings.noiseLevel : 0;
     if (settings.noiseType !== currentNoiseType) {
       changeNoiseType(settings.noiseType);
     }
@@ -522,6 +525,7 @@
       const oldBassCut = settings.bassCutFreq;
       const oldTrebleCut = settings.trebleCutFreq;
       const oldLimiter = settings.limiterEnabled;
+      const oldFilters = settings.filtersEnabled;
 
       settings = { ...settings, ...message.settings };
 
@@ -536,6 +540,7 @@
         oldCompressor !== settings.compressorEnabled ||
         oldEnabled !== settings.enabled ||
         oldLimiter !== settings.limiterEnabled ||
+        oldFilters !== settings.filtersEnabled ||
         bassCutRoutingChanged || trebleCutRoutingChanged
       );
 

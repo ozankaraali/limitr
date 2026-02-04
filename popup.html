@@ -182,7 +182,14 @@
       </div>
 
       <div class="collapsible-section" id="compressorSection">
-        <div class="control-section-label section-header">Compressor</div>
+        <div class="control-section-label compressor-header section-header">
+          <span>Compressor</span>
+          <label class="toggle small">
+            <input type="checkbox" id="compressorToggle" checked>
+            <span class="slider"></span>
+          </label>
+          <span class="compressor-label active" id="compressorLabel">On</span>
+        </div>
         <div class="section-body">
           <div class="control-group">
             <div class="control-header">
@@ -227,7 +234,14 @@
       </div>
 
       <div class="collapsible-section" id="gainSection">
-        <div class="control-section-label section-header">Gain</div>
+        <div class="control-section-label gain-header section-header">
+          <span>Gain</span>
+          <label class="toggle small">
+            <input type="checkbox" id="gainToggle" checked>
+            <span class="slider"></span>
+          </label>
+          <span class="gain-label active" id="gainLabel">On</span>
+        </div>
         <div class="section-body">
           <div class="control-group">
             <div class="control-header">
@@ -248,7 +262,14 @@
       </div>
 
       <div class="collapsible-section" id="effectsSection">
-        <div class="control-section-label section-header">Effects</div>
+        <div class="control-section-label effects-header section-header">
+          <span>Effects</span>
+          <label class="toggle small">
+            <input type="checkbox" id="effectsToggle">
+            <span class="slider"></span>
+          </label>
+          <span class="effects-label" id="effectsLabel">Off</span>
+        </div>
         <div class="section-body">
           <div class="control-group">
             <div class="control-header">
@@ -273,7 +294,14 @@
 
       <!-- Filters Section (Bass/Treble Cut) -->
       <div class="collapsible-section" id="filtersSection">
-        <div class="control-section-label section-header">Filters</div>
+        <div class="control-section-label filters-header section-header">
+          <span>Filters</span>
+          <label class="toggle small">
+            <input type="checkbox" id="filtersToggle">
+            <span class="slider"></span>
+          </label>
+          <span class="filters-label" id="filtersLabel">Off</span>
+        </div>
         <div class="section-body">
           <div class="control-group">
             <div class="control-header">
@@ -438,10 +466,10 @@
       </div>
       </div>
 
-      <!-- 3-Band Multiband Compressor Section -->
+      <!-- Multiband Compressor Section -->
       <div class="collapsible-section collapsed" id="multibandSection">
         <div class="control-section-label multiband-header section-header">
-          <span>3-Band Multiband</span>
+          <span>Multiband Compressor</span>
           <label class="toggle small">
             <input type="checkbox" id="multibandToggle">
             <span class="slider"></span>

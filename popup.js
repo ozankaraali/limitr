@@ -14,6 +14,7 @@ const defaults = {
   attack: 5,
   release: 100,
   makeupGain: 0,
+  gainEnabled: true,
 
   // 3-Band Multiband Compressor
   multibandEnabled: false,
@@ -40,6 +41,7 @@ const defaults = {
   // Filters (independent bass/treble cut)
   bassCutFreq: 0,       // 0 = off, otherwise highpass Hz (e.g., 80, 120, 200)
   trebleCutFreq: 22050, // 22050 = off, otherwise lowpass Hz (e.g., 8000, 12000)
+  filtersEnabled: false,
 
   // AI Noise Suppression (RNNoise)
   noiseSuppressionEnabled: false,
@@ -54,7 +56,8 @@ const defaults = {
 
   // Effects
   noiseLevel: 0,
-  noiseType: 'brown'
+  noiseType: 'brown',
+  effectsEnabled: false
 };
 
 // Presets - designed for both Regular and Exclusive modes
@@ -67,11 +70,12 @@ const presets = {
     multibandEnabled: false,
     eqEnabled: false,
     threshold: 0, ratio: 1, knee: 0, attack: 0, release: 0,
-    makeupGain: 0, bassCutFreq: 0, trebleCutFreq: 22050,
+    makeupGain: 0, gainEnabled: true,
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     limiterEnabled: false, limiterThreshold: -1,
     autoGainEnabled: false, autoGainTarget: -16,
-    noiseLevel: 0, noiseType: 'brown'
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   voiceFocus: {
     name: 'Voice Focus',
@@ -89,14 +93,12 @@ const presets = {
     eq3Freq: 2500, eq3Gain: 3, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 5000, eq4Gain: 2, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 12000, eq5Gain: -2, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050,
-    // AI denoise available but user-toggled (Exclusive mode)
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    // Limiter catches loud donation alerts
     limiterEnabled: true, limiterThreshold: -1,
-    // AGC off - multiband handles dynamics
     autoGainEnabled: false, autoGainTarget: -16,
-    noiseLevel: 0, noiseType: 'brown'
+    makeupGain: 0, gainEnabled: true,
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   streamWatch: {
     name: 'Stream Watch',
@@ -104,7 +106,7 @@ const presets = {
     compressorEnabled: true,
     multibandEnabled: false,
     threshold: -28, ratio: 6, knee: 10, attack: 5, release: 150,
-    makeupGain: 3,
+    makeupGain: 3, gainEnabled: true,
     // Light EQ: reduce harshness
     eqEnabled: true,
     eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
@@ -112,14 +114,11 @@ const presets = {
     eq3Freq: 3000, eq3Gain: 1, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 6000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 10000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050,
-    // AI denoise available but user-toggled
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    // AGC for consistent volume across different streamers
     autoGainEnabled: true, autoGainTarget: -18,
-    // Limiter for loud moments
     limiterEnabled: true, limiterThreshold: -1,
-    noiseLevel: 0, noiseType: 'brown'
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   music: {
     name: 'Music',
@@ -127,7 +126,7 @@ const presets = {
     compressorEnabled: true,
     multibandEnabled: false,
     threshold: -20, ratio: 3, knee: 20, attack: 10, release: 200,
-    makeupGain: 2,
+    makeupGain: 2, gainEnabled: true,
     // Subtle EQ enhancement
     eqEnabled: true,
     eq1Freq: 30, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
@@ -135,14 +134,11 @@ const presets = {
     eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 4000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 10000, eq5Gain: 1, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050,
-    // No noise suppression - preserves audio quality
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    // No AGC - preserve dynamic range
     autoGainEnabled: false, autoGainTarget: -16,
-    // Limiter only as safety net
     limiterEnabled: true, limiterThreshold: -0.5,
-    noiseLevel: 0, noiseType: 'brown'
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   nightMode: {
     name: 'Night Mode',
@@ -150,7 +146,7 @@ const presets = {
     compressorEnabled: true,
     multibandEnabled: false,
     threshold: -40, ratio: 15, knee: 6, attack: 1, release: 50,
-    makeupGain: 6,
+    makeupGain: 6, gainEnabled: true,
     // Reduce bass to not disturb others
     eqEnabled: true,
     eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
@@ -158,14 +154,11 @@ const presets = {
     eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 10000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050,
-    // No noise suppression needed
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    // AGC ensures consistent quiet volume
     autoGainEnabled: true, autoGainTarget: -20,
-    // Lower limiter ceiling
     limiterEnabled: true, limiterThreshold: -3,
-    noiseLevel: 0, noiseType: 'brown'
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   movie: {
     name: 'Movie',
@@ -183,20 +176,19 @@ const presets = {
     eq3Freq: 2000, eq3Gain: 3, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 4000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 8000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050,
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    // AGC for consistent dialog volume
     autoGainEnabled: true, autoGainTarget: -16,
-    // Limiter catches explosions
     limiterEnabled: true, limiterThreshold: -1,
-    noiseLevel: 0, noiseType: 'brown'
+    makeupGain: 0, gainEnabled: true,
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   bassTamer: {
     name: 'Bass Tamer',
     compressorEnabled: true,
     multibandEnabled: false,
     threshold: -30, ratio: 10, knee: 8, attack: 2, release: 100,
-    makeupGain: 4,
+    makeupGain: 4, gainEnabled: true,
     // Aggressive bass reduction
     eqEnabled: true,
     eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
@@ -204,11 +196,11 @@ const presets = {
     eq3Freq: 500, eq3Gain: -2, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 2000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 8000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050,
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16,
     limiterEnabled: true, limiterThreshold: -1,
-    noiseLevel: 0, noiseType: 'brown'
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   tv90s: {
     name: '90s TV',
@@ -216,20 +208,20 @@ const presets = {
     multibandEnabled: false,
     eqEnabled: false,
     threshold: -35, ratio: 15, knee: 6, attack: 2, release: 100,
-    makeupGain: 5,
+    makeupGain: 5, gainEnabled: true,
     // Classic narrow bandwidth
-    bassCutFreq: 200, trebleCutFreq: 8000,
+    bassCutFreq: 200, trebleCutFreq: 8000, filtersEnabled: true,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16,
     limiterEnabled: true, limiterThreshold: -2,
     // Brown noise for that analog warmth
-    noiseLevel: 0.15, noiseType: 'brown'
+    noiseLevel: 0.15, noiseType: 'brown', effectsEnabled: true
   }
 };
 
 // Keys used for preset comparison
 const presetKeys = [
-  'compressorEnabled', 'multibandEnabled', 'eqEnabled',
+  'compressorEnabled', 'multibandEnabled', 'eqEnabled', 'effectsEnabled', 'filtersEnabled', 'gainEnabled',
   'threshold', 'ratio', 'knee', 'attack', 'release', 'makeupGain',
   'noiseLevel', 'noiseType',
   // Filters
@@ -370,6 +362,18 @@ async function init() {
     noiseSuppressionToggleSimple: document.getElementById('noiseSuppressionToggleSimple'),
     noiseSuppressionLabelSimple: document.getElementById('noiseSuppressionLabelSimple'),
     simpleAncRow: document.getElementById('simpleAncRow'),
+    // Compressor toggle
+    compressorToggle: document.getElementById('compressorToggle'),
+    compressorLabel: document.getElementById('compressorLabel'),
+    // Gain toggle
+    gainToggle: document.getElementById('gainToggle'),
+    gainLabel: document.getElementById('gainLabel'),
+    // Effects toggle
+    effectsToggle: document.getElementById('effectsToggle'),
+    effectsLabel: document.getElementById('effectsLabel'),
+    // Filters toggle
+    filtersToggle: document.getElementById('filtersToggle'),
+    filtersLabel: document.getElementById('filtersLabel'),
     // Limiter
     limiterToggle: document.getElementById('limiterToggle'),
     limiterLabel: document.getElementById('limiterLabel'),
@@ -593,6 +597,36 @@ async function refreshAudibleTabs() {
 function updateUI() {
   elements.enabled.checked = currentSettings.enabled;
 
+  // Section toggles
+  if (elements.compressorToggle) {
+    elements.compressorToggle.checked = currentSettings.compressorEnabled;
+  }
+  if (elements.compressorLabel) {
+    elements.compressorLabel.textContent = currentSettings.compressorEnabled ? 'On' : 'Off';
+    elements.compressorLabel.classList.toggle('active', currentSettings.compressorEnabled);
+  }
+  if (elements.gainToggle) {
+    elements.gainToggle.checked = currentSettings.gainEnabled;
+  }
+  if (elements.gainLabel) {
+    elements.gainLabel.textContent = currentSettings.gainEnabled ? 'On' : 'Off';
+    elements.gainLabel.classList.toggle('active', currentSettings.gainEnabled);
+  }
+  if (elements.effectsToggle) {
+    elements.effectsToggle.checked = currentSettings.effectsEnabled;
+  }
+  if (elements.effectsLabel) {
+    elements.effectsLabel.textContent = currentSettings.effectsEnabled ? 'On' : 'Off';
+    elements.effectsLabel.classList.toggle('active', currentSettings.effectsEnabled);
+  }
+  if (elements.filtersToggle) {
+    elements.filtersToggle.checked = currentSettings.filtersEnabled;
+  }
+  if (elements.filtersLabel) {
+    elements.filtersLabel.textContent = currentSettings.filtersEnabled ? 'On' : 'Off';
+    elements.filtersLabel.classList.toggle('active', currentSettings.filtersEnabled);
+  }
+
   // Simple mode controls
   if (elements.outputGainSimple) {
     elements.outputGainSimple.value = currentSettings.outputGain;
@@ -806,11 +840,11 @@ function updateExclusiveFeatureVisibility() {
   // Update mode indicator badge
   if (elements.modeBadge) {
     if (mixerMode) {
-      elements.modeBadge.textContent = 'Exclusive Mode';
+      elements.modeBadge.textContent = 'Exclusive';
       elements.modeBadge.classList.remove('regular');
       elements.modeBadge.classList.add('exclusive');
     } else {
-      elements.modeBadge.textContent = 'Regular Mode';
+      elements.modeBadge.textContent = 'Regular';
       elements.modeBadge.classList.remove('exclusive');
       elements.modeBadge.classList.add('regular');
     }
@@ -1068,6 +1102,65 @@ function setupEventListeners() {
     elements.noiseType.addEventListener('change', (e) => {
       currentSettings.noiseType = e.target.value;
       updatePresetButtons();
+      updateTabSettings();
+    });
+  }
+
+  // Compressor toggle
+  if (elements.compressorToggle) {
+    elements.compressorToggle.addEventListener('change', (e) => {
+      currentSettings.compressorEnabled = e.target.checked;
+      if (e.target.checked && currentSettings.multibandEnabled) {
+        currentSettings.multibandEnabled = false;
+      }
+      if (elements.compressorSection) {
+        collapseState.compressor = !e.target.checked;
+        elements.compressorSection.classList.toggle('collapsed', collapseState.compressor);
+        chrome.storage.local.set({ limitrCollapseState: collapseState });
+      }
+      updateUI();
+      updateTabSettings();
+    });
+  }
+
+  // Gain toggle (controls makeup gain bypass)
+  if (elements.gainToggle) {
+    elements.gainToggle.addEventListener('change', (e) => {
+      currentSettings.gainEnabled = e.target.checked;
+      if (elements.gainSection) {
+        collapseState.gain = !e.target.checked;
+        elements.gainSection.classList.toggle('collapsed', collapseState.gain);
+        chrome.storage.local.set({ limitrCollapseState: collapseState });
+      }
+      updateUI();
+      updateTabSettings();
+    });
+  }
+
+  // Effects toggle
+  if (elements.effectsToggle) {
+    elements.effectsToggle.addEventListener('change', (e) => {
+      currentSettings.effectsEnabled = e.target.checked;
+      if (elements.effectsSection) {
+        collapseState.effects = !e.target.checked;
+        elements.effectsSection.classList.toggle('collapsed', collapseState.effects);
+        chrome.storage.local.set({ limitrCollapseState: collapseState });
+      }
+      updateUI();
+      updateTabSettings();
+    });
+  }
+
+  // Filters toggle
+  if (elements.filtersToggle) {
+    elements.filtersToggle.addEventListener('change', (e) => {
+      currentSettings.filtersEnabled = e.target.checked;
+      if (elements.filtersSection) {
+        collapseState.filters = !e.target.checked;
+        elements.filtersSection.classList.toggle('collapsed', collapseState.filters);
+        chrome.storage.local.set({ limitrCollapseState: collapseState });
+      }
+      updateUI();
       updateTabSettings();
     });
   }
