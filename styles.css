@@ -64,8 +64,13 @@ h1 {
 }
 
 .mode-label.mixer-mode,
+.mode-label.exclusive-mode,
 .mode-label.crt-label {
   cursor: help;
+}
+
+.mode-label.exclusive-mode {
+  color: #888;
 }
 
 .mode-label.crt-label.active {
@@ -76,6 +81,49 @@ h1 {
 .mode-divider {
   color: #444;
   margin: 0 4px;
+}
+
+/* Mode Info Indicator */
+.mode-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  background: #1e1e36;
+  border-radius: 6px;
+  border: 1px solid #252542;
+}
+
+.mode-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mode-badge.regular {
+  background: #22c55e22;
+  color: #22c55e;
+  border: 1px solid #22c55e44;
+}
+
+.mode-badge.exclusive {
+  background: #f9731622;
+  color: #f97316;
+  border: 1px solid #f9731644;
+}
+
+.mode-note {
+  font-size: 10px;
+  color: #888;
+}
+
+.mode-note.exclusive {
+  color: #f97316;
 }
 
 /* Toggle Switch */
@@ -214,8 +262,8 @@ h1 {
 
 .presets-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
 }
 
 .preset-btn {
@@ -223,14 +271,14 @@ h1 {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 10px 6px;
+  padding: 8px 4px;
   background: #252542;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   color: #aaa;
   cursor: pointer;
   transition: all 0.15s;
-  min-height: 56px;
+  min-height: 50px;
 }
 
 .preset-btn:hover {
@@ -252,16 +300,18 @@ h1 {
 }
 
 .preset-name {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   margin-bottom: 2px;
   text-align: center;
+  line-height: 1.2;
 }
 
 .preset-desc {
-  font-size: 9px;
+  font-size: 8px;
   opacity: 0.7;
   text-align: center;
+  line-height: 1.2;
 }
 
 /* Controls */
@@ -599,6 +649,62 @@ input[type="range"]::-moz-range-thumb {
   width: 45px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* ============ EXCLUSIVE FEATURES GROUP ============ */
+
+.exclusive-features-group {
+  margin: 12px 0;
+  padding: 12px;
+  background: #1a1a2e;
+  border-radius: 8px;
+  border: 1px solid #252542;
+  transition: opacity 0.2s, filter 0.2s;
+}
+
+.exclusive-features-group.unavailable {
+  opacity: 0.5;
+  pointer-events: none;
+  filter: grayscale(50%);
+}
+
+.exclusive-features-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #252542;
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.exclusive-badge {
+  font-size: 9px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #f9731622;
+  color: #f97316;
+  border: 1px solid #f9731644;
+}
+
+.exclusive-badge.active {
+  background: #22c55e22;
+  color: #22c55e;
+  border: 1px solid #22c55e44;
+}
+
+/* Adjust nested control-section-labels inside exclusive group */
+.exclusive-features-group .control-section-label {
+  margin-top: 12px;
+}
+
+.exclusive-features-group .control-section-label:first-of-type {
+  margin-top: 0;
 }
 
 /* ============ 5-BAND PARAMETRIC EQ STYLES ============ */

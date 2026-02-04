@@ -278,7 +278,8 @@
   }
 
   // Rebuild signal chain based on settings
-  // Chain: Source → [Bass Cut] → [EQ] → [Dynamics] → [Treble Cut] → Output
+  // Chain: Source → [Dynamics] → [Bass Cut] → [EQ] → [Treble Cut] → Output
+  // Dynamics FIRST so loud sounds get tamed before hitting any frequency shaping
   function rebuildSignalChain() {
     if (!audioContext) return;
 
@@ -288,97 +289,100 @@
     });
 
     // Disconnect shared processing nodes
-    try { bassCutFilter.disconnect(); } catch (e) {}
     try { compressor.disconnect(); } catch (e) {}
     try { makeupGain.disconnect(); } catch (e) {}
     try { multibandSum.disconnect(); } catch (e) {}
+    try { bassCutFilter.disconnect(); } catch (e) {}
     try { eqBands[4].disconnect(); } catch (e) {}
     try { trebleCutFilter.disconnect(); } catch (e) {}
 
-    // Determine the entry point for sources based on current settings
-    let entryNode;
     const bassCutActive = settings.bassCutFreq > 20;
     const trebleCutActive = settings.trebleCutFreq < 20000;
 
     if (!settings.enabled) {
       // Bypass: sources connect directly to output
-      entryNode = outputGain;
+      connectedMedia.forEach(({ source }) => {
+        source.connect(outputGain);
+      });
       eqActive = false;
       multibandActive = false;
+      noiseGain.gain.value = 0;
+      return;
+    }
+
+    // Build the chain from dynamics -> bass cut -> EQ -> treble cut -> output
+    // Step 1: Determine dynamics output (where dynamics connects to)
+    let dynamicsOutput;
+    if (bassCutActive) {
+      dynamicsOutput = bassCutFilter;
+    } else if (settings.eqEnabled) {
+      dynamicsOutput = eqBands[0];
+    } else if (trebleCutActive) {
+      dynamicsOutput = trebleCutFilter;
     } else {
-      // Determine where bass cut output should go
-      let afterBassCut;
+      dynamicsOutput = outputGain;
+    }
+
+    // Step 2: Connect dynamics stage
+    if (settings.multibandEnabled) {
+      multibandSum.connect(dynamicsOutput);
+      multibandActive = true;
+    } else if (settings.compressorEnabled) {
+      compressor.connect(makeupGain);
+      makeupGain.connect(dynamicsOutput);
+      multibandActive = false;
+    } else {
+      multibandActive = false;
+    }
+
+    // Step 3: Connect bass cut -> next stage (EQ or treble cut or output)
+    if (bassCutActive) {
       if (settings.eqEnabled) {
-        afterBassCut = eqBands[0];
-        eqActive = true;
-      } else if (settings.multibandEnabled) {
-        afterBassCut = null; // Special: connect to crossovers
-        eqActive = false;
-      } else if (settings.compressorEnabled) {
-        afterBassCut = compressor;
-        eqActive = false;
+        bassCutFilter.connect(eqBands[0]);
+      } else if (trebleCutActive) {
+        bassCutFilter.connect(trebleCutFilter);
       } else {
-        afterBassCut = trebleCutActive ? trebleCutFilter : outputGain;
-        eqActive = false;
+        bassCutFilter.connect(outputGain);
       }
+    }
 
-      // Entry point: bass cut if active, otherwise afterBassCut
-      if (bassCutActive) {
-        entryNode = bassCutFilter;
-        if (afterBassCut === null) {
-          bassCutFilter.connect(crossover1.lowpass);
-          bassCutFilter.connect(crossover1.highpass);
-        } else {
-          bassCutFilter.connect(afterBassCut);
-        }
-      } else {
-        entryNode = afterBassCut;
-      }
-
-      // Dynamics output (where dynamics connects to)
-      const dynamicsOutput = trebleCutActive ? trebleCutFilter : outputGain;
-
-      // Wire up the rest of the chain based on settings
-      if (settings.eqEnabled) {
-        // EQ output goes to dynamics stage
-        if (settings.multibandEnabled) {
-          eqBands[4].connect(crossover1.lowpass);
-          eqBands[4].connect(crossover1.highpass);
-          multibandSum.connect(dynamicsOutput);
-          multibandActive = true;
-        } else if (settings.compressorEnabled) {
-          eqBands[4].connect(compressor);
-          compressor.connect(makeupGain);
-          makeupGain.connect(dynamicsOutput);
-          multibandActive = false;
-        } else {
-          eqBands[4].connect(dynamicsOutput);
-          multibandActive = false;
-        }
-      } else {
-        // No EQ
-        if (settings.multibandEnabled) {
-          multibandSum.connect(dynamicsOutput);
-          multibandActive = true;
-        } else if (settings.compressorEnabled) {
-          compressor.connect(makeupGain);
-          makeupGain.connect(dynamicsOutput);
-          multibandActive = false;
-        } else {
-          multibandActive = false;
-        }
-      }
-
-      // Connect treble cut to output if active
+    // Step 4: Connect EQ -> next stage (treble cut or output)
+    if (settings.eqEnabled) {
+      eqActive = true;
       if (trebleCutActive) {
-        trebleCutFilter.connect(outputGain);
+        eqBands[4].connect(trebleCutFilter);
+      } else {
+        eqBands[4].connect(outputGain);
       }
+    } else {
+      eqActive = false;
+    }
+
+    // Step 5: Connect treble cut -> output
+    if (trebleCutActive) {
+      trebleCutFilter.connect(outputGain);
+    }
+
+    // Step 6: Determine entry point for sources (dynamics stage)
+    let entryNode;
+    if (settings.multibandEnabled) {
+      entryNode = null; // Special: sources connect to crossovers
+    } else if (settings.compressorEnabled) {
+      entryNode = compressor;
+    } else if (bassCutActive) {
+      entryNode = bassCutFilter;
+    } else if (settings.eqEnabled) {
+      entryNode = eqBands[0];
+    } else if (trebleCutActive) {
+      entryNode = trebleCutFilter;
+    } else {
+      entryNode = outputGain;
     }
 
     // Connect all sources to the entry point
     connectedMedia.forEach(({ source }) => {
       if (entryNode === null) {
-        // Multiband without EQ and without bass cut: sources connect to crossovers
+        // Multiband: sources connect to crossovers
         source.connect(crossover1.lowpass);
         source.connect(crossover1.highpass);
       } else {
@@ -387,7 +391,7 @@
     });
 
     // Handle noise
-    noiseGain.gain.value = settings.enabled ? settings.noiseLevel : 0;
+    noiseGain.gain.value = settings.noiseLevel;
   }
 
   function applySettings() {

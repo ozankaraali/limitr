@@ -30,7 +30,7 @@
         <span class="slider"></span>
       </label>
       <span class="mode-divider">|</span>
-      <span class="mode-label mixer-mode" id="mixerModeLabel" title="Mixer mode: control multiple tabs (no fullscreen)">Mixer</span>
+      <span class="mode-label exclusive-mode" id="mixerModeLabel" title="Exclusive Mode: AI Noise Suppression, Limiter, AGC + Multi-tab mixing. No fullscreen support.">Exclusive</span>
       <label class="toggle small">
         <input type="checkbox" id="mixerModeToggle">
         <span class="slider"></span>
@@ -41,6 +41,11 @@
         <input type="checkbox" id="modeToggle">
         <span class="slider"></span>
       </label>
+    </div>
+
+    <div class="mode-info" id="modeInfo">
+      <span class="mode-badge regular" id="modeBadge">Regular Mode</span>
+      <span class="mode-note" id="modeNote">Fullscreen compatible</span>
     </div>
 
     <div class="meter-container">
@@ -56,27 +61,31 @@
       <div class="presets-grid">
         <button class="preset-btn" data-preset="off">
           <span class="preset-name">Off</span>
-          <span class="preset-desc">No compression</span>
+          <span class="preset-desc">No processing</span>
         </button>
         <button class="preset-btn preset-featured" data-preset="voiceFocus">
           <span class="preset-name">Voice Focus</span>
-          <span class="preset-desc">Multiband + EQ</span>
+          <span class="preset-desc">Podcasts & streams</span>
         </button>
-        <button class="preset-btn" data-preset="voiceClarity">
-          <span class="preset-name">Voice Clarity</span>
-          <span class="preset-desc">Speech & podcasts</span>
+        <button class="preset-btn" data-preset="streamWatch">
+          <span class="preset-name">Stream Watch</span>
+          <span class="preset-desc">Twitch & YouTube</span>
         </button>
-        <button class="preset-btn" data-preset="normalize">
-          <span class="preset-name">Normalize</span>
-          <span class="preset-desc">Balanced volume</span>
-        </button>
-        <button class="preset-btn" data-preset="bassTamer">
-          <span class="preset-name">Bass Tamer</span>
-          <span class="preset-desc">Moderate + bass cut</span>
+        <button class="preset-btn" data-preset="music">
+          <span class="preset-name">Music</span>
+          <span class="preset-desc">Preserve dynamics</span>
         </button>
         <button class="preset-btn" data-preset="nightMode">
           <span class="preset-name">Night Mode</span>
-          <span class="preset-desc">Heavy + bass cut</span>
+          <span class="preset-desc">Quiet listening</span>
+        </button>
+        <button class="preset-btn" data-preset="movie">
+          <span class="preset-name">Movie</span>
+          <span class="preset-desc">Action & dialog</span>
+        </button>
+        <button class="preset-btn" data-preset="bassTamer">
+          <span class="preset-name">Bass Tamer</span>
+          <span class="preset-desc">Reduce bass</span>
         </button>
         <button class="preset-btn" data-preset="tv90s">
           <span class="preset-name">90s TV</span>
@@ -179,51 +188,59 @@
         </select>
       </div>
 
-      <!-- AI Noise Suppression -->
-      <div class="control-section-label noise-suppression-header">
-        <span>AI Noise Suppression</span>
-        <label class="toggle small">
-          <input type="checkbox" id="noiseSuppressionToggle">
-          <span class="slider"></span>
-        </label>
-        <span class="noise-suppression-label" id="noiseSuppressionLabel">Off</span>
-      </div>
-      <div class="control-note" id="noiseSuppressionNote">
-        RNNoise AI removes background noise (keyboard, fan, etc.)
-      </div>
-
-      <!-- Auto-Gain (AGC) -->
-      <div class="control-section-label auto-gain-header">
-        <span>Auto-Gain (AGC)</span>
-        <label class="toggle small">
-          <input type="checkbox" id="autoGainToggle">
-          <span class="slider"></span>
-        </label>
-        <span class="auto-gain-label" id="autoGainLabel">Off</span>
-      </div>
-      <div class="control-group">
-        <div class="control-header">
-          <label for="autoGainTarget">Target Level</label>
-          <span class="value" id="autoGainTargetValue">-16 dB</span>
+      <!-- Exclusive Mode Features (AI Noise Suppression, Auto-Gain, Limiter) -->
+      <div class="exclusive-features-group" id="exclusiveFeaturesGroup">
+        <div class="exclusive-features-header">
+          <span>Exclusive Features</span>
+          <span class="exclusive-badge" id="exclusiveBadge">Requires Exclusive Mode</span>
         </div>
-        <input type="range" id="autoGainTarget" min="-30" max="-6" value="-16" step="1">
-      </div>
 
-      <!-- Limiter -->
-      <div class="control-section-label limiter-header">
-        <span>Limiter</span>
-        <label class="toggle small">
-          <input type="checkbox" id="limiterToggle" checked>
-          <span class="slider"></span>
-        </label>
-        <span class="limiter-label active" id="limiterLabel">On</span>
-      </div>
-      <div class="control-group">
-        <div class="control-header">
-          <label for="limiterThreshold">Ceiling</label>
-          <span class="value" id="limiterThresholdValue">-1 dB</span>
+        <!-- AI Noise Suppression -->
+        <div class="control-section-label noise-suppression-header">
+          <span>AI Noise Suppression</span>
+          <label class="toggle small">
+            <input type="checkbox" id="noiseSuppressionToggle">
+            <span class="slider"></span>
+          </label>
+          <span class="noise-suppression-label" id="noiseSuppressionLabel">Off</span>
         </div>
-        <input type="range" id="limiterThreshold" min="-6" max="0" value="-1" step="0.5">
+        <div class="control-note" id="noiseSuppressionNote">
+          RNNoise AI removes background noise (keyboard, fan, etc.)
+        </div>
+
+        <!-- Auto-Gain (AGC) -->
+        <div class="control-section-label auto-gain-header">
+          <span>Auto-Gain (AGC)</span>
+          <label class="toggle small">
+            <input type="checkbox" id="autoGainToggle">
+            <span class="slider"></span>
+          </label>
+          <span class="auto-gain-label" id="autoGainLabel">Off</span>
+        </div>
+        <div class="control-group">
+          <div class="control-header">
+            <label for="autoGainTarget">Target Level</label>
+            <span class="value" id="autoGainTargetValue">-16 dB</span>
+          </div>
+          <input type="range" id="autoGainTarget" min="-30" max="-6" value="-16" step="1">
+        </div>
+
+        <!-- Limiter -->
+        <div class="control-section-label limiter-header">
+          <span>Limiter</span>
+          <label class="toggle small">
+            <input type="checkbox" id="limiterToggle" checked>
+            <span class="slider"></span>
+          </label>
+          <span class="limiter-label active" id="limiterLabel">On</span>
+        </div>
+        <div class="control-group">
+          <div class="control-header">
+            <label for="limiterThreshold">Ceiling</label>
+            <span class="value" id="limiterThresholdValue">-1 dB</span>
+          </div>
+          <input type="range" id="limiterThreshold" min="-6" max="0" value="-1" step="0.5">
+        </div>
       </div>
 
       <!-- Filters Section (Bass/Treble Cut) -->

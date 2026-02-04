@@ -57,7 +57,9 @@ const defaults = {
   noiseType: 'brown'
 };
 
-// Presets (Off first, then ordered light to heavy)
+// Presets - designed for both Regular and Exclusive modes
+// Exclusive-only features (noiseSuppressionEnabled, autoGainEnabled, limiterEnabled)
+// will only activate in Exclusive mode but won't cause errors in Regular mode
 const presets = {
   off: {
     name: 'Off',
@@ -66,82 +68,146 @@ const presets = {
     eqEnabled: false,
     threshold: 0, ratio: 1, knee: 0, attack: 0, release: 0,
     makeupGain: 0, bassCutFreq: 0, trebleCutFreq: 22050,
+    noiseSuppressionEnabled: false,
+    limiterEnabled: false, limiterThreshold: -1,
+    autoGainEnabled: false, autoGainTarget: -16,
     noiseLevel: 0, noiseType: 'brown'
   },
   voiceFocus: {
     name: 'Voice Focus',
+    // Multiband: duck bass (music/sfx), boost mids (voice), tame highs (sibilance)
     compressorEnabled: false,
     multibandEnabled: true,
+    crossover1: 200, crossover2: 3000,
+    subThreshold: -15, subRatio: 12, subGain: -8,
+    midThreshold: -35, midRatio: 2, midGain: 4,
+    highThreshold: -25, highRatio: 6, highGain: -2,
+    // EQ: presence boost for clarity
     eqEnabled: true,
-    // Multiband: duck bass, preserve mids, tame highs
-    crossover1: 200,
-    crossover2: 3000,
-    subThreshold: -15,
-    subRatio: 12,
-    subGain: -8,
-    midThreshold: -35,
-    midRatio: 2,
-    midGain: 4,
-    highThreshold: -25,
-    highRatio: 6,
-    highGain: -2,
-    // EQ: highpass rumble, boost presence
     eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 200, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
     eq3Freq: 2500, eq3Gain: 3, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 5000, eq4Gain: 2, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 12000, eq5Gain: -2, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050,
+    // AI denoise for clean voice (Exclusive mode)
+    noiseSuppressionEnabled: true,
+    // Limiter catches loud donation alerts
+    limiterEnabled: true, limiterThreshold: -1,
+    // AGC off - multiband handles dynamics
+    autoGainEnabled: false, autoGainTarget: -16,
     noiseLevel: 0, noiseType: 'brown'
   },
-  voiceClarity: {
-    name: 'Voice Clarity',
+  streamWatch: {
+    name: 'Stream Watch',
+    // Single-band compression for general leveling
     compressorEnabled: true,
     multibandEnabled: false,
+    threshold: -28, ratio: 6, knee: 10, attack: 5, release: 150,
+    makeupGain: 3,
+    // Light EQ: reduce harshness
     eqEnabled: true,
-    threshold: -30, ratio: 6, knee: 10, attack: 5, release: 150,
-    makeupGain: 4,
-    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 2000, eq3Gain: 2, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 12000, eq5Gain: -3, eq5Q: 0.7, eq5Type: 'lowpass',
+    eq3Freq: 3000, eq3Gain: 1, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 6000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 10000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050,
+    // AI denoise for cleaner streamer audio
+    noiseSuppressionEnabled: true,
+    // AGC for consistent volume across different streamers
+    autoGainEnabled: true, autoGainTarget: -18,
+    // Limiter for loud moments
+    limiterEnabled: true, limiterThreshold: -1,
     noiseLevel: 0, noiseType: 'brown'
   },
-  normalize: {
-    name: 'Normalize',
+  music: {
+    name: 'Music',
+    // Light compression - preserve dynamics
     compressorEnabled: true,
     multibandEnabled: false,
-    eqEnabled: false,
-    threshold: -24, ratio: 8, knee: 12, attack: 5, release: 100,
+    threshold: -20, ratio: 3, knee: 20, attack: 10, release: 200,
+    makeupGain: 2,
+    // Subtle EQ enhancement
+    eqEnabled: true,
+    eq1Freq: 30, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 100, eq2Gain: 1, eq2Q: 1.0, eq2Type: 'lowshelf',
+    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 4000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 10000, eq5Gain: 1, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050,
+    // No noise suppression - preserves audio quality
+    noiseSuppressionEnabled: false,
+    // No AGC - preserve dynamic range
+    autoGainEnabled: false, autoGainTarget: -16,
+    // Limiter only as safety net
+    limiterEnabled: true, limiterThreshold: -0.5,
+    noiseLevel: 0, noiseType: 'brown'
+  },
+  nightMode: {
+    name: 'Night Mode',
+    // Aggressive compression for quiet listening
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -40, ratio: 15, knee: 6, attack: 1, release: 50,
     makeupGain: 6,
+    // Reduce bass to not disturb others
+    eqEnabled: true,
+    eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 10000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050,
+    // No noise suppression needed
+    noiseSuppressionEnabled: false,
+    // AGC ensures consistent quiet volume
+    autoGainEnabled: true, autoGainTarget: -20,
+    // Lower limiter ceiling
+    limiterEnabled: true, limiterThreshold: -3,
+    noiseLevel: 0, noiseType: 'brown'
+  },
+  movie: {
+    name: 'Movie',
+    // Multiband: tame bass (explosions), preserve dialog
+    compressorEnabled: false,
+    multibandEnabled: true,
+    crossover1: 150, crossover2: 2500,
+    subThreshold: -25, subRatio: 10, subGain: -4,
+    midThreshold: -30, midRatio: 3, midGain: 2,
+    highThreshold: -20, highRatio: 4, highGain: 0,
+    // Dialog enhancement
+    eqEnabled: true,
+    eq1Freq: 40, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 200, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 2000, eq3Gain: 3, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 4000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 8000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050,
+    noiseSuppressionEnabled: false,
+    // AGC for consistent dialog volume
+    autoGainEnabled: true, autoGainTarget: -16,
+    // Limiter catches explosions
+    limiterEnabled: true, limiterThreshold: -1,
     noiseLevel: 0, noiseType: 'brown'
   },
   bassTamer: {
     name: 'Bass Tamer',
     compressorEnabled: true,
     multibandEnabled: false,
-    eqEnabled: true,
     threshold: -30, ratio: 10, knee: 8, attack: 2, release: 100,
     makeupGain: 4,
-    eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 250, eq2Gain: -3, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 22050, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
-    noiseLevel: 0, noiseType: 'brown'
-  },
-  nightMode: {
-    name: 'Night Mode',
-    compressorEnabled: true,
-    multibandEnabled: false,
+    // Aggressive bass reduction
     eqEnabled: true,
-    threshold: -40, ratio: 15, knee: 6, attack: 1, release: 50,
-    makeupGain: 6,
     eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 22050, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
+    eq3Freq: 500, eq3Gain: -2, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 2000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 8000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050,
+    noiseSuppressionEnabled: false,
+    autoGainEnabled: false, autoGainTarget: -16,
+    limiterEnabled: true, limiterThreshold: -1,
     noiseLevel: 0, noiseType: 'brown'
   },
   tv90s: {
@@ -151,9 +217,12 @@ const presets = {
     eqEnabled: false,
     threshold: -35, ratio: 15, knee: 6, attack: 2, release: 100,
     makeupGain: 5,
-    // Dedicated filters for that classic narrow bandwidth TV sound
-    bassCutFreq: 200,    // Remove deep bass (old TV speakers can't reproduce)
-    trebleCutFreq: 8000, // Roll off highs (limited HF response)
+    // Classic narrow bandwidth
+    bassCutFreq: 200, trebleCutFreq: 8000,
+    noiseSuppressionEnabled: false,
+    autoGainEnabled: false, autoGainTarget: -16,
+    limiterEnabled: true, limiterThreshold: -2,
+    // Brown noise for that analog warmth
     noiseLevel: 0.15, noiseType: 'brown'
   }
 };
@@ -303,7 +372,14 @@ async function init() {
     mixerList: document.getElementById('mixerList'),
     mediaCount: document.getElementById('mediaCount'),
     crtToggle: document.getElementById('crtToggle'),
-    crtLabel: document.getElementById('crtLabel')
+    crtLabel: document.getElementById('crtLabel'),
+    // Mode indicator
+    modeInfo: document.getElementById('modeInfo'),
+    modeBadge: document.getElementById('modeBadge'),
+    modeNote: document.getElementById('modeNote'),
+    // Exclusive features group
+    exclusiveFeaturesGroup: document.getElementById('exclusiveFeaturesGroup'),
+    exclusiveBadge: document.getElementById('exclusiveBadge')
   };
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -690,6 +766,49 @@ function updateModeDisplay() {
   if (elements.modeLabel) elements.modeLabel.textContent = advancedMode ? 'Advanced' : 'Simple';
   if (elements.simpleControls) elements.simpleControls.style.display = advancedMode ? 'none' : 'block';
   if (elements.advancedControls) elements.advancedControls.style.display = advancedMode ? 'block' : 'none';
+
+  // Update mode indicator and exclusive features
+  updateExclusiveFeatureVisibility();
+}
+
+function updateExclusiveFeatureVisibility() {
+  // Update mode indicator badge
+  if (elements.modeBadge) {
+    if (mixerMode) {
+      elements.modeBadge.textContent = 'Exclusive Mode';
+      elements.modeBadge.classList.remove('regular');
+      elements.modeBadge.classList.add('exclusive');
+    } else {
+      elements.modeBadge.textContent = 'Regular Mode';
+      elements.modeBadge.classList.remove('exclusive');
+      elements.modeBadge.classList.add('regular');
+    }
+  }
+
+  if (elements.modeNote) {
+    if (mixerMode) {
+      elements.modeNote.textContent = 'AI Denoise • AGC • No fullscreen';
+      elements.modeNote.classList.add('exclusive');
+    } else {
+      elements.modeNote.textContent = 'Fullscreen compatible';
+      elements.modeNote.classList.remove('exclusive');
+    }
+  }
+
+  // Update exclusive features group
+  if (elements.exclusiveFeaturesGroup) {
+    elements.exclusiveFeaturesGroup.classList.toggle('unavailable', !mixerMode);
+  }
+
+  if (elements.exclusiveBadge) {
+    if (mixerMode) {
+      elements.exclusiveBadge.textContent = 'Active';
+      elements.exclusiveBadge.classList.add('active');
+    } else {
+      elements.exclusiveBadge.textContent = 'Requires Exclusive Mode';
+      elements.exclusiveBadge.classList.remove('active');
+    }
+  }
 }
 
 function updateMixerAvailability() {
