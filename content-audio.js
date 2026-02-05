@@ -94,6 +94,12 @@
     limiterAttack: 1,
     limiterRelease: 100,
 
+    // Noise Gate (not supported in fallback mode — Exclusive only)
+    gateEnabled: false,
+    gateThreshold: -50,
+    gateHold: 100,
+    gateRelease: 200,
+
     // Effects
     noiseLevel: 0,
     noiseType: 'brown',

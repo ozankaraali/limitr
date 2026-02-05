@@ -754,6 +754,27 @@ input[type="range"]::-moz-range-thumb {
   padding-left: 2px;
 }
 
+/* Noise Gate header with inline toggle */
+.noise-gate-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.noise-gate-header .toggle {
+  margin-left: auto;
+}
+
+.noise-gate-label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.noise-gate-label.active {
+  color: #22c55e;
+}
+
 /* Auto-Gain header with inline toggle */
 .auto-gain-header {
   display: flex;

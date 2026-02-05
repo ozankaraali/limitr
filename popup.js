@@ -59,6 +59,12 @@ const defaults = {
   limiterAttack: 1,
   limiterRelease: 100,
 
+  // Noise Gate (silences hiss in quiet gaps — Exclusive only)
+  gateEnabled: false,
+  gateThreshold: -50,
+  gateHold: 100,
+  gateRelease: 200,
+
   // Effects
   noiseLevel: 0,
   noiseType: 'brown',
@@ -81,6 +87,7 @@ const presets = {
     limiterEnabled: false, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   voiceFocus: {
@@ -104,6 +111,7 @@ const presets = {
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     makeupGain: 0, gainEnabled: true,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
@@ -124,6 +132,7 @@ const presets = {
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: true, autoGainTarget: -20, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -145,6 +154,7 @@ const presets = {
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -0.5,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -166,6 +176,7 @@ const presets = {
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: true, autoGainTarget: -20, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -189,6 +200,7 @@ const presets = {
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: true, autoGainTarget: -18, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
     makeupGain: 0, gainEnabled: true,
@@ -210,6 +222,7 @@ const presets = {
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -225,6 +238,7 @@ const presets = {
     bassCutFreq: 200, trebleCutFreq: 8000, filtersEnabled: true,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -2,
     limiterAttack: 1, limiterRelease: 100,
     // Brown noise for that analog warmth
@@ -250,9 +264,32 @@ const presets = {
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: true, autoGainTarget: -20, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -6,
     limiterAttack: 1, limiterRelease: 100,
     makeupGain: 0, gainEnabled: true,
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
+  },
+  antiScream: {
+    name: 'Anti-Scream',
+    // Brute-force compression crushes all peaks, fast AGC reacts to sudden volume changes
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -45, ratio: 15, knee: 6, attack: 1, release: 200,
+    makeupGain: 0, gainEnabled: true,
+    // No EQ coloring — pure volume protection
+    eqEnabled: false,
+    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 8000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
+    noiseSuppressionEnabled: false,
+    autoGainEnabled: true, autoGainTarget: -10, autoGainSpeed: 'fast',
+    gateEnabled: false, gateThreshold: -50,
+    limiterEnabled: true, limiterThreshold: -6,
+    limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   podcast: {
@@ -272,6 +309,7 @@ const presets = {
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: true, autoGainTarget: -18, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -293,6 +331,7 @@ const presets = {
     bassCutFreq: 0, trebleCutFreq: 14000, filtersEnabled: true,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
     // Subtle brown noise for warmth
@@ -300,10 +339,10 @@ const presets = {
   },
   sleep: {
     name: 'Sleep',
-    // Maximum compression for ultra-consistent volume
+    // Moderate compression — catches loud peaks, preserves natural speech dynamics
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -45, ratio: 15, knee: 6, attack: 1, release: 200,
+    threshold: -30, ratio: 6, knee: 10, attack: 1, release: 200,
     makeupGain: 0, gainEnabled: true,
     // Aggressive treble filtering for gentle sound
     eqEnabled: true,
@@ -314,7 +353,8 @@ const presets = {
     eq5Freq: 8000, eq5Gain: -6, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 10000, filtersEnabled: true,
     noiseSuppressionEnabled: false,
-    autoGainEnabled: true, autoGainTarget: -24, autoGainSpeed: 'slow',
+    autoGainEnabled: true, autoGainTarget: -18, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -6,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -334,6 +374,8 @@ const presetKeys = [
   'limiterEnabled', 'limiterThreshold',
   'autoGainEnabled', 'autoGainTarget', 'autoGainSpeed',
   'limiterAttack', 'limiterRelease',
+  // Noise Gate
+  'gateEnabled', 'gateThreshold',
   // Multiband
   'crossover1', 'crossover2',
   'subThreshold', 'subRatio', 'subGain',
@@ -488,6 +530,11 @@ async function init() {
     autoGainTarget: document.getElementById('autoGainTarget'),
     autoGainTargetValue: document.getElementById('autoGainTargetValue'),
     autoGainSpeed: document.getElementById('autoGainSpeed'),
+    // Noise Gate
+    gateToggle: document.getElementById('gateToggle'),
+    gateLabel: document.getElementById('gateLabel'),
+    gateThreshold: document.getElementById('gateThreshold'),
+    gateThresholdValue: document.getElementById('gateThresholdValue'),
     presetBtns: document.querySelectorAll('.preset-btn'),
     mixerToggle: document.getElementById('mixerToggle'),
     mixerPanel: document.getElementById('mixerPanel'),
@@ -858,6 +905,19 @@ function updateUI() {
   if (elements.limiterThreshold) {
     elements.limiterThreshold.value = currentSettings.limiterThreshold;
     elements.limiterThresholdValue.textContent = `${currentSettings.limiterThreshold} dB`;
+  }
+
+  // Noise Gate
+  if (elements.gateToggle) {
+    elements.gateToggle.checked = currentSettings.gateEnabled;
+  }
+  if (elements.gateLabel) {
+    elements.gateLabel.textContent = currentSettings.gateEnabled ? 'On' : 'Off';
+    elements.gateLabel.classList.toggle('active', currentSettings.gateEnabled);
+  }
+  if (elements.gateThreshold) {
+    elements.gateThreshold.value = currentSettings.gateThreshold;
+    elements.gateThresholdValue.textContent = `${currentSettings.gateThreshold} dB`;
   }
 
   // Auto-Gain
@@ -1347,6 +1407,16 @@ function setupEventListeners() {
     });
   }
   setupSlider('autoGainTarget', 'autoGainTarget', 'autoGainTargetValue', v => `${v} dB`, true);
+
+  // Noise Gate toggle and threshold
+  if (elements.gateToggle) {
+    elements.gateToggle.addEventListener('change', (e) => {
+      currentSettings.gateEnabled = e.target.checked;
+      updateUI();
+      updateTabSettings();
+    });
+  }
+  setupSlider('gateThreshold', 'gateThreshold', 'gateThresholdValue', v => `${v} dB`, true);
 
   // AGC Speed dropdown
   if (elements.autoGainSpeed) {

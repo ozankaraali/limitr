@@ -91,6 +91,12 @@ const defaultSettings = {
   limiterAttack: 1,      // ms
   limiterRelease: 100,   // ms
 
+  // === NOISE GATE (silences hiss in quiet gaps) ===
+  gateEnabled: false,
+  gateThreshold: -50,   // dB — below this, gate closes (range: -80 to -20)
+  gateHold: 100,        // ms — grace period before closing after signal drops
+  gateRelease: 200,     // ms — fade-out time when closing
+
   // === EFFECTS ===
   noiseLevel: 0,
   noiseType: 'brown'
@@ -366,6 +372,84 @@ async function createAudioChain(tabId, mediaStreamId) {
       }
     };
 
+    // === NOISE GATE ===
+    const gateNode = audioContext.createGain();
+    gateNode.gain.value = 1;
+
+    const gateAnalyser = audioContext.createAnalyser();
+    gateAnalyser.fftSize = 2048;
+    const gateAnalyserBuffer = new Float32Array(gateAnalyser.fftSize);
+
+    // Gate state
+    let gateIsOpen = true;
+    let gateHoldCounter = 0;
+    let gateIntervalId = null;
+
+    const updateGate = () => {
+      const s = state.settings;
+      gateAnalyser.getFloatTimeDomainData(gateAnalyserBuffer);
+
+      // Calculate RMS
+      let sumSquares = 0;
+      for (let i = 0; i < gateAnalyserBuffer.length; i++) {
+        sumSquares += gateAnalyserBuffer[i] * gateAnalyserBuffer[i];
+      }
+      const rms = Math.sqrt(sumSquares / gateAnalyserBuffer.length);
+      const currentDb = rms > 0 ? 20 * Math.log10(rms) : -100;
+
+      const threshold = s.gateThreshold;
+      const holdTicks = Math.max(1, Math.round(s.gateHold / 20)); // 20ms tick
+      const releaseTime = s.gateRelease / 1000; // seconds
+
+      if (currentDb >= threshold) {
+        // Signal above threshold — open gate fast (~6ms attack)
+        if (!gateIsOpen) {
+          gateNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.006);
+          gateIsOpen = true;
+          console.log('[Limitr] Gate OPEN at', currentDb.toFixed(1), 'dB (threshold:', threshold, 'dB)');
+        }
+        gateHoldCounter = holdTicks;
+      } else {
+        // Signal below threshold
+        if (gateHoldCounter > 0) {
+          gateHoldCounter--;
+        } else if (gateIsOpen) {
+          // Hold expired — close gate with smooth release
+          gateNode.gain.setTargetAtTime(0, audioContext.currentTime, releaseTime / 3);
+          gateIsOpen = false;
+          console.log('[Limitr] Gate CLOSED at', currentDb.toFixed(1), 'dB (threshold:', threshold, 'dB)');
+        }
+      }
+
+      // Periodic debug log (every ~1 second)
+      gateTickCount++;
+      if (gateTickCount % 50 === 0) {
+        console.log('[Limitr] Gate monitor:', currentDb.toFixed(1), 'dB | threshold:', threshold, 'dB | state:', gateIsOpen ? 'OPEN' : 'CLOSED');
+      }
+    };
+
+    let gateTickCount = 0;
+
+    const startGate = () => {
+      if (gateIntervalId) return;
+      gateIsOpen = true;
+      gateHoldCounter = 0;
+      gateTickCount = 0;
+      gateNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.006);
+      gateIntervalId = setInterval(updateGate, 20);
+      console.log('[Limitr] Noise gate started, threshold:', state.settings.gateThreshold, 'dB');
+    };
+
+    const stopGate = () => {
+      if (gateIntervalId) {
+        clearInterval(gateIntervalId);
+        gateIntervalId = null;
+      }
+      gateIsOpen = true;
+      gateHoldCounter = 0;
+      gateNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.006);
+    };
+
     // === AI NOISE SUPPRESSION (RNNoise) ===
     // Will be initialized asynchronously
     let noiseSuppressorNode = null;
@@ -508,6 +592,16 @@ async function createAudioChain(tabId, mediaStreamId) {
         agcTarget = target;
       },
       setAgcSpeed,
+      // Noise gate
+      gateNode,
+      gateAnalyser,
+      setGateEnabled: (enabled) => {
+        if (enabled) {
+          startGate();
+        } else {
+          stopGate();
+        }
+      },
       // Noise suppression
       getNoiseSuppressor: () => ({ node: noiseSuppressorNode, ready: noiseSuppressorReady }),
       setNoiseSuppressorEnabled: (enabled) => {
@@ -539,6 +633,7 @@ function rebuildSignalChain(state) {
   const { source, compressor, makeupGain, outputGain,
           crossover1, multibandSum, eqBands, bassCutFilter, trebleCutFilter,
           limiter, preLimiter, autoGainNode, analyser, setAgcEnabled,
+          gateNode, gateAnalyser, setGateEnabled,
           getNoiseSuppressor, setNoiseSuppressorEnabled, settings } = state;
 
   // Get noise suppressor state
@@ -557,6 +652,8 @@ function rebuildSignalChain(state) {
   trebleCutFilter.disconnect();
   autoGainNode.disconnect();
   analyser.disconnect();
+  gateNode.disconnect();
+  gateAnalyser.disconnect();
   limiter.disconnect();
   preLimiter.disconnect();
 
@@ -567,6 +664,7 @@ function rebuildSignalChain(state) {
     state.multibandActive = false;
     if (noiseSuppressorNode) setNoiseSuppressorEnabled(false);
     setAgcEnabled(false);
+    setGateEnabled(false);
     console.log('[Limitr] Signal chain: BYPASSED (disabled)');
     return;
   }
@@ -639,6 +737,16 @@ function rebuildSignalChain(state) {
     setAgcEnabled(false);
   }
 
+  // Noise Gate (silences hiss in quiet gaps - after AGC, before limiter)
+  if (settings.gateEnabled) {
+    currentNode.connect(gateAnalyser);  // Analyser for measurement (parallel)
+    currentNode.connect(gateNode);      // Gain node for gating (inline)
+    currentNode = gateNode;
+    setGateEnabled(true);
+  } else {
+    setGateEnabled(false);
+  }
+
   // Limiter (user-controllable, brick wall output limiter - prevents clipping from EQ/AGC boosts)
   if (settings.limiterEnabled) {
     currentNode.connect(limiter);
@@ -648,7 +756,7 @@ function rebuildSignalChain(state) {
   // Final output
   currentNode.connect(outputGain);
 
-  console.log(`[Limitr] Signal chain: Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> PreLimiter=${noiseSuppressionActive ? '-1dB' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.trebleCutFreq < 20000 ? settings.trebleCutFreq + 'Hz' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'}`);
+  console.log(`[Limitr] Signal chain: Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> PreLimiter=${noiseSuppressionActive ? '-1dB' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.trebleCutFreq < 20000 ? settings.trebleCutFreq + 'Hz' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Gate=${settings.gateEnabled ? settings.gateThreshold + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'}`);
 }
 
 // Update settings for a tab
@@ -677,6 +785,7 @@ function updateSettings(tabId, newSettings) {
     newSettings.noiseSuppressionEnabled !== undefined && newSettings.noiseSuppressionEnabled !== state.settings.noiseSuppressionEnabled ||
     newSettings.limiterEnabled !== undefined && newSettings.limiterEnabled !== state.settings.limiterEnabled ||
     newSettings.autoGainEnabled !== undefined && newSettings.autoGainEnabled !== state.settings.autoGainEnabled ||
+    newSettings.gateEnabled !== undefined && newSettings.gateEnabled !== state.settings.gateEnabled ||
     bassCutRoutingChanged || trebleCutRoutingChanged
   );
 

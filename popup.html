@@ -102,6 +102,10 @@
           <span class="preset-name">Stream Safe</span>
           <span class="preset-desc">Anti-scream</span>
         </button>
+        <button class="preset-btn preset-safety" data-preset="antiScream">
+          <span class="preset-name">Anti-Scream</span>
+          <span class="preset-desc">Crush all peaks</span>
+        </button>
         <button class="preset-btn" data-preset="nightMode">
           <span class="preset-name">Night Mode</span>
           <span class="preset-desc">Quiet watching</span>
@@ -185,6 +189,26 @@
               <option value="normal" selected>Normal (Balanced)</option>
               <option value="fast">Fast (Anti-scream)</option>
             </select>
+          </div>
+
+          <!-- Noise Gate -->
+          <div class="control-section-label noise-gate-header">
+            <span>Noise Gate</span>
+            <label class="toggle small">
+              <input type="checkbox" id="gateToggle">
+              <span class="slider"></span>
+            </label>
+            <span class="noise-gate-label" id="gateLabel">Off</span>
+          </div>
+          <div class="control-note">
+            Silences hiss/noise in quiet sections
+          </div>
+          <div class="control-group">
+            <div class="control-header">
+              <label for="gateThreshold">Threshold</label>
+              <span class="value" id="gateThresholdValue">-50 dB</span>
+            </div>
+            <input type="range" id="gateThreshold" min="-80" max="-20" value="-50" step="1">
           </div>
         </div>
       </div>
