@@ -207,13 +207,10 @@ const presets = {
   },
   movie: {
     name: 'Movie',
-    // Multiband dynamics only (no band gains), EQ does tonal shaping
-    compressorEnabled: false,
-    multibandEnabled: true,
-    crossover1: 250, crossover2: 2500,
-    subThreshold: -25, subRatio: 6, subGain: 0,
-    midThreshold: -30, midRatio: 3, midGain: 0,
-    highThreshold: -20, highRatio: 4, highGain: 0,
+    // Single-band compression + dialog EQ — no multiband bass crushing
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -26, ratio: 6, knee: 10, attack: 3, release: 150,
     // Light dialog clarity + tame rumble
     eqEnabled: true,
     eq1Freq: 40, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
