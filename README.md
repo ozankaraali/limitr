@@ -3,8 +3,8 @@
 A browser extension for real-time audio compression, limiting, EQ, and normalization. Perfect for streaming sites where audio levels can vary wildly.
 
 ![Simple Mode](docs/assets/screenshot-1-simple-mode.png)
-![Advanced Mode](docs/assets/screenshot-2-advanced-mode.png)
-![Active](docs/assets/screenshot-3-active-night-mode.png)
+![Active Exclusive Mode](docs/assets/screenshot-2-active-exclusive.png)
+![Advanced Mode](docs/assets/screenshot-3-advanced-mode.png)
 
 ## Features
 
