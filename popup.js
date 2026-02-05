@@ -207,19 +207,19 @@ const presets = {
   },
   movie: {
     name: 'Movie',
-    // Multiband: tame bass (explosions), preserve dialog
+    // Multiband dynamics only (no band gains), EQ does tonal shaping
     compressorEnabled: false,
     multibandEnabled: true,
     crossover1: 250, crossover2: 2500,
-    subThreshold: -25, subRatio: 10, subGain: -4,
-    midThreshold: -30, midRatio: 3, midGain: 2,
+    subThreshold: -25, subRatio: 6, subGain: 0,
+    midThreshold: -30, midRatio: 3, midGain: 0,
     highThreshold: -20, highRatio: 4, highGain: 0,
-    // Dialog enhancement
+    // Light dialog clarity + tame rumble
     eqEnabled: true,
     eq1Freq: 40, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 200, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 2000, eq3Gain: 3, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
+    eq3Freq: 2000, eq3Gain: 2, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 8000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
@@ -274,7 +274,7 @@ const presets = {
     compressorEnabled: true,
     multibandEnabled: false,
     threshold: -25, ratio: 4, knee: 12, attack: 3, release: 200,
-    makeupGain: 0, gainEnabled: true,
+    makeupGain: -10, gainEnabled: true,
     // Bass rumble cut + scream frequency taming (3k/5k) for quiet watching
     eqEnabled: true,
     eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
@@ -316,8 +316,8 @@ const presets = {
     // Soft compression + heavy treble cuts for falling asleep — limiter catches peaks
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -25, ratio: 6, knee: 15, attack: 5, release: 300,
-    makeupGain: 0, gainEnabled: true,
+    threshold: -30, ratio: 8, knee: 15, attack: 3, release: 300,
+    makeupGain: -15, gainEnabled: true,
     // Aggressive treble/harsh frequency cuts for sleep comfort
     eqEnabled: true,
     eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
