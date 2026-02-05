@@ -28,12 +28,15 @@ async function setActive(page) {
   });
 }
 
-// Helper: simulate exclusive mode visuals
+// Helper: simulate exclusive mode visuals + remove grayed-out state
 async function setExclusiveMode(page) {
   await page.evaluate(() => {
+    // Set the JS variable so any subsequent calls see exclusive mode
+    window.mixerMode = true;
+
+    // Mode badge
     const badge = document.getElementById('modeBadge');
     const note = document.getElementById('modeNote');
-    const excBadge = document.getElementById('exclusiveBadge');
     if (badge) {
       badge.textContent = 'Exclusive';
       badge.classList.remove('regular');
@@ -43,9 +46,25 @@ async function setExclusiveMode(page) {
       note.textContent = 'AI Denoise \u2022 AGC \u2022 No fullscreen';
       note.classList.add('exclusive');
     }
-    if (excBadge) excBadge.classList.add('active');
+
+    // Exclusive toggle
     const toggle = document.getElementById('mixerModeToggle');
     if (toggle) toggle.checked = true;
+
+    // Remove "unavailable" grayed-out state from exclusive features
+    const excGroup = document.getElementById('exclusiveFeaturesGroup');
+    if (excGroup) excGroup.classList.remove('unavailable');
+
+    // Activate the exclusive badge ("Active" instead of "Requires Exclusive Mode")
+    const excBadge = document.getElementById('exclusiveBadge');
+    if (excBadge) {
+      excBadge.textContent = 'Active';
+      excBadge.classList.add('active');
+    }
+
+    // Un-gray simple mode ANC row too
+    const simpleAnc = document.getElementById('simpleAncRow');
+    if (simpleAnc) simpleAnc.classList.remove('unavailable');
   });
 }
 
