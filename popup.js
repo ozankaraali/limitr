@@ -74,6 +74,7 @@ const defaults = {
 // Presets - designed for both Regular and Exclusive modes
 // Exclusive-only features (noiseSuppressionEnabled, autoGainEnabled, limiterEnabled)
 // will only activate in Exclusive mode but won't cause errors in Regular mode
+// Preset order: lightest → heaviest processing
 const presets = {
   off: {
     name: 'Off',
@@ -88,6 +89,95 @@ const presets = {
     limiterAttack: 1, limiterRelease: 100,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
+  },
+  music: {
+    name: 'Music',
+    // Light compression - preserve dynamics
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -20, ratio: 3, knee: 20, attack: 10, release: 200,
+    makeupGain: 0, gainEnabled: true,
+    // Subtle EQ enhancement
+    eqEnabled: true,
+    eq1Freq: 50, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 100, eq2Gain: 1, eq2Q: 1.0, eq2Type: 'lowshelf',
+    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 4000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 10000, eq5Gain: 1, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
+    noiseSuppressionEnabled: false,
+    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
+    limiterEnabled: true, limiterThreshold: -0.5,
+    limiterAttack: 1, limiterRelease: 100,
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
+  },
+  lofi: {
+    name: 'Lo-Fi',
+    // Gentle compression with soft knee and slow attack
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -25, ratio: 3, knee: 20, attack: 15, release: 200,
+    makeupGain: 0, gainEnabled: true,
+    // Warm bass boost + high-shelf rolloff
+    eqEnabled: true,
+    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 200, eq2Gain: 2, eq2Q: 1.0, eq2Type: 'lowshelf',
+    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 8000, eq5Gain: -4, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 14000, filtersEnabled: true,
+    noiseSuppressionEnabled: false,
+    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
+    limiterEnabled: true, limiterThreshold: -1,
+    limiterAttack: 1, limiterRelease: 100,
+    // Subtle brown noise for warmth
+    noiseLevel: 0.05, noiseType: 'brown', effectsEnabled: true
+  },
+  streamWatch: {
+    name: 'Stream Watch',
+    // Single-band compression for general leveling
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -28, ratio: 5, knee: 10, attack: 2, release: 150,
+    makeupGain: 0, gainEnabled: true,
+    // Light EQ: reduce harshness
+    eqEnabled: true,
+    eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 3000, eq3Gain: 1, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 6000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 10000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
+    noiseSuppressionEnabled: false,
+    autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
+    gateEnabled: true, gateThreshold: -45, gateHold: 150, gateRelease: 250,
+    limiterEnabled: true, limiterThreshold: -3,
+    limiterAttack: 1, limiterRelease: 100,
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
+  },
+  podcast: {
+    name: 'Podcast',
+    // Single-band compression for voice consistency
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -30, ratio: 6, knee: 10, attack: 3, release: 150,
+    makeupGain: 0, gainEnabled: true,
+    // De-essing + presence boost + proximity reduction
+    eqEnabled: true,
+    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 200, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 2000, eq3Gain: 2, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 6000, eq4Gain: -3, eq4Q: 1.5, eq4Type: 'peaking',
+    eq5Freq: 12000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
+    noiseSuppressionEnabled: false,
+    autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
+    limiterEnabled: true, limiterThreshold: -2,
+    limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   voiceFocus: {
@@ -113,72 +203,6 @@ const presets = {
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
     makeupGain: 0, gainEnabled: true,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  streamWatch: {
-    name: 'Stream Watch',
-    // Single-band compression for general leveling
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -28, ratio: 5, knee: 10, attack: 2, release: 150,
-    makeupGain: 0, gainEnabled: true,
-    // Light EQ: reduce harshness
-    eqEnabled: true,
-    eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: 1, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 6000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 10000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
-    gateEnabled: true, gateThreshold: -45, gateHold: 150, gateRelease: 250,
-    limiterEnabled: true, limiterThreshold: -3,
-    limiterAttack: 1, limiterRelease: 100,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  music: {
-    name: 'Music',
-    // Light compression - preserve dynamics
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -20, ratio: 3, knee: 20, attack: 10, release: 200,
-    makeupGain: 0, gainEnabled: true,
-    // Subtle EQ enhancement
-    eqEnabled: true,
-    eq1Freq: 50, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 100, eq2Gain: 1, eq2Q: 1.0, eq2Type: 'lowshelf',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 10000, eq5Gain: 1, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    limiterEnabled: true, limiterThreshold: -0.5,
-    limiterAttack: 1, limiterRelease: 100,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  nightMode: {
-    name: 'Night Mode',
-    // Moderate compression for low-volume watching (softer ratio to avoid inversion with AGC)
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -28, ratio: 6, knee: 6, attack: 1, release: 200,
-    makeupGain: 0, gainEnabled: true,
-    // Reduce bass rumble + tame harsh highs for quiet watching
-    eqEnabled: true,
-    eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -3, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    limiterEnabled: true, limiterThreshold: -3,
-    limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   movie: {
@@ -244,6 +268,28 @@ const presets = {
     // Brown noise for that analog warmth
     noiseLevel: 0.15, noiseType: 'brown', effectsEnabled: true
   },
+  nightMode: {
+    name: 'Night Mode',
+    // Gentle compression for comfortable low-volume watching + scream taming
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -25, ratio: 4, knee: 12, attack: 3, release: 200,
+    makeupGain: 0, gainEnabled: true,
+    // Bass rumble cut + scream frequency taming (3k/5k) for quiet watching
+    eqEnabled: true,
+    eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 3000, eq3Gain: -2, eq3Q: 1.5, eq3Type: 'peaking',
+    eq4Freq: 5000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 8000, eq5Gain: -3, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
+    noiseSuppressionEnabled: false,
+    autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
+    limiterEnabled: true, limiterThreshold: -3,
+    limiterAttack: 1, limiterRelease: 100,
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
+  },
   antiScream: {
     name: 'Anti-Scream',
     // 12:1 compression at -35dB crushes all peaks + EQ cuts at scream harmonics (3-5kHz)
@@ -265,104 +311,12 @@ const presets = {
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
-  // --- OLD PRESETS (commented out for A/B testing) ---
-  // streamSafe_old: {
-  //   name: 'Stream Safe (old)',
-  //   // Multiband with crossover2 at 2500Hz — sounded nasal/phone-like on loud content
-  //   compressorEnabled: false,
-  //   multibandEnabled: true,
-  //   crossover1: 200, crossover2: 2500,
-  //   subThreshold: -20, subRatio: 8, subGain: 0,
-  //   midThreshold: -25, midRatio: 4, midGain: 2,
-  //   highThreshold: -25, highRatio: 8, highGain: -2,
-  //   knee: 6, attack: 1, release: 100,
-  //   eqEnabled: true,
-  //   eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-  //   eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-  //   eq3Freq: 3500, eq3Gain: -2, eq3Q: 1.5, eq3Type: 'peaking',
-  //   eq4Freq: 5000, eq4Gain: -1, eq4Q: 1.0, eq4Type: 'peaking',
-  //   eq5Freq: 12000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
-  //   bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-  //   noiseSuppressionEnabled: false,
-  //   autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
-  //   gateEnabled: false, gateThreshold: -50,
-  //   limiterEnabled: true, limiterThreshold: -6,
-  //   limiterAttack: 1, limiterRelease: 100,
-  //   makeupGain: 0, gainEnabled: true,
-  //   noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  // },
-  // antiScream_old: {
-  //   name: 'Anti-Scream (old)',
-  //   // Brute-force compression only, no EQ — didn't target scream frequencies
-  //   compressorEnabled: true,
-  //   multibandEnabled: false,
-  //   threshold: -35, ratio: 12, knee: 6, attack: 1, release: 200,
-  //   makeupGain: 0, gainEnabled: true,
-  //   eqEnabled: false,
-  //   eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-  //   eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-  //   eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-  //   eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
-  //   eq5Freq: 8000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
-  //   bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-  //   noiseSuppressionEnabled: false,
-  //   autoGainEnabled: false, autoGainTarget: -10, autoGainSpeed: 'fast',
-  //   gateEnabled: false, gateThreshold: -50,
-  //   limiterEnabled: true, limiterThreshold: -6,
-  //   limiterAttack: 1, limiterRelease: 100,
-  //   noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  // },
-  podcast: {
-    name: 'Podcast',
-    // Single-band compression for voice consistency
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -30, ratio: 6, knee: 10, attack: 3, release: 150,
-    makeupGain: 0, gainEnabled: true,
-    // De-essing + presence boost + proximity reduction
-    eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 200, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 2000, eq3Gain: 2, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 6000, eq4Gain: -3, eq4Q: 1.5, eq4Type: 'peaking',
-    eq5Freq: 12000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    limiterEnabled: true, limiterThreshold: -2,
-    limiterAttack: 1, limiterRelease: 100,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  lofi: {
-    name: 'Lo-Fi',
-    // Gentle compression with soft knee and slow attack
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -25, ratio: 3, knee: 20, attack: 15, release: 200,
-    makeupGain: 0, gainEnabled: true,
-    // Warm bass boost + high-shelf rolloff
-    eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 200, eq2Gain: 2, eq2Q: 1.0, eq2Type: 'lowshelf',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -4, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 14000, filtersEnabled: true,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    limiterEnabled: true, limiterThreshold: -1,
-    limiterAttack: 1, limiterRelease: 100,
-    // Subtle brown noise for warmth
-    noiseLevel: 0.05, noiseType: 'brown', effectsEnabled: true
-  },
   sleep: {
     name: 'Sleep',
-    // Actively reduce volume — crush dynamics flat, pull everything to -30dB target
+    // Soft compression + heavy treble cuts for falling asleep — limiter catches peaks
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -25, ratio: 10, knee: 6, attack: 1, release: 200,
+    threshold: -25, ratio: 6, knee: 15, attack: 5, release: 300,
     makeupGain: 0, gainEnabled: true,
     // Aggressive treble/harsh frequency cuts for sleep comfort
     eqEnabled: true,
@@ -380,6 +334,46 @@ const presets = {
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   }
 };
+
+// Display order — reorder here to change the UI, no need to touch presets object
+const presetOrder = [
+  'off', 'music', 'lofi', 'streamWatch', 'podcast', 'voiceFocus',
+  'movie', 'bassTamer', 'tv90s', 'nightMode', 'antiScream', 'sleep'
+];
+
+// Preset UI metadata — descriptions and optional CSS class
+const presetUI = {
+  off:          { desc: 'No processing' },
+  music:        { desc: 'Preserve dynamics' },
+  lofi:         { desc: 'Warm & mellow' },
+  streamWatch:  { desc: 'Twitch & YouTube' },
+  podcast:      { desc: 'Voice clarity' },
+  voiceFocus:   { desc: 'Podcasts & streams', style: 'preset-featured' },
+  movie:        { desc: 'Action & dialog' },
+  bassTamer:    { desc: 'Reduce bass' },
+  tv90s:        { desc: 'Tap twice for TV+' },
+  nightMode:    { desc: 'Comfy low-volume' },
+  antiScream:   { desc: 'Crush all peaks', style: 'preset-safety' },
+  sleep:        { desc: 'Fall asleep easy' }
+};
+
+// Generate preset buttons from presetOrder + presetUI
+(function generatePresetButtons() {
+  const grid = document.getElementById('presetsGrid');
+  if (!grid) return;
+  for (const key of presetOrder) {
+    const preset = presets[key];
+    if (!preset) continue;
+    const ui = presetUI[key] || {};
+    const btn = document.createElement('button');
+    btn.className = 'preset-btn' + (ui.style ? ' ' + ui.style : '');
+    btn.dataset.preset = key;
+    btn.innerHTML =
+      '<span class="preset-name">' + preset.name + '</span>' +
+      '<span class="preset-desc">' + (ui.desc || '') + '</span>';
+    grid.appendChild(btn);
+  }
+})();
 
 function getFallbackAgcBoost(targetDb) {
   if (targetDb <= -24) return 6;

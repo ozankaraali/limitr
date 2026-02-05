@@ -205,7 +205,7 @@ const presets = {
   nightMode: {
     name: 'Night Mode',
     compressorEnabled: true, multibandEnabled: false, eqEnabled: true, filtersEnabled: false,
-    threshold: -28, ratio: 6, knee: 6, attack: 1, release: 200,
+    threshold: -25, ratio: 4, knee: 12, attack: 3, release: 200,
     makeupGain: 0, gainEnabled: true,
     bassCutFreq: 0, trebleCutFreq: 22050,
     limiterEnabled: true, limiterThreshold: -3, limiterAttack: 1, limiterRelease: 100,
@@ -218,14 +218,14 @@ const presets = {
     highThreshold: -24, highRatio: 6, highGain: 0,
     eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
+    eq3Freq: 3000, eq3Gain: -2, eq3Q: 1.5, eq3Type: 'peaking',
+    eq4Freq: 5000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 8000, eq5Gain: -3, eq5Q: 0.7, eq5Type: 'highshelf'
   },
   sleep: {
     name: 'Sleep',
     compressorEnabled: true, multibandEnabled: false, eqEnabled: true, filtersEnabled: false,
-    threshold: -25, ratio: 10, knee: 6, attack: 1, release: 200,
+    threshold: -25, ratio: 6, knee: 15, attack: 5, release: 300,
     makeupGain: 0, gainEnabled: true,
     bassCutFreq: 0, trebleCutFreq: 22050,
     limiterEnabled: true, limiterThreshold: -10, limiterAttack: 1, limiterRelease: 100,
@@ -246,7 +246,7 @@ const presets = {
 
 const PRESET_ORDER = [
   'off', 'music', 'lofi', 'streamWatch', 'podcast', 'voiceFocus',
-  'movie', 'bassTamer', 'tv90s', 'antiScream', 'nightMode', 'sleep'
+  'movie', 'bassTamer', 'tv90s', 'nightMode', 'antiScream', 'sleep'
 ];
 
 const AGC_PROFILES = {
