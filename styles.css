@@ -955,6 +955,23 @@ input[type="range"]::-moz-range-thumb {
 
 /* ============ 3-BAND MULTIBAND COMPRESSOR STYLES ============ */
 
+/* Safety preset (Stream Safe) - red accent */
+.preset-btn.preset-safety {
+  background: linear-gradient(135deg, #252542, #2d2535);
+  border: 1px solid #ef4444;
+}
+
+.preset-btn.preset-safety:hover {
+  background: linear-gradient(135deg, #333355, #3a2a40);
+  border-color: #f87171;
+}
+
+.preset-btn.preset-safety.active {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  border-color: #f87171;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
 /* Featured preset (Voice Focus) */
 .preset-btn.preset-featured {
   background: linear-gradient(135deg, #252542, #2d2d50);

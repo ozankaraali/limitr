@@ -85,6 +85,11 @@ const defaultSettings = {
   // === AUTO-GAIN (AGC - automatic level control) ===
   autoGainEnabled: false,
   autoGainTarget: -16,   // Target level in dB (RMS)
+  autoGainSpeed: 'normal', // AGC update rate: 'slow', 'normal', 'fast'
+
+  // === LIMITER TIMING ===
+  limiterAttack: 1,      // ms
+  limiterRelease: 100,   // ms
 
   // === EFFECTS ===
   noiseLevel: 0,
@@ -262,8 +267,8 @@ async function createAudioChain(tabId, mediaStreamId) {
     limiter.threshold.value = defaultSettings.limiterThreshold;
     limiter.ratio.value = 20;        // Very high ratio = limiting
     limiter.knee.value = 0;          // Hard knee for true limiting
-    limiter.attack.value = 0.001;    // 1ms - very fast attack
-    limiter.release.value = 0.1;     // 100ms release
+    limiter.attack.value = defaultSettings.limiterAttack / 1000;
+    limiter.release.value = defaultSettings.limiterRelease / 1000;
 
     // === PRE-RNNOISE SAFETY LIMITER (protects noise suppressor from loud transients) ===
     const preLimiter = audioContext.createDynamicsCompressor();
@@ -282,15 +287,25 @@ async function createAudioChain(tabId, mediaStreamId) {
     analyser.fftSize = 2048;
     const analyserBuffer = new Float32Array(analyser.fftSize);
 
+    // AGC speed profiles
+    const AGC_PROFILES = {
+      slow:   { interval: 100, attack: 0.02, release: 0.05, maxGain: 10 },
+      normal: { interval: 50,  attack: 0.05, release: 0.10, maxGain: 10 },
+      fast:   { interval: 20,  attack: 0.15, release: 0.25, maxGain: 4  }
+    };
+
     // AGC state
     let agcEnabled = defaultSettings.autoGainEnabled;
     let agcTarget = defaultSettings.autoGainTarget;
+    let agcSpeed = defaultSettings.autoGainSpeed || 'normal';
     let agcCurrentGain = 1;
     let agcIntervalId = null;
 
     // AGC measurement and adjustment function
     const updateAutoGain = () => {
       if (!agcEnabled) return;
+
+      const profile = AGC_PROFILES[agcSpeed] || AGC_PROFILES.normal;
 
       analyser.getFloatTimeDomainData(analyserBuffer);
 
@@ -313,21 +328,22 @@ async function createAudioChain(tabId, mediaStreamId) {
         // Convert to linear gain
         const targetGain = Math.pow(10, diffDb / 20);
 
-        // Smooth the gain change (slower attack, faster release)
-        const smoothing = targetGain > agcCurrentGain ? 0.05 : 0.1;
+        // Smooth the gain change using profile attack/release rates
+        const smoothing = targetGain > agcCurrentGain ? profile.attack : profile.release;
         agcCurrentGain = agcCurrentGain + (targetGain - agcCurrentGain) * smoothing;
 
-        // Clamp gain to reasonable range (0.1x to 10x = -20dB to +20dB)
-        agcCurrentGain = Math.max(0.1, Math.min(10, agcCurrentGain));
+        // Clamp gain to reasonable range using profile maxGain
+        agcCurrentGain = Math.max(0.1, Math.min(profile.maxGain, agcCurrentGain));
 
         autoGainNode.gain.setTargetAtTime(agcCurrentGain, audioContext.currentTime, 0.1);
       }
     };
 
-    // Start AGC interval
+    // Start AGC interval with current speed profile
     const startAgc = () => {
       if (agcIntervalId) return;
-      agcIntervalId = setInterval(updateAutoGain, 50); // 20Hz update rate
+      const profile = AGC_PROFILES[agcSpeed] || AGC_PROFILES.normal;
+      agcIntervalId = setInterval(updateAutoGain, profile.interval);
     };
 
     const stopAgc = () => {
@@ -338,6 +354,16 @@ async function createAudioChain(tabId, mediaStreamId) {
       // Reset gain to unity
       agcCurrentGain = 1;
       autoGainNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.1);
+    };
+
+    const setAgcSpeed = (speed) => {
+      agcSpeed = speed;
+      // Restart interval with new timing if AGC is running
+      if (agcIntervalId) {
+        clearInterval(agcIntervalId);
+        agcIntervalId = null;
+        startAgc();
+      }
     };
 
     // === AI NOISE SUPPRESSION (RNNoise) ===
@@ -481,6 +507,7 @@ async function createAudioChain(tabId, mediaStreamId) {
       setAgcTarget: (target) => {
         agcTarget = target;
       },
+      setAgcSpeed,
       // Noise suppression
       getNoiseSuppressor: () => ({ node: noiseSuppressorNode, ready: noiseSuppressorReady }),
       setNoiseSuppressorEnabled: (enabled) => {
@@ -631,7 +658,7 @@ function updateSettings(tabId, newSettings) {
 
   const { compressor, makeupGain, outputGain, noiseGain,
           crossover1, crossover2, subBand, midBand, highBand, eqBands,
-          bassCutFilter, trebleCutFilter, limiter, setAgcTarget } = state;
+          bassCutFilter, trebleCutFilter, limiter, setAgcTarget, setAgcSpeed } = state;
 
   const oldNoiseType = state.settings.noiseType;
   const oldBassCut = state.settings.bassCutFreq;
@@ -721,10 +748,19 @@ function updateSettings(tabId, newSettings) {
   if (newSettings.limiterThreshold !== undefined) {
     limiter.threshold.value = s.limiterThreshold;
   }
+  if (newSettings.limiterAttack !== undefined) {
+    limiter.attack.value = s.limiterAttack / 1000;
+  }
+  if (newSettings.limiterRelease !== undefined) {
+    limiter.release.value = s.limiterRelease / 1000;
+  }
 
   // Auto-Gain
   if (newSettings.autoGainTarget !== undefined) {
     setAgcTarget(s.autoGainTarget);
+  }
+  if (newSettings.autoGainSpeed !== undefined) {
+    setAgcSpeed(s.autoGainSpeed);
   }
 
   // Noise

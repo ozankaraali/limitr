@@ -88,6 +88,11 @@
     // Auto-Gain (not supported in fallback mode - requires AudioWorklet)
     autoGainEnabled: false,
     autoGainTarget: -16,
+    autoGainSpeed: 'normal',
+
+    // Limiter timing
+    limiterAttack: 1,
+    limiterRelease: 100,
 
     // Effects
     noiseLevel: 0,
@@ -242,8 +247,8 @@
       limiter.threshold.value = settings.limiterThreshold;
       limiter.ratio.value = 20;
       limiter.knee.value = 0;
-      limiter.attack.value = 0.001;
-      limiter.release.value = 0.1;
+      limiter.attack.value = (settings.limiterAttack || 1) / 1000;
+      limiter.release.value = (settings.limiterRelease || 100) / 1000;
 
       // Noise
       noiseGain = audioContext.createGain();
@@ -467,6 +472,8 @@
     // Limiter
     if (limiter) {
       limiter.threshold.value = settings.limiterThreshold;
+      limiter.attack.value = (settings.limiterAttack || 1) / 1000;
+      limiter.release.value = (settings.limiterRelease || 100) / 1000;
     }
 
     // Noise

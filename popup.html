@@ -91,6 +91,22 @@
           <span class="preset-name">90s TV</span>
           <span class="preset-desc">Tap twice for TV+</span>
         </button>
+        <button class="preset-btn preset-safety" data-preset="streamSafe">
+          <span class="preset-name">Stream Safe</span>
+          <span class="preset-desc">Anti-scream</span>
+        </button>
+        <button class="preset-btn" data-preset="podcast">
+          <span class="preset-name">Podcast</span>
+          <span class="preset-desc">Voice clarity</span>
+        </button>
+        <button class="preset-btn" data-preset="lofi">
+          <span class="preset-name">Lo-Fi</span>
+          <span class="preset-desc">Warm & mellow</span>
+        </button>
+        <button class="preset-btn" data-preset="sleep">
+          <span class="preset-name">Sleep</span>
+          <span class="preset-desc">Ultra-quiet</span>
+        </button>
       </div>
     </div>
 
@@ -156,6 +172,16 @@
               <span class="value" id="autoGainTargetValue">-16 dB</span>
             </div>
             <input type="range" id="autoGainTarget" min="-30" max="-6" value="-16" step="1">
+          </div>
+          <div class="control-group">
+            <div class="control-header">
+              <label for="autoGainSpeed">AGC Speed</label>
+            </div>
+            <select id="autoGainSpeed" class="dropdown">
+              <option value="slow">Slow (Smooth, gentle)</option>
+              <option value="normal" selected>Normal (Balanced)</option>
+              <option value="fast">Fast (Anti-scream)</option>
+            </select>
           </div>
         </div>
       </div>
