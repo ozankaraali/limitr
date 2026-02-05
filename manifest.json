@@ -10,7 +10,8 @@
     "tabCapture",
     "offscreen",
     "tabs",
-    "scripting"
+    "scripting",
+    "contextMenus"
   ],
   "host_permissions": [
     "<all_urls>"

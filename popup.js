@@ -161,10 +161,10 @@ const presets = {
   },
   nightMode: {
     name: 'Night Mode',
-    // Moderate-heavy compression for low-volume watching
+    // Moderate compression for low-volume watching (softer ratio to avoid inversion with AGC)
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -28, ratio: 8, knee: 6, attack: 1, release: 200,
+    threshold: -28, ratio: 6, knee: 6, attack: 1, release: 200,
     makeupGain: 0, gainEnabled: true,
     // Reduce bass rumble + tame harsh highs for quiet watching
     eqEnabled: true,
@@ -175,7 +175,7 @@ const presets = {
     eq5Freq: 8000, eq5Gain: -3, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    autoGainEnabled: true, autoGainTarget: -20, autoGainSpeed: 'normal',
+    autoGainEnabled: true, autoGainTarget: -22, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
@@ -199,9 +199,9 @@ const presets = {
     eq5Freq: 8000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    autoGainEnabled: true, autoGainTarget: -18, autoGainSpeed: 'normal',
+    autoGainEnabled: true, autoGainTarget: -20, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
-    limiterEnabled: true, limiterThreshold: -1,
+    limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     makeupGain: 0, gainEnabled: true,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -297,7 +297,7 @@ const presets = {
     // Single-band compression for voice consistency
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -30, ratio: 5, knee: 10, attack: 3, release: 150,
+    threshold: -30, ratio: 6, knee: 10, attack: 3, release: 150,
     makeupGain: 0, gainEnabled: true,
     // De-essing + presence boost + proximity reduction
     eqEnabled: true,
@@ -308,9 +308,9 @@ const presets = {
     eq5Freq: 12000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    autoGainEnabled: true, autoGainTarget: -18, autoGainSpeed: 'normal',
+    autoGainEnabled: true, autoGainTarget: -20, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
-    limiterEnabled: true, limiterThreshold: -1,
+    limiterEnabled: true, limiterThreshold: -2,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
@@ -339,23 +339,23 @@ const presets = {
   },
   sleep: {
     name: 'Sleep',
-    // Ultimate night mode — heavy compression for ultra-consistent volume
+    // Actively reduce volume — crush dynamics flat, pull everything to -30dB target
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -30, ratio: 6, knee: 6, attack: 1, release: 200,
+    threshold: -25, ratio: 10, knee: 6, attack: 1, release: 200,
     makeupGain: 0, gainEnabled: true,
-    // Gentle treble rolloff (no harsh cutoff), reduce muddy 250Hz like Night Mode
+    // Aggressive treble/harsh frequency cuts for sleep comfort
     eqEnabled: true,
     eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
     eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: -4, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -6, eq5Q: 0.7, eq5Type: 'highshelf',
+    eq4Freq: 3000, eq4Gain: -6, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 6000, eq5Gain: -8, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    autoGainEnabled: true, autoGainTarget: -24, autoGainSpeed: 'normal',
-    gateEnabled: true, gateThreshold: -45, gateHold: 150, gateRelease: 250,
-    limiterEnabled: true, limiterThreshold: -6,
+    autoGainEnabled: true, autoGainTarget: -30, autoGainSpeed: 'slow',
+    gateEnabled: true, gateThreshold: -50, gateHold: 200, gateRelease: 300,
+    limiterEnabled: true, limiterThreshold: -10,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   }

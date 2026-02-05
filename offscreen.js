@@ -4,6 +4,11 @@
 // Per-tab audio state
 const tabAudioState = new Map();
 
+// Debug BroadcastChannel — emits processing state for tests/debug-harness.html
+// Only works when harness is loaded from the extension origin (chrome-extension://id/tests/...)
+let debugChannel = null;
+try { debugChannel = new BroadcastChannel('limitr-debug'); } catch (e) {}
+
 // Shared noise data cache (raw Float32Array) - generated once, reused across all tabs
 const noiseDataCache = {
   white: null,
@@ -345,6 +350,25 @@ async function createAudioChain(tabId, mediaStreamId) {
 
         autoGainNode.gain.setTargetAtTime(agcCurrentGain, audioContext.currentTime, 0.02);
       }
+
+      // Emit debug data
+      if (debugChannel) {
+        const gr = state.multibandActive
+          ? Math.min(state.subBand.compressor.reduction, state.midBand.compressor.reduction, state.highBand.compressor.reduction)
+          : state.compressor.reduction;
+        const mbGR = state.multibandActive ? {
+          grSub: state.subBand.compressor.reduction,
+          grMid: state.midBand.compressor.reduction,
+          grHigh: state.highBand.compressor.reduction
+        } : {};
+        debugChannel.postMessage({
+          tabId, t: performance.now(),
+          agcGain: 20 * Math.log10(agcCurrentGain),
+          agcLevel: currentDb,
+          gr, ...mbGR,
+          gateOpen: gateIsOpen
+        });
+      }
     };
 
     // Start AGC interval with current speed profile
@@ -427,6 +451,25 @@ async function createAudioChain(tabId, mediaStreamId) {
       gateTickCount++;
       if (gateTickCount % 50 === 0) {
         console.log('[Limitr] Gate monitor:', currentDb.toFixed(1), 'dB | threshold:', threshold, 'dB | state:', gateIsOpen ? 'OPEN' : 'CLOSED');
+      }
+
+      // Emit gate debug data (only when AGC is off — AGC already emits)
+      if (debugChannel && !agcEnabled) {
+        const gr = state.multibandActive
+          ? Math.min(state.subBand.compressor.reduction, state.midBand.compressor.reduction, state.highBand.compressor.reduction)
+          : state.compressor.reduction;
+        const mbGR2 = state.multibandActive ? {
+          grSub: state.subBand.compressor.reduction,
+          grMid: state.midBand.compressor.reduction,
+          grHigh: state.highBand.compressor.reduction
+        } : {};
+        debugChannel.postMessage({
+          tabId, t: performance.now(),
+          agcGain: 0, agcLevel: -100,
+          gr, ...mbGR2,
+          gateOpen: gateIsOpen,
+          gateLevel: currentDb
+        });
       }
     };
 

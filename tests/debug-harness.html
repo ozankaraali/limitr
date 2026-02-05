@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Limitr Debug Harness</title>
+<style>
+  :root {
+    --bg: #0f0f1a;
+    --surface: #1a1a2e;
+    --border: #252542;
+    --text: #e0e0e0;
+    --text-dim: #888;
+    --accent: #4f46e5;
+    --green: #22c55e;
+    --red: #ef4444;
+    --yellow: #eab308;
+    --orange: #f97316;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    padding: 20px;
+    min-height: 100vh;
+  }
+  h1 { font-size: 18px; margin-bottom: 4px; color: var(--accent); }
+  h2 { font-size: 14px; color: var(--text-dim); margin-bottom: 16px; }
+  .section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 8px; }
+
+  /* File drop */
+  #dropZone {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  #dropZone.dragover { border-color: var(--accent); background: rgba(79,70,229,0.1); }
+  #dropZone.loaded { border-color: var(--green); border-style: solid; }
+  #fileInput { display: none; }
+
+  /* Controls row */
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  select, button {
+    font-family: inherit; font-size: 12px;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 6px 10px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  button.primary:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Meters */
+  .meter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .meter-label { width: 55px; font-size: 11px; color: var(--text-dim); text-align: right; }
+  .meter-bar-bg { flex: 1; height: 14px; background: #111; border-radius: 2px; position: relative; overflow: hidden; }
+  .meter-bar { height: 100%; border-radius: 2px; transition: width 50ms linear; }
+  .meter-bar.input { background: var(--accent); }
+  .meter-bar.output { background: var(--green); }
+  .meter-bar.gr { background: var(--orange); }
+  .meter-bar.agc { background: var(--yellow); }
+  .meter-bar.bass { background: #e879f9; }
+  .meter-bar.mid { background: #38bdf8; }
+  .meter-bar.treble { background: #fb923c; }
+  .meter-value { width: 75px; font-size: 11px; text-align: left; }
+
+  /* Waveform canvas */
+  #waveform { width: 100%; height: 100px; background: #111; border-radius: 4px; display: block; }
+
+  /* Log / Summary */
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+  .stat { background: #111; border-radius: 4px; padding: 8px 12px; }
+  .stat-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; }
+  .stat-value { font-size: 16px; font-weight: bold; margin-top: 2px; }
+  .stat-value.ok { color: var(--green); }
+  .stat-value.warn { color: var(--yellow); }
+  .stat-value.bad { color: var(--red); }
+
+  .log-info { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; }
+  .download-row { display: flex; gap: 8px; }
+
+  /* Transfer curve canvas */
+  #transferCanvas { width: 100%; height: 200px; background: #111; border-radius: 4px; display: block; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+
+  .running-indicator { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--red); margin-right: 6px; }
+  .running-indicator.active { background: var(--green); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: 0.5; } }
+</style>
+</head>
+<body>
+
+<h1>Limitr Debug Harness</h1>
+<h2>Standalone audio processing test page</h2>
+
+<!-- File Input -->
+<div class="section">
+  <div id="dropZone">
+    Drop audio/video file here, or click to select
+    <input type="file" id="fileInput" accept="audio/*,video/*">
+  </div>
+</div>
+
+<!-- Controls -->
+<div class="section">
+  <div class="controls">
+    <select id="presetSelect"></select>
+    <button id="playBtn" disabled>Play</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <button id="runAllBtn" class="primary" disabled>Run All Presets</button>
+    <span id="runStatus" style="font-size:11px; color:var(--text-dim)"></span>
+  </div>
+</div>
+
+<!-- Meters -->
+<div class="section">
+  <div class="section-title">Real-Time Meters</div>
+  <div class="meter-row">
+    <span class="meter-label">Input</span>
+    <div class="meter-bar-bg"><div class="meter-bar input" id="meterInput"></div></div>
+    <span class="meter-value" id="meterInputVal">-- dBFS</span>
+  </div>
+  <div class="meter-row">
+    <span class="meter-label">Output</span>
+    <div class="meter-bar-bg"><div class="meter-bar output" id="meterOutput"></div></div>
+    <span class="meter-value" id="meterOutputVal">-- dBFS</span>
+  </div>
+  <div class="meter-row">
+    <span class="meter-label">GR</span>
+    <div class="meter-bar-bg"><div class="meter-bar gr" id="meterGR"></div></div>
+    <span class="meter-value" id="meterGRVal">-- dB</span>
+  </div>
+  <div class="meter-row">
+    <span class="meter-label">AGC</span>
+    <div class="meter-bar-bg"><div class="meter-bar agc" id="meterAGC"></div></div>
+    <span class="meter-value" id="meterAGCVal">-- dB</span>
+  </div>
+  <div style="margin-top:8px; margin-bottom:4px; font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px;">Frequency Bands (Output)</div>
+  <div class="meter-row">
+    <span class="meter-label">Bass</span>
+    <div class="meter-bar-bg"><div class="meter-bar bass" id="meterBass"></div></div>
+    <span class="meter-value" id="meterBassVal">-- dBFS</span>
+  </div>
+  <div class="meter-row">
+    <span class="meter-label">Mid</span>
+    <div class="meter-bar-bg"><div class="meter-bar mid" id="meterMid"></div></div>
+    <span class="meter-value" id="meterMidVal">-- dBFS</span>
+  </div>
+  <div class="meter-row">
+    <span class="meter-label">Treble</span>
+    <div class="meter-bar-bg"><div class="meter-bar treble" id="meterTreble"></div></div>
+    <span class="meter-value" id="meterTrebleVal">-- dBFS</span>
+  </div>
+</div>
+
+<!-- Waveform -->
+<div class="section">
+  <div class="section-title">Waveform (Input vs Output)</div>
+  <canvas id="waveform"></canvas>
+</div>
+
+<!-- Summary + Transfer Curve -->
+<div class="two-col">
+  <div class="section">
+    <div class="section-title">Summary</div>
+    <div class="stats" id="summaryStats">
+      <div class="stat"><div class="stat-label">Clipping Events</div><div class="stat-value" id="statClipping">--</div></div>
+      <div class="stat"><div class="stat-label">Avg Loudness</div><div class="stat-value" id="statLoudness">--</div></div>
+      <div class="stat"><div class="stat-label">Dynamic Range</div><div class="stat-value" id="statDynRange">--</div></div>
+      <div class="stat"><div class="stat-label">Peak Output</div><div class="stat-value" id="statPeak">--</div></div>
+      <div class="stat"><div class="stat-label">Avg GR</div><div class="stat-value" id="statGR">--</div></div>
+      <div class="stat"><div class="stat-label">Avg Bass</div><div class="stat-value" id="statBass">--</div></div>
+      <div class="stat"><div class="stat-label">Avg Mid</div><div class="stat-value" id="statMid">--</div></div>
+      <div class="stat"><div class="stat-label">Avg Treble</div><div class="stat-value" id="statTreble">--</div></div>
+      <div class="stat"><div class="stat-label">Avg Centroid</div><div class="stat-value" id="statCentroid">--</div></div>
+      <div class="stat"><div class="stat-label">Log Entries</div><div class="stat-value" id="statEntries">0</div></div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">Transfer Curve (Input vs Output)</div>
+    <canvas id="transferCanvas"></canvas>
+  </div>
+</div>
+
+<!-- Logs -->
+<div class="section">
+  <div class="section-title">Logs</div>
+  <div class="log-info">Per-frame data captured during playback. Download for analysis.</div>
+  <div class="download-row">
+    <button id="dlJson" disabled>Download JSON</button>
+    <button id="dlCsv" disabled>Download CSV</button>
+    <button id="clearLogs">Clear Logs</button>
+  </div>
+</div>
+
+<!-- Extension channel listener -->
+<div class="section" style="border-color: var(--border);">
+  <div class="section-title">Extension Link</div>
+  <div style="font-size: 11px; color: var(--text-dim);">
+    <span class="running-indicator" id="extIndicator"></span>
+    <span id="extStatus">Checking...</span>
+  </div>
+  <div style="font-size: 10px; color: var(--text-dim); margin-top: 4px;" id="extNote"></div>
+</div>
+
+<script src="debug-harness.js"></script>
+</body>
+</html>

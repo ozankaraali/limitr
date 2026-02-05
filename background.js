@@ -324,12 +324,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+// Context menu: right-click extension icon -> Debug Harness
+function createContextMenus() {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'limitr-debug-harness',
+      title: 'Debug Harness',
+      contexts: ['action']
+    });
+  });
+}
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId === 'limitr-debug-harness') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('tests/debug-harness.html') });
+  }
+});
+
 // Initialize on install
 chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
     await chrome.storage.local.set({ limitrDefaults: defaults });
     console.log('[Limitr] Extension installed');
   }
+  createContextMenus();
 });
 
 console.log('[Limitr] Service worker loaded');
