@@ -1079,6 +1079,11 @@ input[type="range"]::-moz-range-thumb {
   background: #3b82f6; /* High - blue */
 }
 
+/* Output Volume (standalone, always visible) */
+.output-volume-group {
+  margin-top: 8px;
+}
+
 /* ============ COLLAPSIBLE SECTIONS ============ */
 
 .collapsible-section .section-header {

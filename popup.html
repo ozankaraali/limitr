@@ -59,25 +59,31 @@
     <!-- Presets -->
     <div class="presets-section">
       <div class="presets-grid">
+        <!-- Row 1: Lightest -->
         <button class="preset-btn" data-preset="off">
           <span class="preset-name">Off</span>
           <span class="preset-desc">No processing</span>
-        </button>
-        <button class="preset-btn preset-featured" data-preset="voiceFocus">
-          <span class="preset-name">Voice Focus</span>
-          <span class="preset-desc">Podcasts & streams</span>
-        </button>
-        <button class="preset-btn" data-preset="streamWatch">
-          <span class="preset-name">Stream Watch</span>
-          <span class="preset-desc">Twitch & YouTube</span>
         </button>
         <button class="preset-btn" data-preset="music">
           <span class="preset-name">Music</span>
           <span class="preset-desc">Preserve dynamics</span>
         </button>
-        <button class="preset-btn" data-preset="nightMode">
-          <span class="preset-name">Night Mode</span>
-          <span class="preset-desc">Quiet listening</span>
+        <button class="preset-btn" data-preset="lofi">
+          <span class="preset-name">Lo-Fi</span>
+          <span class="preset-desc">Warm & mellow</span>
+        </button>
+        <button class="preset-btn" data-preset="streamWatch">
+          <span class="preset-name">Stream Watch</span>
+          <span class="preset-desc">Twitch & YouTube</span>
+        </button>
+        <!-- Row 2: Moderate -->
+        <button class="preset-btn" data-preset="podcast">
+          <span class="preset-name">Podcast</span>
+          <span class="preset-desc">Voice clarity</span>
+        </button>
+        <button class="preset-btn preset-featured" data-preset="voiceFocus">
+          <span class="preset-name">Voice Focus</span>
+          <span class="preset-desc">Podcasts & streams</span>
         </button>
         <button class="preset-btn" data-preset="movie">
           <span class="preset-name">Movie</span>
@@ -87,6 +93,7 @@
           <span class="preset-name">Bass Tamer</span>
           <span class="preset-desc">Reduce bass</span>
         </button>
+        <!-- Row 3: Heaviest -->
         <button class="preset-btn" data-preset="tv90s">
           <span class="preset-name">90s TV</span>
           <span class="preset-desc">Tap twice for TV+</span>
@@ -95,13 +102,9 @@
           <span class="preset-name">Stream Safe</span>
           <span class="preset-desc">Anti-scream</span>
         </button>
-        <button class="preset-btn" data-preset="podcast">
-          <span class="preset-name">Podcast</span>
-          <span class="preset-desc">Voice clarity</span>
-        </button>
-        <button class="preset-btn" data-preset="lofi">
-          <span class="preset-name">Lo-Fi</span>
-          <span class="preset-desc">Warm & mellow</span>
+        <button class="preset-btn" data-preset="nightMode">
+          <span class="preset-name">Night Mode</span>
+          <span class="preset-desc">Quiet watching</span>
         </button>
         <button class="preset-btn" data-preset="sleep">
           <span class="preset-name">Sleep</span>
@@ -277,14 +280,16 @@
             <input type="range" id="makeupGain" min="0" max="24" value="0" step="1">
           </div>
 
-          <div class="control-group">
-            <div class="control-header">
-              <label for="outputGain">Output Gain</label>
-              <span class="value" id="outputGainValue">0 dB</span>
-            </div>
-            <input type="range" id="outputGain" min="-24" max="24" value="0" step="1">
-          </div>
         </div>
+      </div>
+
+      <!-- Output Volume (always visible) -->
+      <div class="control-group output-volume-group">
+        <div class="control-header">
+          <label for="outputGain">Output Volume</label>
+          <span class="value" id="outputGainValue">0 dB</span>
+        </div>
+        <input type="range" id="outputGain" min="-24" max="24" value="0" step="1">
       </div>
 
       <div class="collapsible-section" id="effectsSection">
