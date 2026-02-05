@@ -1133,10 +1133,13 @@ input[type="range"]::-moz-range-thumb {
   display: none;
 }
 
-.collapsible-section.collapsed > .section-header {
-  margin-bottom: 0;
+.collapsible-section > .section-header {
   padding-top: 6px;
   padding-bottom: 6px;
+}
+
+.collapsible-section.collapsed > .section-header {
+  margin-bottom: 0;
 }
 
 /* Allow collapsing exclusive group even when greyed out */
