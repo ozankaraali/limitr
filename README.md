@@ -1,34 +1,48 @@
-# Limitr
+<p align="center">
+  <img src="icons/icon128.png" alt="Limitr" width="80">
+</p>
 
-A browser extension for real-time audio compression, limiting, EQ, and normalization. Perfect for streaming sites where audio levels can vary wildly.
+<h1 align="center">Limitr</h1>
 
-![Simple Mode](docs/assets/screenshot-1-simple-mode.png)
-![Active Exclusive Mode](docs/assets/screenshot-2-active-exclusive.png)
-![Advanced Mode](docs/assets/screenshot-3-advanced-mode.png)
+<p align="center">
+  A browser extension for real-time audio compression, limiting, EQ, and normalization.<br>
+  Perfect for streaming sites where audio levels can vary wildly.
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-1-simple-mode.png" alt="Simple Mode" width="270">
+  <img src="docs/assets/screenshot-2-active-exclusive.png" alt="Active Exclusive Mode" width="270">
+  <img src="docs/assets/screenshot-3-advanced-mode.png" alt="Advanced Mode" width="270">
+</p>
 
 ## Features
 
 - **Real-time audio processing** using the Web Audio API
 - **Simple & Advanced modes**: Quick presets or full control over every parameter
-- **8 Audio Presets**:
-  - **Off** - No processing (bypass)
-  - **Voice Focus** - Multiband compression + EQ optimized for speech and podcasts
-  - **Stream Watch** - Single-band compression with auto-gain for streams
-  - **Music** - Light compression preserving dynamics
-  - **Night Mode** - Aggressive compression + auto-gain for quiet listening
-  - **Movie** - Multiband compression taming explosions while preserving dialog
-  - **Bass Tamer** - Heavy compression with bass reduction
-  - **90s TV** - Warm CRT-style sound with bass/treble cut, noise, and optional TV+ visual mode
+- **12 Audio Presets** (lightest to heaviest):
+  - **Off** — No processing (bypass)
+  - **Music** — Light compression preserving dynamics
+  - **Lo-Fi** — Warm & mellow sound
+  - **Stream Watch** — Single-band compression for Twitch & YouTube
+  - **Podcast** — Voice clarity and consistency
+  - **Voice Focus** — Multiband compression + EQ optimized for speech
+  - **Movie** — Compression + dialog EQ for action & dialog balance
+  - **Bass Tamer** — Heavy compression with bass reduction
+  - **90s TV** — Warm CRT-style sound with noise, and optional TV+ visual mode
+  - **Night Mode** — Comfy low-volume watching with scream frequency taming
+  - **Anti-Scream** — Crushes all peaks (12:1 compression + scream EQ cuts)
+  - **Sleep** — Fall asleep easy (heavy compression + treble cuts + volume reduction)
 - **Single-band compressor** with full parameter control (threshold, ratio, knee, attack, release)
 - **3-band multiband compressor** with independent per-band threshold, ratio, and gain
-- **5-band parametric EQ** with selectable filter types per band
-- **Brick-wall limiter** with adjustable threshold (-30 to 0 dB) for auto-leveling and clipping prevention
+- **5-band parametric EQ** with selectable filter types per band and live curve visualization
+- **Brick-wall limiter** with adjustable threshold and timing for peak protection
+- **Noise gate** with configurable threshold, hold, and release (Exclusive mode)
 - **Bass & Treble Cut** filters for additional frequency shaping
 - **Background noise** (white/pink/brown) for vintage audio effect
 - **Gain reduction meter** showing real-time compression activity
 - **Collapsible sections** with independent on/off toggles per processing block
 - **Two processing modes**: Regular (fullscreen-friendly) or Exclusive (multi-tab with AI features)
-- **Exclusive mode extras**: AI noise suppression (RNNoise) and auto-gain (AGC)
+- **Exclusive mode extras**: AI noise suppression (RNNoise), auto-gain (AGC), noise gate
 - **No external dependencies** (except RNNoise WASM for AI noise suppression)
 
 ## Installation
@@ -76,7 +90,7 @@ Note: For permanent Firefox installation, the extension needs to be signed or in
 
 | Parameter | Range | Description |
 |-----------|-------|-------------|
-| Makeup Gain | 0 to 24 dB | Volume boost after compression |
+| Makeup Gain | -24 to +24 dB | Volume adjustment after compression |
 | Output Gain | -24 to +24 dB | Final volume adjustment (master) |
 
 ### 5-Band Parametric EQ
@@ -93,6 +107,8 @@ Note: For permanent Firefox installation, the extension needs to be signed or in
 | Parameter | Range | Description |
 |-----------|-------|-------------|
 | Threshold | -30 to 0 dB | Ceiling above which audio is brick-wall limited |
+| Attack | 0 to 50 ms | How quickly the limiter engages |
+| Release | 10 to 500 ms | How quickly the limiter releases |
 
 ### Multiband Compressor
 
@@ -125,13 +141,17 @@ Note: For permanent Firefox installation, the extension needs to be signed or in
 | AI Noise Suppression | On/Off | RNNoise-based background noise removal |
 | Auto-Gain (AGC) | On/Off | Automatic level control |
 | AGC Target | -30 to 0 dB | Target loudness for auto-gain |
+| Noise Gate | On/Off | Silence noise in quiet sections |
+| Gate Threshold | -80 to -20 dB | Level below which audio is gated |
+| Gate Hold | 10 to 500 ms | How long the gate stays open after signal drops |
+| Gate Release | 10 to 500 ms | How quickly the gate closes |
 
 ## How It Works
 
 ### Signal Chain
 
 ```
-Source → [Compressor OR Multiband] → [Bass Cut] → [5-Band EQ] → [Treble Cut] → [Limiter] → Output Gain → Destination
+Source → [Compressor OR Multiband] → [Pre-Limiter] → [Noise Suppression] → [Bass Cut] → [5-Band EQ] → [Treble Cut] → [Auto-Gain] → [Noise Gate] → [Limiter] → Output Gain → Destination
 ```
 
 Each block in brackets is optional — only wired into the chain when its toggle is enabled. The compressor and multiband compressor are mutually exclusive (enabling one disables the other).
@@ -147,7 +167,7 @@ Each block in brackets is optional — only wired into the chain when its toggle
 **Exclusive Mode** (multi-tab with AI features):
 - Uses Chrome's `tabCapture` API to capture tab audio
 - Processes audio in an offscreen document
-- All Regular mode features plus: AI Noise Suppression (RNNoise) and Auto-Gain (AGC)
+- All Regular mode features plus: AI Noise Suppression (RNNoise), Auto-Gain (AGC), and Noise Gate
 - Note: Fullscreen may be restricted in this mode
 
 ## Privacy
