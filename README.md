@@ -9,11 +9,13 @@
   Perfect for streaming sites where audio levels can vary wildly.
 </p>
 
-<p align="center">
-  <img src="docs/assets/screenshot-1-simple-mode.png" alt="Simple Mode" width="270">
-  <img src="docs/assets/screenshot-2-active-exclusive.png" alt="Active Exclusive Mode" width="270">
-  <img src="docs/assets/screenshot-3-advanced-mode.png" alt="Advanced Mode" width="270">
-</p>
+<table align="center">
+  <tr>
+    <td valign="top"><img src="docs/assets/screenshot-1-simple-mode.png" alt="Simple Mode" width="270"></td>
+    <td valign="top"><img src="docs/assets/screenshot-2-active-exclusive.png" alt="Active Exclusive Mode" width="270"></td>
+    <td valign="top"><img src="docs/assets/screenshot-3-advanced-mode.png" alt="Advanced Mode" width="270"></td>
+  </tr>
+</table>
 
 ## Features
 

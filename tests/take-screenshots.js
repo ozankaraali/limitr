@@ -79,7 +79,7 @@ async function containerClip(page, width) {
       '--no-first-run',
       '--disable-gpu',
     ],
-    viewport: { width: 420, height: 900 },
+    viewport: { width: 440, height: 900 },
   });
 
   // Get extension ID
@@ -100,9 +100,16 @@ async function containerClip(page, width) {
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(500);
 
+  // Make sure toggle is off so it matches the "Off" status text
+  const enabledToggle = page.locator('#enabled');
+  if (await enabledToggle.isChecked()) {
+    await page.locator('.toggle:has(#enabled)').click();
+    await page.waitForTimeout(200);
+  }
+
   await page.screenshot({
     path: path.join(SCREENSHOTS_DIR, 'screenshot-1-simple-mode.png'),
-    clip: await containerClip(page, 420),
+    clip: await containerClip(page, 440),
   });
   console.log('1/3 Simple mode');
 
@@ -130,7 +137,7 @@ async function containerClip(page, width) {
   await page.waitForTimeout(100);
   await page.screenshot({
     path: path.join(SCREENSHOTS_DIR, 'screenshot-2-active-exclusive.png'),
-    clip: await containerClip(page, 420),
+    clip: await containerClip(page, 440),
   });
   console.log('2/3 Active Exclusive + Night Mode + GR');
 
