@@ -1,7 +1,7 @@
-# Noise Gate — Design Notes (Not Implementing Yet)
+# Noise Gate — Design Notes
 
-## Status: Pending testing
-After the preset tuning fixes (zeroed makeup gain on AGC presets, reduced Stream Safe aggressiveness), the noise floor issue may be resolved. Need to test before deciding if a gate is needed.
+## Status: Implemented (Exclusive mode)
+Gate is implemented in the offscreen audio chain and exposed in the popup. Tuning still benefits from real-world listening tests.
 
 ## Context
 - In Vocal Suite Software, the gate was at the *beginning* of the chain to reduce input floor noise before processing
@@ -24,9 +24,9 @@ The AGC already uses `AnalyserNode` + `GainNode` + `setInterval`. A gate is the 
 ### Chain Position
 - **Before compression** (Vocal Suite Software style): catches input noise before it gets amplified. Better for mic-like scenarios.
 - **After compression, before output**: catches noise floor exposed by heavy compression. Better for Limitr's use case.
-- **After AGC, before limiter**: catches AGC-amplified noise. Most targeted position.
+- **Before AGC, before limiter**: prevents AGC from boosting room noise during gaps.
 
-Recommended: after AGC, before limiter. This is where noise exposure is worst.
+Current: before AGC, before limiter.
 
 ### Settings
 ```

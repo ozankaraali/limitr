@@ -120,7 +120,7 @@ const presets = {
     // Single-band compression for general leveling
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -28, ratio: 6, knee: 10, attack: 2, release: 150,
+    threshold: -28, ratio: 5, knee: 10, attack: 2, release: 150,
     makeupGain: 0, gainEnabled: true,
     // Light EQ: reduce harshness
     eqEnabled: true,
@@ -132,7 +132,7 @@ const presets = {
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: true, autoGainTarget: -20, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
+    gateEnabled: true, gateThreshold: -45, gateHold: 150, gateRelease: 250,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -164,7 +164,7 @@ const presets = {
     // Moderate-heavy compression for low-volume watching
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -35, ratio: 12, knee: 6, attack: 1, release: 200,
+    threshold: -28, ratio: 8, knee: 6, attack: 1, release: 200,
     makeupGain: 0, gainEnabled: true,
     // Reduce bass rumble + tame harsh highs for quiet watching
     eqEnabled: true,
@@ -275,7 +275,7 @@ const presets = {
     // Brute-force compression crushes all peaks, fast AGC reacts to sudden volume changes
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -45, ratio: 15, knee: 6, attack: 1, release: 200,
+    threshold: -35, ratio: 12, knee: 6, attack: 1, release: 200,
     makeupGain: 0, gainEnabled: true,
     // No EQ coloring — pure volume protection
     eqEnabled: false,
@@ -339,27 +339,57 @@ const presets = {
   },
   sleep: {
     name: 'Sleep',
-    // Moderate compression — catches loud peaks, preserves natural speech dynamics
+    // Ultimate night mode — heavy compression for ultra-consistent volume
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -30, ratio: 6, knee: 10, attack: 1, release: 200,
+    threshold: -30, ratio: 6, knee: 6, attack: 1, release: 200,
     makeupGain: 0, gainEnabled: true,
-    // Aggressive treble filtering for gentle sound
+    // Gentle treble rolloff (no harsh cutoff), reduce muddy 250Hz like Night Mode
     eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
+    eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
     eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
+    eq4Freq: 4000, eq4Gain: -4, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 8000, eq5Gain: -6, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 10000, filtersEnabled: true,
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    autoGainEnabled: true, autoGainTarget: -18, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
+    autoGainEnabled: true, autoGainTarget: -24, autoGainSpeed: 'normal',
+    gateEnabled: true, gateThreshold: -45, gateHold: 150, gateRelease: 250,
     limiterEnabled: true, limiterThreshold: -6,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   }
 };
+
+function getFallbackAgcBoost(targetDb) {
+  if (targetDb <= -24) return 6;
+  if (targetDb <= -20) return 4;
+  if (targetDb <= -18) return 3;
+  if (targetDb <= -16) return 2;
+  if (targetDb <= -12) return 1;
+  return 0;
+}
+
+function getEffectivePreset(presetName) {
+  const base = presets[presetName];
+  if (!base) return null;
+
+  const settings = { ...defaults, ...base };
+  let outputGainOffset = 0;
+
+  // Regular mode (fallback) lacks AGC, noise suppression, and gate.
+  if (!mixerMode) {
+    if (base.autoGainEnabled) {
+      const target = base.autoGainTarget ?? defaults.autoGainTarget;
+      outputGainOffset = getFallbackAgcBoost(target);
+    }
+    settings.autoGainEnabled = false;
+    settings.noiseSuppressionEnabled = false;
+    settings.gateEnabled = false;
+  }
+
+  return { settings, outputGainOffset };
+}
 
 // Keys used for preset comparison
 const presetKeys = [
@@ -375,7 +405,7 @@ const presetKeys = [
   'autoGainEnabled', 'autoGainTarget', 'autoGainSpeed',
   'limiterAttack', 'limiterRelease',
   // Noise Gate
-  'gateEnabled', 'gateThreshold',
+  'gateEnabled', 'gateThreshold', 'gateHold', 'gateRelease',
   // Multiband
   'crossover1', 'crossover2',
   'subThreshold', 'subRatio', 'subGain',
@@ -535,6 +565,10 @@ async function init() {
     gateLabel: document.getElementById('gateLabel'),
     gateThreshold: document.getElementById('gateThreshold'),
     gateThresholdValue: document.getElementById('gateThresholdValue'),
+    gateHold: document.getElementById('gateHold'),
+    gateHoldValue: document.getElementById('gateHoldValue'),
+    gateRelease: document.getElementById('gateRelease'),
+    gateReleaseValue: document.getElementById('gateReleaseValue'),
     presetBtns: document.querySelectorAll('.preset-btn'),
     mixerToggle: document.getElementById('mixerToggle'),
     mixerPanel: document.getElementById('mixerPanel'),
@@ -919,6 +953,14 @@ function updateUI() {
     elements.gateThreshold.value = currentSettings.gateThreshold;
     elements.gateThresholdValue.textContent = `${currentSettings.gateThreshold} dB`;
   }
+  if (elements.gateHold) {
+    elements.gateHold.value = currentSettings.gateHold;
+    elements.gateHoldValue.textContent = `${currentSettings.gateHold} ms`;
+  }
+  if (elements.gateRelease) {
+    elements.gateRelease.value = currentSettings.gateRelease;
+    elements.gateReleaseValue.textContent = `${currentSettings.gateRelease} ms`;
+  }
 
   // Auto-Gain
   if (elements.autoGainToggle) {
@@ -1077,12 +1119,13 @@ function updateStatusIndicator() {
 function updatePresetButtons() {
   elements.presetBtns.forEach(btn => {
     const presetName = btn.dataset.preset;
-    const preset = presets[presetName];
-    if (!preset) return;
+    const effectivePreset = getEffectivePreset(presetName);
+    if (!effectivePreset) return;
+    const presetSettings = effectivePreset.settings;
 
     const isActive = presetKeys.every(key => {
-      if (!(key in preset)) return true;
-      return currentSettings[key] === preset[key];
+      if (!(key in presetSettings)) return true;
+      return currentSettings[key] === presetSettings[key];
     });
     btn.classList.toggle('active', isActive);
   });
@@ -1417,6 +1460,8 @@ function setupEventListeners() {
     });
   }
   setupSlider('gateThreshold', 'gateThreshold', 'gateThresholdValue', v => `${v} dB`, true);
+  setupSlider('gateHold', 'gateHold', 'gateHoldValue', v => `${v} ms`, true);
+  setupSlider('gateRelease', 'gateRelease', 'gateReleaseValue', v => `${v} ms`, true);
 
   // AGC Speed dropdown
   if (elements.autoGainSpeed) {
@@ -1503,13 +1548,14 @@ function syncControls(key, value) {
 }
 
 function applyPreset(presetName) {
-  const preset = presets[presetName];
-  if (!preset) return;
+  const effectivePreset = getEffectivePreset(presetName);
+  if (!effectivePreset) return;
+  const { settings: presetSettings, outputGainOffset } = effectivePreset;
 
   if (presetName === 'tv90s') {
     const isTvActive = presetKeys.every(key => {
-      if (!(key in preset)) return true;
-      return currentSettings[key] === preset[key];
+      if (!(key in presetSettings)) return true;
+      return currentSettings[key] === presetSettings[key];
     });
     if (isTvActive) {
       toggleCrtVisual();
@@ -1523,8 +1569,9 @@ function applyPreset(presetName) {
 
   const savedOutputGain = currentSettings.outputGain;
   const savedEnabled = currentSettings.enabled;
-  Object.assign(currentSettings, defaults, preset);
-  currentSettings.outputGain = savedOutputGain;
+  Object.assign(currentSettings, presetSettings);
+  const boostedOutput = savedOutputGain + (outputGainOffset || 0);
+  currentSettings.outputGain = Math.max(-24, Math.min(24, boostedOutput));
   currentSettings.enabled = savedEnabled;
 
   updateUI();

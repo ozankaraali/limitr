@@ -25,6 +25,7 @@ const defaultSettings = {
   attack: 5,      // ms
   release: 100,   // ms
   makeupGain: 0,
+  gainEnabled: true,
 
   // === 3-BAND MULTIBAND COMPRESSOR (frequency-specific dynamics) ===
   multibandEnabled: false,
@@ -74,6 +75,7 @@ const defaultSettings = {
   // === FILTERS (independent bass/treble cut) ===
   bassCutFreq: 0,        // Highpass: 0 = off, otherwise Hz (e.g., 80, 120, 200)
   trebleCutFreq: 22050,  // Lowpass: 22050 = off, otherwise Hz (e.g., 8000, 12000)
+  filtersEnabled: false,
 
   // === AI NOISE SUPPRESSION (RNNoise) ===
   noiseSuppressionEnabled: false,
@@ -295,8 +297,8 @@ async function createAudioChain(tabId, mediaStreamId) {
 
     // AGC speed profiles
     const AGC_PROFILES = {
-      slow:   { interval: 100, attack: 0.02, release: 0.05, maxGain: 10 },
-      normal: { interval: 50,  attack: 0.05, release: 0.10, maxGain: 10 },
+      slow:   { interval: 100, attack: 0.02, release: 0.05, maxGain: 6 },
+      normal: { interval: 50,  attack: 0.05, release: 0.10, maxGain: 6 },
       fast:   { interval: 20,  attack: 0.15, release: 0.25, maxGain: 4  }
     };
 
@@ -341,7 +343,7 @@ async function createAudioChain(tabId, mediaStreamId) {
         // Clamp gain to reasonable range using profile maxGain
         agcCurrentGain = Math.max(0.1, Math.min(profile.maxGain, agcCurrentGain));
 
-        autoGainNode.gain.setTargetAtTime(agcCurrentGain, audioContext.currentTime, 0.1);
+        autoGainNode.gain.setTargetAtTime(agcCurrentGain, audioContext.currentTime, 0.02);
       }
     };
 
@@ -669,7 +671,7 @@ function rebuildSignalChain(state) {
     return;
   }
 
-  // Signal chain: source -> [Dynamics] -> [PreLimiter*] -> [NoiseSuppression] -> [BassCut] -> [EQ] -> [TrebleCut] -> [AutoGain] -> [Limiter] -> outputGain
+  // Signal chain: source -> [Dynamics] -> [PreLimiter*] -> [NoiseSuppression] -> [BassCut] -> [EQ] -> [TrebleCut] -> [Gate] -> [AutoGain] -> [Limiter] -> outputGain
   // *PreLimiter is a fixed safety limiter, only active when noise suppression is on (protects RNNoise from loud transients)
   // Limiter is the user-controllable output limiter at the end (prevents clipping from EQ/AGC boosts)
   let currentNode = source;
@@ -705,8 +707,8 @@ function rebuildSignalChain(state) {
     setNoiseSuppressorEnabled(false);
   }
 
-  // Bass cut filter (highpass) - active when freq > 20Hz
-  const bassCutActive = settings.bassCutFreq > 20;
+  // Bass cut filter (highpass) - active when enabled + freq > 20Hz
+  const bassCutActive = settings.filtersEnabled && settings.bassCutFreq > 20;
   if (bassCutActive) {
     currentNode.connect(bassCutFilter);
     currentNode = bassCutFilter;
@@ -721,10 +723,20 @@ function rebuildSignalChain(state) {
     state.eqActive = false;
   }
 
-  // Treble cut filter (lowpass) - active when freq < 20kHz
-  if (settings.trebleCutFreq < 20000) {
+  // Treble cut filter (lowpass) - active when enabled + freq < 20kHz
+  if (settings.filtersEnabled && settings.trebleCutFreq < 20000) {
     currentNode.connect(trebleCutFilter);
     currentNode = trebleCutFilter;
+  }
+
+  // Noise Gate (silences hiss in quiet gaps - before AGC to avoid boosting room noise)
+  if (settings.gateEnabled) {
+    currentNode.connect(gateAnalyser);  // Analyser for measurement (parallel)
+    currentNode.connect(gateNode);      // Gain node for gating (inline)
+    currentNode = gateNode;
+    setGateEnabled(true);
+  } else {
+    setGateEnabled(false);
   }
 
   // Auto-Gain (AGC) - measures and adjusts level
@@ -737,16 +749,6 @@ function rebuildSignalChain(state) {
     setAgcEnabled(false);
   }
 
-  // Noise Gate (silences hiss in quiet gaps - after AGC, before limiter)
-  if (settings.gateEnabled) {
-    currentNode.connect(gateAnalyser);  // Analyser for measurement (parallel)
-    currentNode.connect(gateNode);      // Gain node for gating (inline)
-    currentNode = gateNode;
-    setGateEnabled(true);
-  } else {
-    setGateEnabled(false);
-  }
-
   // Limiter (user-controllable, brick wall output limiter - prevents clipping from EQ/AGC boosts)
   if (settings.limiterEnabled) {
     currentNode.connect(limiter);
@@ -756,7 +758,7 @@ function rebuildSignalChain(state) {
   // Final output
   currentNode.connect(outputGain);
 
-  console.log(`[Limitr] Signal chain: Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> PreLimiter=${noiseSuppressionActive ? '-1dB' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.trebleCutFreq < 20000 ? settings.trebleCutFreq + 'Hz' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Gate=${settings.gateEnabled ? settings.gateThreshold + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'}`);
+  console.log(`[Limitr] Signal chain: Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> PreLimiter=${noiseSuppressionActive ? '-1dB' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.filtersEnabled && settings.trebleCutFreq < 20000 ? settings.trebleCutFreq + 'Hz' : 'off'} -> Gate=${settings.gateEnabled ? settings.gateThreshold + 'dB' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'}`);
 }
 
 // Update settings for a tab
@@ -771,12 +773,18 @@ function updateSettings(tabId, newSettings) {
   const oldNoiseType = state.settings.noiseType;
   const oldBassCut = state.settings.bassCutFreq;
   const oldTrebleCut = state.settings.trebleCutFreq;
+  const oldFiltersEnabled = state.settings.filtersEnabled;
 
   // Check if bass/treble cut routing needs to change (crossing the active threshold)
-  const bassCutRoutingChanged = newSettings.bassCutFreq !== undefined &&
-    ((newSettings.bassCutFreq > 20) !== (oldBassCut > 20));
-  const trebleCutRoutingChanged = newSettings.trebleCutFreq !== undefined &&
-    ((newSettings.trebleCutFreq < 20000) !== (oldTrebleCut < 20000));
+  const nextBassCut = newSettings.bassCutFreq !== undefined ? newSettings.bassCutFreq : oldBassCut;
+  const nextTrebleCut = newSettings.trebleCutFreq !== undefined ? newSettings.trebleCutFreq : oldTrebleCut;
+  const nextFiltersEnabled = newSettings.filtersEnabled !== undefined ? newSettings.filtersEnabled : oldFiltersEnabled;
+  const oldBassCutActive = oldFiltersEnabled && oldBassCut > 20;
+  const oldTrebleCutActive = oldFiltersEnabled && oldTrebleCut < 20000;
+  const newBassCutActive = nextFiltersEnabled && nextBassCut > 20;
+  const newTrebleCutActive = nextFiltersEnabled && nextTrebleCut < 20000;
+  const bassCutRoutingChanged = newBassCutActive !== oldBassCutActive;
+  const trebleCutRoutingChanged = newTrebleCutActive !== oldTrebleCutActive;
 
   const needsRebuild = (
     newSettings.eqEnabled !== undefined && newSettings.eqEnabled !== state.settings.eqEnabled ||
@@ -786,6 +794,7 @@ function updateSettings(tabId, newSettings) {
     newSettings.limiterEnabled !== undefined && newSettings.limiterEnabled !== state.settings.limiterEnabled ||
     newSettings.autoGainEnabled !== undefined && newSettings.autoGainEnabled !== state.settings.autoGainEnabled ||
     newSettings.gateEnabled !== undefined && newSettings.gateEnabled !== state.settings.gateEnabled ||
+    newSettings.filtersEnabled !== undefined && newSettings.filtersEnabled !== state.settings.filtersEnabled ||
     bassCutRoutingChanged || trebleCutRoutingChanged
   );
 
@@ -803,7 +812,9 @@ function updateSettings(tabId, newSettings) {
   if (newSettings.knee !== undefined) compressor.knee.value = s.knee;
   if (newSettings.attack !== undefined) compressor.attack.value = s.attack / 1000;
   if (newSettings.release !== undefined) compressor.release.value = s.release / 1000;
-  if (newSettings.makeupGain !== undefined) makeupGain.gain.value = Math.pow(10, s.makeupGain / 20);
+  if (newSettings.makeupGain !== undefined || newSettings.gainEnabled !== undefined) {
+    makeupGain.gain.value = s.gainEnabled ? Math.pow(10, s.makeupGain / 20) : 1;
+  }
   if (newSettings.outputGain !== undefined) outputGain.gain.value = Math.pow(10, s.outputGain / 20);
 
   // Multiband crossovers
