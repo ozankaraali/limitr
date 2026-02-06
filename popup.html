@@ -83,6 +83,22 @@
         </div>
         <div class="control-note">RNNoise AI — Exclusive mode only</div>
       </div>
+
+      <!-- Video Transcriber (Exclusive mode only) -->
+      <div class="simple-anc-row" id="simpleTranscriberRow">
+        <div class="control-header">
+          <label>Video Transcriber</label>
+          <label class="toggle small">
+            <input type="checkbox" id="transcriberToggleSimple">
+            <span class="slider"></span>
+          </label>
+          <span class="transcriber-label" id="transcriberLabelSimple">Off</span>
+        </div>
+        <div class="control-note">Whisper AI captions — Exclusive mode only</div>
+        <div class="transcriber-output" id="transcriberOutputSimple" style="display: none;">
+          <div class="transcriber-text" id="transcriberTextSimple"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Advanced Mode Controls -->
@@ -133,6 +149,22 @@
               <option value="normal" selected>Normal (Balanced)</option>
               <option value="fast">Fast (Anti-scream)</option>
             </select>
+          </div>
+
+          <!-- Video Transcriber (Whisper) -->
+          <div class="control-section-label transcriber-header">
+            <span>Video Transcriber</span>
+            <label class="toggle small">
+              <input type="checkbox" id="transcriberToggle">
+              <span class="slider"></span>
+            </label>
+            <span class="transcriber-label" id="transcriberLabel">Off</span>
+          </div>
+          <div class="control-note" id="transcriberNote">
+            Whisper AI — live captions from tab audio
+          </div>
+          <div class="transcriber-output" id="transcriberOutput" style="display: none;">
+            <div class="transcriber-text" id="transcriberText"></div>
           </div>
 
           <!-- Noise Gate -->

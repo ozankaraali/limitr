@@ -440,6 +440,8 @@ let audibleTabs = [];
 let processingTabIds = [];
 let crtVisualEnabled = false;
 let mixerMode = false;
+let transcriberActive = false;
+let transcriberLoading = false;
 let collapseState = {
   exclusive: false,
   limiter: false,
@@ -548,6 +550,18 @@ async function init() {
     noiseSuppressionToggleSimple: document.getElementById('noiseSuppressionToggleSimple'),
     noiseSuppressionLabelSimple: document.getElementById('noiseSuppressionLabelSimple'),
     simpleAncRow: document.getElementById('simpleAncRow'),
+    // Video Transcriber
+    transcriberToggle: document.getElementById('transcriberToggle'),
+    transcriberLabel: document.getElementById('transcriberLabel'),
+    transcriberNote: document.getElementById('transcriberNote'),
+    transcriberOutput: document.getElementById('transcriberOutput'),
+    transcriberText: document.getElementById('transcriberText'),
+    // Simple mode Transcriber
+    transcriberToggleSimple: document.getElementById('transcriberToggleSimple'),
+    transcriberLabelSimple: document.getElementById('transcriberLabelSimple'),
+    simpleTranscriberRow: document.getElementById('simpleTranscriberRow'),
+    transcriberOutputSimple: document.getElementById('transcriberOutputSimple'),
+    transcriberTextSimple: document.getElementById('transcriberTextSimple'),
     // Compressor toggle
     compressorToggle: document.getElementById('compressorToggle'),
     compressorLabel: document.getElementById('compressorLabel'),
@@ -649,6 +663,23 @@ async function init() {
 
   await refreshAudibleTabs();
   startReductionPolling();
+
+  // Restore transcriber state if active
+  if (mixerMode && currentTabId) {
+    try {
+      const status = await sendToBackground({
+        action: 'get-transcription-status',
+        tabId: currentTabId
+      });
+      if (status.active) {
+        transcriberActive = true;
+        updateTranscriberUI('active', 'On');
+      } else if (status.loading) {
+        transcriberLoading = true;
+        updateTranscriberUI('loading', 'Loading...');
+      }
+    } catch (e) {}
+  }
 }
 
 async function sendToBackground(message) {
@@ -1090,6 +1121,11 @@ function updateExclusiveFeatureVisibility() {
     elements.simpleAncRow.classList.toggle('unavailable', !mixerMode);
   }
 
+  // Update simple mode transcriber row
+  if (elements.simpleTranscriberRow) {
+    elements.simpleTranscriberRow.classList.toggle('unavailable', !mixerMode);
+  }
+
   if (elements.exclusiveBadge) {
     if (mixerMode) {
       elements.exclusiveBadge.textContent = 'Active';
@@ -1480,6 +1516,20 @@ function setupEventListeners() {
       currentSettings.autoGainSpeed = e.target.value;
       updatePresetButtons();
       updateTabSettings();
+    });
+  }
+
+  // Video Transcriber toggle (Advanced)
+  if (elements.transcriberToggle) {
+    elements.transcriberToggle.addEventListener('change', (e) => {
+      toggleTranscriber(e.target.checked);
+    });
+  }
+
+  // Video Transcriber toggle (Simple)
+  if (elements.transcriberToggleSimple) {
+    elements.transcriberToggleSimple.addEventListener('change', (e) => {
+      toggleTranscriber(e.target.checked);
     });
   }
 
@@ -2005,6 +2055,145 @@ function setupEqCanvasInteraction() {
     }
   });
 }
+
+// ============ VIDEO TRANSCRIBER ============
+
+async function toggleTranscriber(enabled) {
+  if (!mixerMode) return;
+  if (enabled === transcriberActive && !transcriberLoading) return;
+
+  if (enabled) {
+    transcriberLoading = true;
+    updateTranscriberUI('loading', 'Loading...');
+
+    try {
+      // Inject subtitle overlay content script
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: currentTabId },
+          files: ['content-transcribe.js']
+        });
+      } catch (e) {
+        console.log('[Limitr] Subtitle overlay injection:', e.message);
+      }
+
+      const response = await sendToBackground({
+        action: 'start-transcription',
+        tabId: currentTabId
+      });
+
+      if (response.success) {
+        transcriberActive = true;
+        transcriberLoading = false;
+        updateTranscriberUI('active', 'On');
+      } else {
+        transcriberActive = false;
+        transcriberLoading = false;
+        updateTranscriberUI('error', response.error || 'Failed');
+      }
+    } catch (error) {
+      transcriberActive = false;
+      transcriberLoading = false;
+      updateTranscriberUI('error', 'Error');
+      console.error('[Limitr] Transcriber error:', error);
+    }
+  } else {
+    await sendToBackground({
+      action: 'stop-transcription',
+      tabId: currentTabId
+    });
+    transcriberActive = false;
+    transcriberLoading = false;
+    updateTranscriberUI('off', 'Off');
+  }
+}
+
+function updateTranscriberUI(status, label) {
+  // Advanced mode toggle
+  if (elements.transcriberToggle) {
+    elements.transcriberToggle.checked = status === 'active' || status === 'loading';
+    elements.transcriberToggle.disabled = status === 'loading';
+  }
+  if (elements.transcriberLabel) {
+    elements.transcriberLabel.textContent = label;
+    elements.transcriberLabel.classList.toggle('active', status === 'active');
+    elements.transcriberLabel.classList.toggle('loading', status === 'loading');
+  }
+  if (elements.transcriberNote) {
+    if (status === 'loading') {
+      elements.transcriberNote.textContent = 'Downloading Whisper model...';
+    } else if (status === 'error') {
+      elements.transcriberNote.textContent = 'Failed to load — check console';
+    } else {
+      elements.transcriberNote.textContent = 'Whisper AI — live captions from tab audio';
+    }
+  }
+
+  // Show/hide transcript output area
+  const showOutput = status === 'active';
+  if (elements.transcriberOutput) {
+    elements.transcriberOutput.style.display = showOutput ? 'block' : 'none';
+  }
+  if (elements.transcriberOutputSimple) {
+    elements.transcriberOutputSimple.style.display = showOutput ? 'block' : 'none';
+  }
+
+  // Simple mode toggle
+  if (elements.transcriberToggleSimple) {
+    elements.transcriberToggleSimple.checked = status === 'active' || status === 'loading';
+    elements.transcriberToggleSimple.disabled = status === 'loading';
+  }
+  if (elements.transcriberLabelSimple) {
+    elements.transcriberLabelSimple.textContent = label;
+    elements.transcriberLabelSimple.classList.toggle('active', status === 'active');
+  }
+}
+
+function appendTranscription(text) {
+  const maxLines = 8;
+
+  [elements.transcriberText, elements.transcriberTextSimple].forEach(el => {
+    if (!el) return;
+
+    const line = document.createElement('div');
+    line.className = 'transcriber-line';
+    line.textContent = text;
+    el.appendChild(line);
+
+    // Keep only the last N lines
+    while (el.children.length > maxLines) {
+      el.removeChild(el.firstChild);
+    }
+
+    // Auto-scroll to bottom
+    el.scrollTop = el.scrollHeight;
+  });
+}
+
+// Listen for transcription results and status updates from background
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.action === 'transcription-result' && message.tabId === currentTabId) {
+    appendTranscription(message.result.text);
+  }
+
+  if (message.action === 'transcription-status') {
+    if (message.status === 'loading') {
+      updateTranscriberUI('loading', message.message || 'Loading...');
+    } else if (message.status === 'active') {
+      transcriberActive = true;
+      transcriberLoading = false;
+      updateTranscriberUI('active', 'On');
+    } else if (message.status === 'error') {
+      transcriberActive = false;
+      transcriberLoading = false;
+      updateTranscriberUI('error', message.message || 'Error');
+    } else if (message.status === 'stopped') {
+      transcriberActive = false;
+      transcriberLoading = false;
+      updateTranscriberUI('off', 'Off');
+    }
+  }
+});
 
 // Initialize
 init();

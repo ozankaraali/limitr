@@ -201,6 +201,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  // Forward transcription results from offscreen to popup and content scripts
+  if (message.action === 'transcription-result' || message.action === 'transcription-status') {
+    // Forward to the tab's content script for subtitle overlay
+    if (message.tabId) {
+      chrome.tabs.sendMessage(message.tabId, message).catch(() => {});
+    }
+    // No response needed — fire-and-forget broadcast
+    return;
+  }
+
   if (message.target !== 'background') {
     return;
   }
@@ -288,6 +298,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
         .then(response => sendResponse({ success: true, volumes: response?.volumes || {} }))
         .catch(error => sendResponse({ success: false, volumes: {} }));
+      return true;
+    }
+
+    case 'start-transcription': {
+      ensureOffscreenDocument()
+        .then(() => chrome.runtime.sendMessage({
+          target: 'offscreen',
+          action: 'start-transcription',
+          tabId: message.tabId
+        }))
+        .then(response => sendResponse(response))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+    }
+
+    case 'stop-transcription': {
+      ensureOffscreenDocument()
+        .then(() => chrome.runtime.sendMessage({
+          target: 'offscreen',
+          action: 'stop-transcription',
+          tabId: message.tabId
+        }))
+        .then(response => sendResponse(response))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+    }
+
+    case 'get-transcription-status': {
+      hasOffscreenDocument()
+        .then(exists => {
+          if (!exists) return { active: false, ready: false, loading: false };
+          return chrome.runtime.sendMessage({
+            target: 'offscreen',
+            action: 'get-transcription-status',
+            tabId: message.tabId
+          });
+        })
+        .then(response => sendResponse(response))
+        .catch(() => sendResponse({ active: false, ready: false, loading: false }));
       return true;
     }
 

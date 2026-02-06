@@ -41,7 +41,12 @@
     {
       "resources": [
         "lib/noise-suppressor-worklet.js",
-        "lib/rnnoise.wasm"
+        "lib/rnnoise.wasm",
+        "lib/transformers.min.js",
+        "lib/transcriber.js",
+        "lib/ort.bundle.min.mjs",
+        "lib/ort-wasm-simd-threaded.jsep.wasm",
+        "lib/ort-wasm-simd-threaded.jsep.mjs"
       ],
       "matches": ["<all_urls>"]
     }
