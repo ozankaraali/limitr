@@ -65,6 +65,12 @@ const defaults = {
   gateHold: 100,
   gateRelease: 200,
 
+  // Audio Ducking (speech-aware dynamic range — Exclusive only)
+  duckingEnabled: false,
+  duckingThreshold: -35,  // dB — speech detection threshold (RMS in 300-3kHz band)
+  duckingAmount: -12,     // dB — how much to reduce non-speech content
+  duckingRelease: 300,    // ms — how fast ducking releases after speech stops
+
   // Effects
   noiseLevel: 0,
   noiseType: 'brown',
@@ -89,6 +95,7 @@ const presets = {
     limiterAttack: 1, limiterRelease: 100,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
+    duckingEnabled: false, duckingThreshold: -35, duckingAmount: -12, duckingRelease: 300,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   music: {
@@ -207,7 +214,7 @@ const presets = {
   },
   movie: {
     name: 'Movie',
-    // Single-band compression + dialog EQ — no multiband bass crushing
+    // Single-band compression + dialog EQ + audio ducking — no multiband bass crushing
     compressorEnabled: true,
     multibandEnabled: false,
     threshold: -26, ratio: 6, knee: 10, attack: 3, release: 150,
@@ -222,6 +229,8 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
+    // Audio ducking: lower music/SFX when dialog is detected (Exclusive mode)
+    duckingEnabled: true, duckingThreshold: -35, duckingAmount: -10, duckingRelease: 300,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     makeupGain: 0, gainEnabled: true,
@@ -346,7 +355,7 @@ const presetUI = {
   streamWatch:  { desc: 'Twitch & YouTube' },
   podcast:      { desc: 'Voice clarity' },
   voiceFocus:   { desc: 'Podcasts & streams', style: 'preset-featured' },
-  movie:        { desc: 'Action & dialog' },
+  movie:        { desc: 'Dialog duck & clarity' },
   bassTamer:    { desc: 'Reduce bass' },
   tv90s:        { desc: 'Tap twice for TV+' },
   nightMode:    { desc: 'Comfy low-volume' },
@@ -388,7 +397,7 @@ function getEffectivePreset(presetName) {
   const settings = { ...defaults, ...base };
   let outputGainOffset = 0;
 
-  // Regular mode (fallback) lacks AGC, noise suppression, and gate.
+  // Regular mode (fallback) lacks AGC, noise suppression, gate, and ducking.
   if (!mixerMode) {
     if (base.autoGainEnabled) {
       const target = base.autoGainTarget ?? defaults.autoGainTarget;
@@ -397,6 +406,7 @@ function getEffectivePreset(presetName) {
     settings.autoGainEnabled = false;
     settings.noiseSuppressionEnabled = false;
     settings.gateEnabled = false;
+    settings.duckingEnabled = false;
   }
 
   return { settings, outputGainOffset };
@@ -417,6 +427,8 @@ const presetKeys = [
   'limiterAttack', 'limiterRelease',
   // Noise Gate
   'gateEnabled', 'gateThreshold', 'gateHold', 'gateRelease',
+  // Audio Ducking
+  'duckingEnabled', 'duckingThreshold', 'duckingAmount', 'duckingRelease',
   // Multiband
   'crossover1', 'crossover2',
   'subThreshold', 'subRatio', 'subGain',
@@ -580,6 +592,18 @@ async function init() {
     gateHoldValue: document.getElementById('gateHoldValue'),
     gateRelease: document.getElementById('gateRelease'),
     gateReleaseValue: document.getElementById('gateReleaseValue'),
+    // Audio Ducking
+    duckingToggle: document.getElementById('duckingToggle'),
+    duckingLabel: document.getElementById('duckingLabel'),
+    duckingThreshold: document.getElementById('duckingThreshold'),
+    duckingThresholdValue: document.getElementById('duckingThresholdValue'),
+    duckingAmount: document.getElementById('duckingAmount'),
+    duckingAmountValue: document.getElementById('duckingAmountValue'),
+    duckingRelease: document.getElementById('duckingRelease'),
+    duckingReleaseValue: document.getElementById('duckingReleaseValue'),
+    // LUFS meter
+    lufsMeter: document.getElementById('lufsMeter'),
+    lufsValue: document.getElementById('lufsValue'),
     presetBtns: document.querySelectorAll('.preset-btn'),
     mixerToggle: document.getElementById('mixerToggle'),
     mixerPanel: document.getElementById('mixerPanel'),
@@ -973,6 +997,27 @@ function updateUI() {
     elements.gateReleaseValue.textContent = `${currentSettings.gateRelease} ms`;
   }
 
+  // Audio Ducking
+  if (elements.duckingToggle) {
+    elements.duckingToggle.checked = currentSettings.duckingEnabled;
+  }
+  if (elements.duckingLabel) {
+    elements.duckingLabel.textContent = currentSettings.duckingEnabled ? 'On' : 'Off';
+    elements.duckingLabel.classList.toggle('active', currentSettings.duckingEnabled);
+  }
+  if (elements.duckingThreshold) {
+    elements.duckingThreshold.value = currentSettings.duckingThreshold;
+    elements.duckingThresholdValue.textContent = `${currentSettings.duckingThreshold} dB`;
+  }
+  if (elements.duckingAmount) {
+    elements.duckingAmount.value = currentSettings.duckingAmount;
+    elements.duckingAmountValue.textContent = `${currentSettings.duckingAmount} dB`;
+  }
+  if (elements.duckingRelease) {
+    elements.duckingRelease.value = currentSettings.duckingRelease;
+    elements.duckingReleaseValue.textContent = `${currentSettings.duckingRelease} ms`;
+  }
+
   // Auto-Gain
   if (elements.autoGainToggle) {
     elements.autoGainToggle.checked = currentSettings.autoGainEnabled;
@@ -1215,6 +1260,19 @@ function updateMeter(reductionDb) {
   const percentage = Math.min(100, Math.max(0, (Math.abs(reductionDb) / 30) * 100));
   elements.reductionMeter.style.width = `${percentage}%`;
   elements.reductionValue.textContent = `${reductionDb.toFixed(1)} dB`;
+}
+
+function updateLufsMeter(lufs) {
+  if (!elements.lufsMeter || !elements.lufsValue) return;
+  if (!isFinite(lufs) || lufs < -60) {
+    elements.lufsMeter.style.width = '0%';
+    elements.lufsValue.textContent = '--';
+    return;
+  }
+  // Map LUFS range: -60 to 0 → 0% to 100%
+  const percentage = Math.min(100, Math.max(0, ((lufs + 60) / 60) * 100));
+  elements.lufsMeter.style.width = `${percentage}%`;
+  elements.lufsValue.textContent = `${lufs.toFixed(1)}`;
 }
 
 function applyCollapseState() {
@@ -1474,6 +1532,18 @@ function setupEventListeners() {
   setupSlider('gateHold', 'gateHold', 'gateHoldValue', v => `${v} ms`, true);
   setupSlider('gateRelease', 'gateRelease', 'gateReleaseValue', v => `${v} ms`, true);
 
+  // Audio Ducking toggle
+  if (elements.duckingToggle) {
+    elements.duckingToggle.addEventListener('change', (e) => {
+      currentSettings.duckingEnabled = e.target.checked;
+      updateUI();
+      updateTabSettings();
+    });
+  }
+  setupSlider('duckingThreshold', 'duckingThreshold', 'duckingThresholdValue', v => `${v} dB`, true);
+  setupSlider('duckingAmount', 'duckingAmount', 'duckingAmountValue', v => `${v} dB`, true);
+  setupSlider('duckingRelease', 'duckingRelease', 'duckingReleaseValue', v => `${v} ms`, true);
+
   // AGC Speed dropdown
   if (elements.autoGainSpeed) {
     elements.autoGainSpeed.addEventListener('change', (e) => {
@@ -1636,6 +1706,7 @@ function startReductionPolling() {
   setInterval(async () => {
     if (!isCapturing || !currentTabId) {
       updateMeter(0);
+      updateLufsMeter(-Infinity);
       return;
     }
 
@@ -1649,12 +1720,30 @@ function startReductionPolling() {
         if (response && response.reduction !== undefined) {
           updateMeter(response.reduction);
         }
+
+        // LUFS meter
+        const lufsResponse = await chrome.runtime.sendMessage({
+          target: 'offscreen',
+          action: 'get-lufs',
+          tabId: currentTabId
+        });
+        if (lufsResponse && lufsResponse.lufs !== undefined) {
+          updateLufsMeter(lufsResponse.lufs);
+        }
       } else {
         const response = await chrome.tabs.sendMessage(currentTabId, {
           action: 'fallback-get-reduction'
         });
         if (response && response.reduction !== undefined) {
           updateMeter(response.reduction);
+        }
+
+        // LUFS meter (fallback)
+        const lufsResponse = await chrome.tabs.sendMessage(currentTabId, {
+          action: 'fallback-get-lufs'
+        });
+        if (lufsResponse && lufsResponse.lufs !== undefined) {
+          updateLufsMeter(lufsResponse.lufs);
         }
       }
     } catch (e) {}

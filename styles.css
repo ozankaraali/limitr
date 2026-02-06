@@ -215,9 +215,24 @@ h1 {
   color: #22c55e;
 }
 
-/* Meter */
-.meter-container {
+/* Meters Row */
+.meters-row {
+  display: flex;
+  gap: 8px;
   margin-bottom: 12px;
+}
+
+.meter-container {
+  margin-bottom: 0;
+}
+
+.meter-container.meter-flex {
+  flex: 1;
+}
+
+.meter-container.meter-lufs {
+  width: 80px;
+  flex-shrink: 0;
 }
 
 .meter-container label {
@@ -244,6 +259,10 @@ h1 {
   transition: width 0.05s ease-out;
 }
 
+.lufs-fill {
+  background: linear-gradient(90deg, #3b82f6, #22c55e, #eab308, #ef4444);
+}
+
 .meter-value {
   position: absolute;
   right: 8px;
@@ -253,6 +272,11 @@ h1 {
   font-weight: 500;
   color: #fff;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+.meter-container.meter-lufs .meter-value {
+  right: 4px;
+  font-size: 10px;
 }
 
 /* Presets Section */
@@ -772,6 +796,27 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .noise-gate-label.active {
+  color: #22c55e;
+}
+
+/* Audio Ducking header with inline toggle */
+.ducking-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ducking-header .toggle {
+  margin-left: auto;
+}
+
+.ducking-label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.ducking-label.active {
   color: #22c55e;
 }
 

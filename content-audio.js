@@ -34,6 +34,12 @@
   // Limiter (brick wall)
   let limiter = null;
 
+  // LUFS meter
+  let lufsPreFilter = null;
+  let lufsRlbFilter = null;
+  let lufsAnalyser = null;
+  let lufsAnalyserBuffer = null;
+
   const connectedMedia = new Map();
   let currentNoiseType = 'brown';
 
@@ -99,6 +105,12 @@
     gateThreshold: -50,
     gateHold: 100,
     gateRelease: 200,
+
+    // Audio Ducking (not supported in fallback mode — Exclusive only)
+    duckingEnabled: false,
+    duckingThreshold: -35,
+    duckingAmount: -12,
+    duckingRelease: 300,
 
     // Effects
     noiseLevel: 0,
@@ -255,6 +267,25 @@
       limiter.knee.value = 0;
       limiter.attack.value = (settings.limiterAttack || 1) / 1000;
       limiter.release.value = (settings.limiterRelease || 100) / 1000;
+
+      // LUFS meter (K-weighted loudness measurement)
+      lufsPreFilter = audioContext.createBiquadFilter();
+      lufsPreFilter.type = 'highshelf';
+      lufsPreFilter.frequency.value = 1500;
+      lufsPreFilter.gain.value = 4;
+      lufsPreFilter.Q.value = 0.707;
+
+      lufsRlbFilter = audioContext.createBiquadFilter();
+      lufsRlbFilter.type = 'highpass';
+      lufsRlbFilter.frequency.value = 38;
+      lufsRlbFilter.Q.value = 0.5;
+
+      lufsAnalyser = audioContext.createAnalyser();
+      lufsAnalyser.fftSize = 16384;
+      lufsAnalyserBuffer = new Float32Array(lufsAnalyser.fftSize);
+
+      lufsPreFilter.connect(lufsRlbFilter);
+      lufsRlbFilter.connect(lufsAnalyser);
 
       // Noise
       noiseGain = audioContext.createGain();
@@ -424,6 +455,15 @@
 
     // Handle noise
     noiseGain.gain.value = settings.effectsEnabled ? settings.noiseLevel : 0;
+
+    // LUFS meter tap: outputGain → K-weighting → analyser (parallel, read-only)
+    if (lufsPreFilter) {
+      try { lufsPreFilter.disconnect(); } catch (e) {}
+      try { lufsRlbFilter.disconnect(); } catch (e) {}
+      outputGain.connect(lufsPreFilter);
+      lufsPreFilter.connect(lufsRlbFilter);
+      lufsRlbFilter.connect(lufsAnalyser);
+    }
   }
 
   function applySettings() {
@@ -588,6 +628,20 @@
       } else {
         sendResponse({ reduction: { sub: 0, mid: 0, high: 0 } });
       }
+    } else if (message.action === 'fallback-get-lufs') {
+      let lufs = -Infinity;
+      if (lufsAnalyser && lufsAnalyserBuffer) {
+        lufsAnalyser.getFloatTimeDomainData(lufsAnalyserBuffer);
+        let sumSquares = 0;
+        for (let i = 0; i < lufsAnalyserBuffer.length; i++) {
+          sumSquares += lufsAnalyserBuffer[i] * lufsAnalyserBuffer[i];
+        }
+        const meanSquare = sumSquares / lufsAnalyserBuffer.length;
+        if (meanSquare > 0) {
+          lufs = -0.691 + 10 * Math.log10(meanSquare);
+        }
+      }
+      sendResponse({ lufs });
     } else if (message.action === 'fallback-ping') {
       sendResponse({ active: true, mediaCount: connectedMedia.size, settings });
     }
