@@ -1175,6 +1175,11 @@ function getMultibandReduction(tabId) {
 }
 
 function cleanupTab(tabId) {
+  // Stop transcription if active
+  if (window.LimitrTranscriber) {
+    window.LimitrTranscriber.stop(tabId);
+  }
+
   const state = tabAudioState.get(tabId);
   if (!state) return;
 
@@ -1311,6 +1316,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         volumes[tabId] = Math.round(linearGain > 0 ? 20 * Math.log10(linearGain) : -60);
       }
       sendResponse({ volumes });
+      break;
+    }
+
+    // === TRANSCRIPTION ===
+    case 'start-transcription': {
+      const state = tabAudioState.get(message.tabId);
+      if (!state) {
+        sendResponse({ success: false, error: 'No audio state for tab' });
+        break;
+      }
+      if (!window.LimitrTranscriber) {
+        sendResponse({ success: false, error: 'Transcriber module not loaded' });
+        break;
+      }
+      window.LimitrTranscriber.start(message.tabId, state.audioContext, state.source)
+        .then(() => sendResponse({ success: true }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true; // async response
+    }
+
+    case 'stop-transcription': {
+      if (window.LimitrTranscriber) {
+        window.LimitrTranscriber.stop(message.tabId);
+      }
+      sendResponse({ success: true });
+      break;
+    }
+
+    case 'get-transcription-status': {
+      const active = window.LimitrTranscriber
+        ? window.LimitrTranscriber.isActive(message.tabId)
+        : false;
+      const ready = window.LimitrTranscriber
+        ? window.LimitrTranscriber.isReady()
+        : false;
+      const loading = window.LimitrTranscriber
+        ? window.LimitrTranscriber.isModelLoading()
+        : false;
+      sendResponse({ active, ready, loading });
       break;
     }
   }
