@@ -48,11 +48,20 @@
       <span class="mode-note" id="modeNote">Fullscreen compatible</span>
     </div>
 
-    <div class="meter-container">
-      <label>Gain Reduction</label>
-      <div class="meter">
-        <div class="meter-fill" id="reductionMeter"></div>
-        <span class="meter-value" id="reductionValue">0 dB</span>
+    <div class="meters-row">
+      <div class="meter-container meter-flex">
+        <label>Gain Reduction</label>
+        <div class="meter">
+          <div class="meter-fill" id="reductionMeter"></div>
+          <span class="meter-value" id="reductionValue">0 dB</span>
+        </div>
+      </div>
+      <div class="meter-container meter-lufs">
+        <label>LUFS</label>
+        <div class="meter lufs-meter">
+          <div class="meter-fill lufs-fill" id="lufsMeter"></div>
+          <span class="meter-value" id="lufsValue">--</span>
+        </div>
       </div>
     </div>
 
@@ -167,6 +176,40 @@
               <span class="value" id="gateReleaseValue">200 ms</span>
             </div>
             <input type="range" id="gateRelease" min="50" max="1000" value="200" step="10">
+          </div>
+
+          <!-- Audio Ducking -->
+          <div class="control-section-label ducking-header">
+            <span>Audio Ducking</span>
+            <label class="toggle small">
+              <input type="checkbox" id="duckingToggle">
+              <span class="slider"></span>
+            </label>
+            <span class="ducking-label" id="duckingLabel">Off</span>
+          </div>
+          <div class="control-note">
+            Lowers music/SFX when speech is detected
+          </div>
+          <div class="control-group">
+            <div class="control-header">
+              <label for="duckingThreshold">Speech Threshold</label>
+              <span class="value" id="duckingThresholdValue">-35 dB</span>
+            </div>
+            <input type="range" id="duckingThreshold" min="-60" max="-10" value="-35" step="1">
+          </div>
+          <div class="control-group">
+            <div class="control-header">
+              <label for="duckingAmount">Duck Amount</label>
+              <span class="value" id="duckingAmountValue">-12 dB</span>
+            </div>
+            <input type="range" id="duckingAmount" min="-24" max="0" value="-12" step="1">
+          </div>
+          <div class="control-group">
+            <div class="control-header">
+              <label for="duckingRelease">Release</label>
+              <span class="value" id="duckingReleaseValue">300 ms</span>
+            </div>
+            <input type="range" id="duckingRelease" min="50" max="1000" value="300" step="10">
           </div>
         </div>
       </div>

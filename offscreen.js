@@ -104,6 +104,12 @@ const defaultSettings = {
   gateHold: 100,        // ms — grace period before closing after signal drops
   gateRelease: 200,     // ms — fade-out time when closing
 
+  // === AUDIO DUCKING (speech-aware dynamic range) ===
+  duckingEnabled: false,
+  duckingThreshold: -35,  // dB — speech detection threshold (RMS in 300-3kHz band)
+  duckingAmount: -12,     // dB — how much to reduce non-speech content
+  duckingRelease: 300,    // ms — how fast ducking releases after speech stops
+
   // === EFFECTS ===
   noiseLevel: 0,
   noiseType: 'brown'
@@ -398,6 +404,90 @@ async function createAudioChain(tabId, mediaStreamId) {
       }
     };
 
+    // === AUDIO DUCKING (speech-aware dynamic range) ===
+    // Sidechain: bandpass filter isolates speech band (300-3kHz) for detection
+    const duckingSidechainBP = audioContext.createBiquadFilter();
+    duckingSidechainBP.type = 'bandpass';
+    duckingSidechainBP.frequency.value = 1000;  // Center of speech band
+    duckingSidechainBP.Q.value = 0.5;           // Wide Q covers ~300-3kHz
+
+    const duckingAnalyser = audioContext.createAnalyser();
+    duckingAnalyser.fftSize = 2048;
+    const duckingAnalyserBuffer = new Float32Array(duckingAnalyser.fftSize);
+
+    // Main chain: shelf filters that reduce non-speech content when speech is detected
+    const duckLowShelf = audioContext.createBiquadFilter();
+    duckLowShelf.type = 'lowshelf';
+    duckLowShelf.frequency.value = 300;
+    duckLowShelf.gain.value = 0;  // 0 = transparent, negative = ducking
+
+    const duckHighShelf = audioContext.createBiquadFilter();
+    duckHighShelf.type = 'highshelf';
+    duckHighShelf.frequency.value = 3000;
+    duckHighShelf.gain.value = 0;
+
+    // Connect sidechain: bandpass → analyser (parallel, not in main chain)
+    duckingSidechainBP.connect(duckingAnalyser);
+
+    // Connect main chain ducking filters in series
+    duckLowShelf.connect(duckHighShelf);
+
+    // Ducking state
+    let duckingIntervalId = null;
+    let duckingActive = false;  // Is speech currently detected?
+
+    const updateDucking = () => {
+      const s = state.settings;
+      duckingAnalyser.getFloatTimeDomainData(duckingAnalyserBuffer);
+
+      // Calculate RMS in speech band
+      let sumSquares = 0;
+      for (let i = 0; i < duckingAnalyserBuffer.length; i++) {
+        sumSquares += duckingAnalyserBuffer[i] * duckingAnalyserBuffer[i];
+      }
+      const rms = Math.sqrt(sumSquares / duckingAnalyserBuffer.length);
+      const currentDb = rms > 0 ? 20 * Math.log10(rms) : -100;
+
+      const threshold = s.duckingThreshold;
+      const amount = s.duckingAmount;       // Negative dB value
+      const releaseTime = s.duckingRelease / 1000;  // seconds
+
+      if (currentDb >= threshold) {
+        // Speech detected — engage ducking fast (~20ms attack)
+        if (!duckingActive) {
+          duckingActive = true;
+        }
+        duckLowShelf.gain.setTargetAtTime(amount, audioContext.currentTime, 0.02);
+        duckHighShelf.gain.setTargetAtTime(amount, audioContext.currentTime, 0.02);
+      } else {
+        // No speech — release ducking smoothly
+        if (duckingActive) {
+          duckLowShelf.gain.setTargetAtTime(0, audioContext.currentTime, releaseTime / 3);
+          duckHighShelf.gain.setTargetAtTime(0, audioContext.currentTime, releaseTime / 3);
+          duckingActive = false;
+        }
+      }
+    };
+
+    const startDucking = () => {
+      if (duckingIntervalId) return;
+      duckingActive = false;
+      duckLowShelf.gain.setTargetAtTime(0, audioContext.currentTime, 0.01);
+      duckHighShelf.gain.setTargetAtTime(0, audioContext.currentTime, 0.01);
+      duckingIntervalId = setInterval(updateDucking, 20);  // 50Hz update rate
+      console.log('[Limitr] Audio ducking started, threshold:', state.settings.duckingThreshold, 'dB');
+    };
+
+    const stopDucking = () => {
+      if (duckingIntervalId) {
+        clearInterval(duckingIntervalId);
+        duckingIntervalId = null;
+      }
+      duckingActive = false;
+      duckLowShelf.gain.setTargetAtTime(0, audioContext.currentTime, 0.05);
+      duckHighShelf.gain.setTargetAtTime(0, audioContext.currentTime, 0.05);
+    };
+
     // === NOISE GATE ===
     const gateNode = audioContext.createGain();
     gateNode.gain.value = 1;
@@ -557,6 +647,44 @@ async function createAudioChain(tabId, mediaStreamId) {
     console.log('[Limitr] Scheduling noise suppressor init...');
     initNoiseSuppressor();
 
+    // === LUFS METER (K-weighted loudness measurement) ===
+    // Stage 1: High-shelf pre-filter (~+4dB at high frequencies, models head acoustics)
+    const lufsPreFilter = audioContext.createBiquadFilter();
+    lufsPreFilter.type = 'highshelf';
+    lufsPreFilter.frequency.value = 1500;
+    lufsPreFilter.gain.value = 4;
+    lufsPreFilter.Q.value = 0.707;
+
+    // Stage 2: High-pass RLB weighting (removes DC and sub-bass)
+    const lufsRlbFilter = audioContext.createBiquadFilter();
+    lufsRlbFilter.type = 'highpass';
+    lufsRlbFilter.frequency.value = 38;
+    lufsRlbFilter.Q.value = 0.5;
+
+    // Analyser for K-weighted signal measurement
+    const lufsAnalyser = audioContext.createAnalyser();
+    lufsAnalyser.fftSize = 16384;  // ~341ms at 48kHz — close to 400ms momentary window
+    const lufsAnalyserBuffer = new Float32Array(lufsAnalyser.fftSize);
+
+    // Connect K-weighting chain: preFilter → rlbFilter → analyser
+    lufsPreFilter.connect(lufsRlbFilter);
+    lufsRlbFilter.connect(lufsAnalyser);
+
+    // LUFS measurement function
+    const measureLufs = () => {
+      lufsAnalyser.getFloatTimeDomainData(lufsAnalyserBuffer);
+
+      let sumSquares = 0;
+      for (let i = 0; i < lufsAnalyserBuffer.length; i++) {
+        sumSquares += lufsAnalyserBuffer[i] * lufsAnalyserBuffer[i];
+      }
+      const meanSquare = sumSquares / lufsAnalyserBuffer.length;
+
+      if (meanSquare <= 0) return -Infinity;
+      // LUFS = -0.691 + 10 * log10(mean_square)
+      return -0.691 + 10 * Math.log10(meanSquare);
+    };
+
     // === OUTPUT ===
     const outputGain = audioContext.createGain();
     outputGain.gain.value = Math.pow(10, defaultSettings.outputGain / 20);
@@ -647,6 +775,23 @@ async function createAudioChain(tabId, mediaStreamId) {
           stopGate();
         }
       },
+      // Audio ducking
+      duckingSidechainBP,
+      duckingAnalyser,
+      duckLowShelf,
+      duckHighShelf,
+      setDuckingEnabled: (enabled) => {
+        if (enabled) {
+          startDucking();
+        } else {
+          stopDucking();
+        }
+      },
+      // LUFS meter
+      lufsPreFilter,
+      lufsRlbFilter,
+      lufsAnalyser,
+      measureLufs,
       // Noise suppression
       getNoiseSuppressor: () => ({ node: noiseSuppressorNode, ready: noiseSuppressorReady }),
       setNoiseSuppressorEnabled: (enabled) => {
@@ -679,6 +824,8 @@ function rebuildSignalChain(state) {
           crossover1, multibandSum, eqBands, bassCutFilter, trebleCutFilter,
           limiter, preLimiter, autoGainNode, analyser, setAgcEnabled,
           gateNode, gateAnalyser, setGateEnabled,
+          duckingSidechainBP, duckLowShelf, duckHighShelf, setDuckingEnabled,
+          lufsPreFilter, lufsRlbFilter, lufsAnalyser: lufsAnalyserNode,
           getNoiseSuppressor, setNoiseSuppressorEnabled, settings } = state;
 
   // Get noise suppressor state
@@ -701,25 +848,50 @@ function rebuildSignalChain(state) {
   gateAnalyser.disconnect();
   limiter.disconnect();
   preLimiter.disconnect();
+  duckingSidechainBP.disconnect();
+  try { duckLowShelf.disconnect(); } catch (e) {}
+  try { duckHighShelf.disconnect(); } catch (e) {}
+  try { lufsPreFilter.disconnect(); } catch (e) {}
+  try { lufsRlbFilter.disconnect(); } catch (e) {}
+  try { lufsAnalyserNode.disconnect(); } catch (e) {}
 
   // If disabled, bypass all processing
   if (!settings.enabled) {
     source.connect(outputGain);
+    // LUFS meter still active when bypassed
+    outputGain.connect(lufsPreFilter);
+    lufsPreFilter.connect(lufsRlbFilter);
+    lufsRlbFilter.connect(lufsAnalyserNode);
     state.eqActive = false;
     state.multibandActive = false;
     if (noiseSuppressorNode) setNoiseSuppressorEnabled(false);
     setAgcEnabled(false);
     setGateEnabled(false);
+    setDuckingEnabled(false);
     console.log('[Limitr] Signal chain: BYPASSED (disabled)');
     return;
   }
 
-  // Signal chain: source -> [Dynamics] -> [PreLimiter*] -> [NoiseSuppression] -> [BassCut] -> [EQ] -> [TrebleCut] -> [Gate] -> [AutoGain] -> [Limiter] -> outputGain
+  // Signal chain: source -> [Ducking] -> [Dynamics] -> [PreLimiter*] -> [NoiseSuppression] -> [BassCut] -> [EQ] -> [TrebleCut] -> [Gate] -> [AutoGain] -> [Limiter] -> outputGain -> (LUFS tap)
   // *PreLimiter is a fixed safety limiter, only active when noise suppression is on (protects RNNoise from loud transients)
   // Limiter is the user-controllable output limiter at the end (prevents clipping from EQ/AGC boosts)
   let currentNode = source;
 
-  // Dynamics stage FIRST (compressor tames loud peaks before noise suppression)
+  // Audio Ducking stage (detects speech, reduces non-speech content)
+  if (settings.duckingEnabled) {
+    // Sidechain: source → bandpass → analyser (parallel, for speech detection)
+    source.connect(duckingSidechainBP);
+    duckingSidechainBP.connect(state.duckingAnalyser);
+    // Main chain: source → duckLowShelf → duckHighShelf
+    currentNode.connect(duckLowShelf);
+    duckLowShelf.connect(duckHighShelf);
+    currentNode = duckHighShelf;
+    setDuckingEnabled(true);
+  } else {
+    setDuckingEnabled(false);
+  }
+
+  // Dynamics stage (compressor tames loud peaks before noise suppression)
   if (settings.multibandEnabled) {
     currentNode.connect(crossover1.lowpass);
     currentNode.connect(crossover1.highpass);
@@ -801,7 +973,13 @@ function rebuildSignalChain(state) {
   // Final output
   currentNode.connect(outputGain);
 
-  console.log(`[Limitr] Signal chain: Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> PreLimiter=${noiseSuppressionActive ? '-1dB' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.filtersEnabled && settings.trebleCutFreq < 20000 ? settings.trebleCutFreq + 'Hz' : 'off'} -> Gate=${settings.gateEnabled ? settings.gateThreshold + 'dB' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'}`);
+  // LUFS meter tap: outputGain → K-weighting filters → analyser (parallel, read-only)
+  // Reconnect full K-weighting chain since disconnect() breaks internal connections
+  outputGain.connect(lufsPreFilter);
+  lufsPreFilter.connect(lufsRlbFilter);
+  lufsRlbFilter.connect(lufsAnalyserNode);
+
+  console.log(`[Limitr] Signal chain: Ducking=${settings.duckingEnabled ? settings.duckingAmount + 'dB' : 'off'} -> Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> PreLimiter=${noiseSuppressionActive ? '-1dB' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.filtersEnabled && settings.trebleCutFreq < 20000 ? settings.trebleCutFreq + 'Hz' : 'off'} -> Gate=${settings.gateEnabled ? settings.gateThreshold + 'dB' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'} -> LUFS`);
 }
 
 // Update settings for a tab
@@ -837,6 +1015,7 @@ function updateSettings(tabId, newSettings) {
     newSettings.limiterEnabled !== undefined && newSettings.limiterEnabled !== state.settings.limiterEnabled ||
     newSettings.autoGainEnabled !== undefined && newSettings.autoGainEnabled !== state.settings.autoGainEnabled ||
     newSettings.gateEnabled !== undefined && newSettings.gateEnabled !== state.settings.gateEnabled ||
+    newSettings.duckingEnabled !== undefined && newSettings.duckingEnabled !== state.settings.duckingEnabled ||
     newSettings.filtersEnabled !== undefined && newSettings.filtersEnabled !== state.settings.filtersEnabled ||
     bassCutRoutingChanged || trebleCutRoutingChanged
   );
@@ -999,6 +1178,11 @@ function cleanupTab(tabId) {
   const state = tabAudioState.get(tabId);
   if (!state) return;
 
+  // Stop ducking, gate, and AGC intervals before closing context
+  state.setDuckingEnabled(false);
+  state.setGateEnabled(false);
+  state.setAgcEnabled(false);
+
   if (state.noiseSource) state.noiseSource.stop();
   state.stream.getTracks().forEach(track => track.stop());
   state.audioContext.close();
@@ -1074,6 +1258,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'get-reduction': {
       sendResponse({ reduction: getReduction(message.tabId) });
+      break;
+    }
+
+    case 'get-lufs': {
+      const lufsState = tabAudioState.get(message.tabId);
+      if (lufsState && lufsState.measureLufs) {
+        sendResponse({ lufs: lufsState.measureLufs() });
+      } else {
+        sendResponse({ lufs: -Infinity });
+      }
       break;
     }
 
