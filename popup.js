@@ -2210,11 +2210,11 @@ function updateTranscriberUI(status, label) {
   }
   if (elements.transcriberNote) {
     if (status === 'loading') {
-      elements.transcriberNote.textContent = 'Downloading Whisper model...';
+      elements.transcriberNote.textContent = 'Downloading Moonshine model...';
     } else if (status === 'error') {
       elements.transcriberNote.textContent = 'Failed to load — check console';
     } else {
-      elements.transcriberNote.textContent = 'Whisper AI — live captions from tab audio';
+      elements.transcriberNote.textContent = 'Moonshine AI — live captions from tab audio';
     }
   }
 
