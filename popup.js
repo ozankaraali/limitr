@@ -129,30 +129,30 @@ const presets = {
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
-  // lofi: {
-  //   name: 'Lo-Fi',
-  //   // Gentle compression with soft knee and slow attack
-  //   compressorEnabled: true,
-  //   multibandEnabled: false,
-  //   threshold: -25, ratio: 3, knee: 20, attack: 15, release: 200,
-  //   makeupGain: 0, gainEnabled: true,
-  //   // Warm bass boost + high-shelf rolloff
-  //   eqEnabled: true,
-  //   eq1Freq: 80, eq1Gain: 3, eq1Q: 0.7, eq1Type: 'lowshelf',
-  //   eq2Freq: 200, eq2Gain: 2, eq2Q: 1.0, eq2Type: 'lowshelf',
-  //   eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-  //   eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
-  //   eq5Freq: 8000, eq5Gain: -4, eq5Q: 0.7, eq5Type: 'highshelf',
-  //   bassCutFreq: 0, trebleCutFreq: 14000, filtersEnabled: true,
-  //   noiseSuppressionEnabled: false,
-  //   autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
-  //   gateEnabled: false, gateThreshold: -50,
-  //   limiterEnabled: true, limiterThreshold: -1,
-  //   limiterAttack: 1, limiterRelease: 100,
-  //   softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
-  //   // Subtle brown noise for warmth
-  //   noiseLevel: 0.05, noiseType: 'brown', effectsEnabled: true
-  // },
+  lofi: {
+    name: 'Lo-Fi',
+    // Gentle compression with soft knee and slow attack
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -25, ratio: 3, knee: 20, attack: 15, release: 200,
+    makeupGain: 0, gainEnabled: true,
+    // Warm bass boost + high-shelf rolloff
+    eqEnabled: true,
+    eq1Freq: 80, eq1Gain: 3, eq1Q: 0.7, eq1Type: 'lowshelf',
+    eq2Freq: 200, eq2Gain: 2, eq2Q: 1.0, eq2Type: 'lowshelf',
+    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 8000, eq5Gain: -4, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 14000, filtersEnabled: true,
+    noiseSuppressionEnabled: false,
+    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
+    gateEnabled: false, gateThreshold: -50,
+    limiterEnabled: true, limiterThreshold: -1,
+    limiterAttack: 1, limiterRelease: 100,
+    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
+    // Subtle brown noise for warmth
+    noiseLevel: 0.05, noiseType: 'brown', effectsEnabled: true
+  },
   streamWatch: {
     name: 'Stream Watch',
     // Single-band compression for general leveling
@@ -384,30 +384,39 @@ const presets = {
 
 // Display order — reorder here to change the UI, no need to touch presets object
 const presetOrder = [
-  'off', 'music', 'normalize', 'streamWatch', 'dialogBoost', 'voiceFocus',
-  'movie', 'bassTamer', 'tv90s', 'nightMode', 'antiScream', 'sleep'
+  'off', 'music', 'lofi', 'streamWatch', 'dialogBoost', 'voiceFocus',
+  'movie', 'bassTamer', 'normalize', 'nightMode', 'antiScream', 'sleep',
+  'tv90s'
 ];
 
 // Preset UI metadata — descriptions and optional CSS class
 const presetUI = {
   off:          { desc: 'No processing' },
   music:        { desc: 'Preserve dynamics' },
-  normalize:    { desc: 'Boost quiet audio' },
+  lofi:         { desc: 'Warm & mellow' },
   streamWatch:  { desc: 'Level streams' },
   dialogBoost:  { desc: 'Hear dialog clearly' },
   voiceFocus:   { desc: 'Isolate voice', style: 'preset-featured' },
   movie:        { desc: 'Tame action scenes' },
   bassTamer:    { desc: 'Cut excess bass' },
-  tv90s:        { desc: 'Tap twice for TV+' },
+  normalize:    { desc: 'Boost quiet audio' },
   nightMode:    { desc: 'Quiet peak taming' },
   antiScream:   { desc: 'Clip screams & shouts', style: 'preset-safety' },
-  sleep:        { desc: 'Smooth & quiet' }
+  sleep:        { desc: 'Smooth & quiet' },
+  tv90s:        { desc: 'Tap twice for TV+' }
 };
 
-// Generate preset buttons from presetOrder + presetUI
-(function generatePresetButtons() {
+// Custom presets (user-created, loaded from storage)
+let customPresets = {};
+const MAX_GRID_SLOTS = 16; // 4×4 grid
+
+// Render all preset buttons: factory + custom + ghost slots
+function renderPresetGrid() {
   const grid = document.getElementById('presetsGrid');
   if (!grid) return;
+  grid.innerHTML = '';
+
+  // Factory presets
   for (const key of presetOrder) {
     const preset = presets[key];
     if (!preset) continue;
@@ -420,7 +429,88 @@ const presetUI = {
       '<span class="preset-desc">' + (ui.desc || '') + '</span>';
     grid.appendChild(btn);
   }
-})();
+
+  // Custom presets (user-created)
+  const customKeys = Object.keys(customPresets);
+  for (const key of customKeys) {
+    const cp = customPresets[key];
+    const btn = document.createElement('button');
+    btn.className = 'preset-btn preset-custom';
+    btn.dataset.preset = key;
+    btn.dataset.custom = 'true';
+    btn.innerHTML =
+      '<span class="preset-delete" title="Remove preset">&times;</span>' +
+      '<span class="preset-name">' + (cp.name || key) + '</span>' +
+      '<span class="preset-desc">Custom</span>';
+    grid.appendChild(btn);
+  }
+
+  // Ghost slots (fill remaining up to MAX_GRID_SLOTS)
+  const totalUsed = presetOrder.length + customKeys.length;
+  const ghostCount = Math.max(0, MAX_GRID_SLOTS - totalUsed);
+  for (let i = 0; i < ghostCount; i++) {
+    const ghost = document.createElement('button');
+    ghost.className = 'preset-btn preset-ghost';
+    ghost.title = 'Save current settings as preset';
+    ghost.innerHTML = '<span class="preset-ghost-icon">+</span>';
+    ghost.addEventListener('click', () => promptSaveCustomPreset());
+    grid.appendChild(ghost);
+  }
+
+  // Re-bind click handlers and refresh elements.presetBtns
+  rebindPresetButtons();
+}
+
+function rebindPresetButtons() {
+  elements.presetBtns = document.querySelectorAll('.preset-btn:not(.preset-ghost)');
+  elements.presetBtns.forEach(btn => {
+    // Remove old listeners by cloning (safe since we rebuild the grid)
+    btn.addEventListener('click', (e) => {
+      // Check if delete button was clicked
+      if (e.target.classList.contains('preset-delete')) {
+        e.stopPropagation();
+        deleteCustomPreset(btn.dataset.preset);
+        return;
+      }
+      applyPreset(btn.dataset.preset);
+    });
+  });
+}
+
+async function loadCustomPresets() {
+  const stored = await chrome.storage.local.get(['limitrCustomPresets']);
+  customPresets = stored.limitrCustomPresets || {};
+}
+
+async function saveCustomPresets() {
+  await chrome.storage.local.set({ limitrCustomPresets: customPresets });
+}
+
+function promptSaveCustomPreset() {
+  const name = prompt('Preset name:');
+  if (!name || !name.trim()) return;
+
+  const key = 'custom_' + Date.now();
+  const settings = {};
+  for (const k of presetKeys) {
+    settings[k] = currentSettings[k];
+  }
+  customPresets[key] = { name: name.trim(), ...settings };
+  saveCustomPresets();
+  renderPresetGrid();
+  updatePresetButtons();
+}
+
+function deleteCustomPreset(key) {
+  if (!customPresets[key]) return;
+  delete customPresets[key];
+  saveCustomPresets();
+  renderPresetGrid();
+  updatePresetButtons();
+}
+
+// Initial render (factory only — custom presets loaded async in init())
+renderPresetGrid();
 
 function getFallbackAgcBoost(targetDb) {
   if (targetDb <= -24) return 6;
@@ -432,7 +522,7 @@ function getFallbackAgcBoost(targetDb) {
 }
 
 function getEffectivePreset(presetName) {
-  const base = presets[presetName];
+  const base = presets[presetName] || customPresets[presetName];
   if (!base) return null;
 
   const settings = { ...defaults, ...base };
@@ -725,6 +815,10 @@ async function init() {
   } else {
     await initFallbackCapture();
   }
+
+  // Load custom presets and re-render grid (factory presets already rendered at load)
+  await loadCustomPresets();
+  renderPresetGrid();
 
   updateUI();
   updateModeDisplay();
@@ -1750,10 +1844,7 @@ function setupEventListeners() {
     setupEqCanvasInteraction();
   }
 
-  // Preset buttons
-  elements.presetBtns.forEach(btn => {
-    btn.addEventListener('click', () => applyPreset(btn.dataset.preset));
-  });
+  // Preset buttons are bound by rebindPresetButtons() in renderPresetGrid()
 }
 
 function setupSlider(elementId, settingKey, valueId, formatter, updatePresets) {
