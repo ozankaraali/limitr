@@ -129,30 +129,30 @@ const presets = {
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
-  lofi: {
-    name: 'Lo-Fi',
-    // Gentle compression with soft knee and slow attack
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -25, ratio: 3, knee: 20, attack: 15, release: 200,
-    makeupGain: 0, gainEnabled: true,
-    // Warm bass boost + high-shelf rolloff
-    eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 3, eq1Q: 0.7, eq1Type: 'lowshelf',
-    eq2Freq: 200, eq2Gain: 2, eq2Q: 1.0, eq2Type: 'lowshelf',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -4, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 14000, filtersEnabled: true,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    limiterEnabled: true, limiterThreshold: -1,
-    limiterAttack: 1, limiterRelease: 100,
-    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
-    // Subtle brown noise for warmth
-    noiseLevel: 0.05, noiseType: 'brown', effectsEnabled: true
-  },
+  // lofi: {
+  //   name: 'Lo-Fi',
+  //   // Gentle compression with soft knee and slow attack
+  //   compressorEnabled: true,
+  //   multibandEnabled: false,
+  //   threshold: -25, ratio: 3, knee: 20, attack: 15, release: 200,
+  //   makeupGain: 0, gainEnabled: true,
+  //   // Warm bass boost + high-shelf rolloff
+  //   eqEnabled: true,
+  //   eq1Freq: 80, eq1Gain: 3, eq1Q: 0.7, eq1Type: 'lowshelf',
+  //   eq2Freq: 200, eq2Gain: 2, eq2Q: 1.0, eq2Type: 'lowshelf',
+  //   eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
+  //   eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
+  //   eq5Freq: 8000, eq5Gain: -4, eq5Q: 0.7, eq5Type: 'highshelf',
+  //   bassCutFreq: 0, trebleCutFreq: 14000, filtersEnabled: true,
+  //   noiseSuppressionEnabled: false,
+  //   autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
+  //   gateEnabled: false, gateThreshold: -50,
+  //   limiterEnabled: true, limiterThreshold: -1,
+  //   limiterAttack: 1, limiterRelease: 100,
+  //   softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
+  //   // Subtle brown noise for warmth
+  //   noiseLevel: 0.05, noiseType: 'brown', effectsEnabled: true
+  // },
   streamWatch: {
     name: 'Stream Watch',
     // Single-band compression for general leveling
@@ -294,6 +294,23 @@ const presets = {
     // Brown noise for that analog warmth
     noiseLevel: 0.15, noiseType: 'brown', effectsEnabled: true
   },
+  normalize: {
+    name: 'Normalize',
+    // AGC brings quiet content up to target level, light compression catches peaks
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -15, ratio: 3, knee: 15, attack: 10, release: 200,
+    makeupGain: 0, gainEnabled: true,
+    eqEnabled: false,
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
+    noiseSuppressionEnabled: false,
+    autoGainEnabled: true, autoGainTarget: -16, autoGainSpeed: 'normal',
+    gateEnabled: true, gateThreshold: -50, gateHold: 150, gateRelease: 250,
+    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
+    limiterEnabled: true, limiterThreshold: -1,
+    limiterAttack: 1, limiterRelease: 100,
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
+  },
   nightMode: {
     name: 'Night Mode',
     // Clamp loud peaks only — keep quiet dialog natural, reduce overall volume
@@ -367,7 +384,7 @@ const presets = {
 
 // Display order — reorder here to change the UI, no need to touch presets object
 const presetOrder = [
-  'off', 'music', 'lofi', 'streamWatch', 'dialogBoost', 'voiceFocus',
+  'off', 'music', 'normalize', 'streamWatch', 'dialogBoost', 'voiceFocus',
   'movie', 'bassTamer', 'tv90s', 'nightMode', 'antiScream', 'sleep'
 ];
 
@@ -375,7 +392,7 @@ const presetOrder = [
 const presetUI = {
   off:          { desc: 'No processing' },
   music:        { desc: 'Preserve dynamics' },
-  lofi:         { desc: 'Warm & mellow' },
+  normalize:    { desc: 'Boost quiet audio' },
   streamWatch:  { desc: 'Level streams' },
   dialogBoost:  { desc: 'Hear dialog clearly' },
   voiceFocus:   { desc: 'Isolate voice', style: 'preset-featured' },
