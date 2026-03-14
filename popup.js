@@ -1393,15 +1393,18 @@ function updateStatusIndicator() {
 
 function updateIconBadge() {
   const active = currentSettings.enabled && isCapturing;
-
-  if (active) {
-    // Purple for simple mode, gold for exclusive/mixer mode
-    const color = mixerMode ? '#F59E0B' : '#A855F7';
-    chrome.action.setBadgeBackgroundColor({ color });
-    chrome.action.setBadgeText({ text: ' ' });
-  } else {
-    chrome.action.setBadgeText({ text: '' });
-  }
+  const iconSet = active ? {
+    16: 'icons/icon16-active.png',
+    32: 'icons/icon32-active.png',
+    48: 'icons/icon48-active.png',
+    128: 'icons/icon128-active.png'
+  } : {
+    16: 'icons/icon16-gray.png',
+    32: 'icons/icon32-gray.png',
+    48: 'icons/icon48-gray.png',
+    128: 'icons/icon128-gray.png'
+  };
+  chrome.action.setIcon({ path: iconSet });
 }
 
 function updatePresetButtons() {
