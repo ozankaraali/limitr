@@ -462,8 +462,9 @@ function renderPresetGrid() {
 }
 
 function rebindPresetButtons() {
-  elements.presetBtns = document.querySelectorAll('.preset-btn:not(.preset-ghost)');
-  elements.presetBtns.forEach(btn => {
+  const btns = document.querySelectorAll('.preset-btn:not(.preset-ghost)');
+  try { elements.presetBtns = btns; } catch (_) { /* elements not yet initialized */ }
+  btns.forEach(btn => {
     // Remove old listeners by cloning (safe since we rebuild the grid)
     btn.addEventListener('click', (e) => {
       // Check if delete button was clicked
