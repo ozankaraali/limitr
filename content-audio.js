@@ -35,6 +35,14 @@
   let limiter = null;
 
   // LUFS meter
+  // Soft clipper (WaveShaperNode for smooth peak taming)
+  let softClipper = null;
+  let softClipDriveGain = null;
+  let softClipCompGain = null;
+
+  // Mono-to-stereo fixer (forces mono downmix, upmixed to both channels by default)
+  let monoMixer = null;
+
   let lufsPreFilter = null;
   let lufsRlbFilter = null;
   let lufsAnalyser = null;
@@ -49,9 +57,9 @@
 
     // Global compressor
     compressorEnabled: true,
-    threshold: -24,
-    ratio: 8,
-    knee: 12,
+    threshold: -18,
+    ratio: 6,
+    knee: 10,
     attack: 5,
     release: 100,
     makeupGain: 0,
@@ -86,6 +94,13 @@
 
     // AI Noise Suppression (not supported in fallback mode - requires AudioWorklet)
     noiseSuppressionEnabled: false,
+
+    // Soft clipper (smooth peak taming)
+    softClipEnabled: false,
+    softClipDrive: 0,
+
+    // Mono-to-stereo fixer
+    monoMixEnabled: false,
 
     // Limiter (brick wall, prevents clipping / auto-level)
     limiterEnabled: true,
@@ -268,6 +283,31 @@
       limiter.attack.value = (settings.limiterAttack || 1) / 1000;
       limiter.release.value = (settings.limiterRelease || 100) / 1000;
 
+      // Soft clipper (smooth peak taming via tanh waveshaper)
+      softClipper = audioContext.createWaveShaper();
+      const clipCurve = new Float32Array(8192);
+      for (let i = 0; i < 8192; i++) {
+        const x = (2 * i / 8192) - 1;
+        clipCurve[i] = Math.tanh(x);
+      }
+      softClipper.curve = clipCurve;
+      softClipper.oversample = '2x';
+
+      softClipDriveGain = audioContext.createGain();
+      softClipDriveGain.gain.value = 1;
+      softClipCompGain = audioContext.createGain();
+      softClipCompGain.gain.value = 1;
+
+      softClipDriveGain.connect(softClipper);
+      softClipper.connect(softClipCompGain);
+
+      // Mono-to-stereo fixer (forces mono downmix → auto upmix to both channels)
+      monoMixer = audioContext.createGain();
+      monoMixer.channelCount = 1;
+      monoMixer.channelCountMode = 'explicit';
+      monoMixer.channelInterpretation = 'speakers';
+      monoMixer.gain.value = 1;
+
       // LUFS meter (K-weighted loudness measurement)
       lufsPreFilter = audioContext.createBiquadFilter();
       lufsPreFilter.type = 'highshelf';
@@ -334,7 +374,7 @@
   }
 
   // Rebuild signal chain based on settings
-  // Chain: Source → [Dynamics] → [Bass Cut] → [EQ] → [Treble Cut] → Output
+  // Chain: Source → [MonoMix] → [Dynamics] → [Bass Cut] → [EQ] → [Treble Cut] → [SoftClip] → [Limiter] → Output
   // Dynamics FIRST so loud sounds get tamed before hitting any frequency shaping
   function rebuildSignalChain() {
     if (!audioContext) return;
@@ -351,15 +391,25 @@
     try { bassCutFilter.disconnect(); } catch (e) {}
     try { eqBands[4].disconnect(); } catch (e) {}
     try { trebleCutFilter.disconnect(); } catch (e) {}
+    try { softClipDriveGain.disconnect(); } catch (e) {}
+    try { softClipCompGain.disconnect(); } catch (e) {}
     try { limiter.disconnect(); } catch (e) {}
+    try { monoMixer.disconnect(); } catch (e) {}
 
     const bassCutActive = settings.filtersEnabled && settings.bassCutFreq > 20;
     const trebleCutActive = settings.filtersEnabled && settings.trebleCutFreq < 20000;
 
-    // finalNode: limiter (if enabled) sits between frequency processing and outputGain
-    const finalNode = settings.limiterEnabled ? limiter : outputGain;
+    // Build tail of chain: [soft clipper] -> [limiter] -> outputGain
+    let finalNode = outputGain;
     if (settings.limiterEnabled) {
       limiter.connect(outputGain);
+      finalNode = limiter;
+    }
+    if (settings.softClipEnabled) {
+      softClipDriveGain.connect(softClipper);
+      softClipper.connect(softClipCompGain);
+      softClipCompGain.connect(finalNode);
+      finalNode = softClipDriveGain;
     }
 
     if (!settings.enabled) {
@@ -442,9 +492,17 @@
       entryNode = finalNode;
     }
 
-    // Connect all sources to the entry point
+    // Connect all sources to the entry point (optionally through mono mixer)
     connectedMedia.forEach(({ source }) => {
-      if (entryNode === null) {
+      if (settings.monoMixEnabled) {
+        source.connect(monoMixer);
+        if (entryNode === null) {
+          monoMixer.connect(crossover1.lowpass);
+          monoMixer.connect(crossover1.highpass);
+        } else {
+          monoMixer.connect(entryNode);
+        }
+      } else if (entryNode === null) {
         // Multiband: sources connect to crossovers
         source.connect(crossover1.lowpass);
         source.connect(crossover1.highpass);
@@ -515,6 +573,13 @@
     bassCutFilter.frequency.value = Math.max(20, settings.bassCutFreq);
     trebleCutFilter.frequency.value = Math.min(22050, settings.trebleCutFreq);
 
+    // Soft clipper drive
+    if (softClipDriveGain && softClipCompGain) {
+      const driveLinear = Math.pow(10, (settings.softClipDrive || 0) / 20);
+      softClipDriveGain.gain.value = driveLinear;
+      softClipCompGain.gain.value = 1 / driveLinear;
+    }
+
     // Limiter
     if (limiter) {
       limiter.threshold.value = settings.limiterThreshold;
@@ -579,6 +644,8 @@
       const oldTrebleCut = settings.trebleCutFreq;
       const oldLimiter = settings.limiterEnabled;
       const oldFilters = settings.filtersEnabled;
+      const oldSoftClip = settings.softClipEnabled;
+      const oldMonoMix = settings.monoMixEnabled;
 
       settings = { ...settings, ...message.settings };
 
@@ -594,6 +661,8 @@
         oldEnabled !== settings.enabled ||
         oldLimiter !== settings.limiterEnabled ||
         oldFilters !== settings.filtersEnabled ||
+        oldSoftClip !== settings.softClipEnabled ||
+        oldMonoMix !== settings.monoMixEnabled ||
         bassCutRoutingChanged || trebleCutRoutingChanged
       );
 

@@ -24,9 +24,9 @@ const defaultSettings = {
 
   // === GLOBAL COMPRESSOR (single-band dynamics) ===
   compressorEnabled: true,
-  threshold: -24,
-  ratio: 8,
-  knee: 12,
+  threshold: -18,
+  ratio: 6,
+  knee: 10,
   attack: 5,      // ms
   release: 100,   // ms
   makeupGain: 0,
@@ -84,6 +84,13 @@ const defaultSettings = {
 
   // === AI NOISE SUPPRESSION (RNNoise) ===
   noiseSuppressionEnabled: false,
+
+  // === SOFT CLIPPER (smooth peak taming) ===
+  softClipEnabled: false,
+  softClipDrive: 0,      // dB (0-12), drives signal into tanh curve
+
+  // === MONO-TO-STEREO FIXER ===
+  monoMixEnabled: false,  // Forces mono downmix → auto upmix to both channels
 
   // === LIMITER (brick wall, prevents clipping) ===
   limiterEnabled: true,
@@ -288,6 +295,31 @@ async function createAudioChain(tabId, mediaStreamId) {
     limiter.knee.value = 0;          // Hard knee for true limiting
     limiter.attack.value = defaultSettings.limiterAttack / 1000;
     limiter.release.value = defaultSettings.limiterRelease / 1000;
+
+    // === SOFT CLIPPER (smooth peak taming via tanh waveshaper) ===
+    const softClipper = audioContext.createWaveShaper();
+    const clipCurve = new Float32Array(8192);
+    for (let i = 0; i < 8192; i++) {
+      const x = (2 * i / 8192) - 1;
+      clipCurve[i] = Math.tanh(x);
+    }
+    softClipper.curve = clipCurve;
+    softClipper.oversample = '2x';
+
+    const softClipDriveGain = audioContext.createGain();
+    softClipDriveGain.gain.value = 1;
+    const softClipCompGain = audioContext.createGain();
+    softClipCompGain.gain.value = 1;
+
+    softClipDriveGain.connect(softClipper);
+    softClipper.connect(softClipCompGain);
+
+    // === MONO-TO-STEREO FIXER (forces mono downmix → auto upmix to both channels) ===
+    const monoMixer = audioContext.createGain();
+    monoMixer.channelCount = 1;
+    monoMixer.channelCountMode = 'explicit';
+    monoMixer.channelInterpretation = 'speakers';
+    monoMixer.gain.value = 1;
 
     // === PRE-RNNOISE SAFETY LIMITER (protects noise suppressor from loud transients) ===
     const preLimiter = audioContext.createDynamicsCompressor();
@@ -747,6 +779,12 @@ async function createAudioChain(tabId, mediaStreamId) {
       // Bass/Treble cut filters
       bassCutFilter,
       trebleCutFilter,
+      // Soft clipper
+      softClipper,
+      softClipDriveGain,
+      softClipCompGain,
+      // Mono-to-stereo fixer
+      monoMixer,
       // Limiter
       limiter,
       preLimiter,
@@ -822,6 +860,7 @@ async function createAudioChain(tabId, mediaStreamId) {
 function rebuildSignalChain(state) {
   const { source, compressor, makeupGain, outputGain,
           crossover1, multibandSum, eqBands, bassCutFilter, trebleCutFilter,
+          softClipDriveGain, softClipCompGain, monoMixer,
           limiter, preLimiter, autoGainNode, analyser, setAgcEnabled,
           gateNode, gateAnalyser, setGateEnabled,
           duckingSidechainBP, duckLowShelf, duckHighShelf, setDuckingEnabled,
@@ -846,6 +885,9 @@ function rebuildSignalChain(state) {
   analyser.disconnect();
   gateNode.disconnect();
   gateAnalyser.disconnect();
+  softClipDriveGain.disconnect();
+  try { softClipCompGain.disconnect(); } catch (e) {}
+  try { monoMixer.disconnect(); } catch (e) {}
   limiter.disconnect();
   preLimiter.disconnect();
   duckingSidechainBP.disconnect();
@@ -872,10 +914,16 @@ function rebuildSignalChain(state) {
     return;
   }
 
-  // Signal chain: source -> [Ducking] -> [Dynamics] -> [PreLimiter*] -> [NoiseSuppression] -> [BassCut] -> [EQ] -> [TrebleCut] -> [Gate] -> [AutoGain] -> [Limiter] -> outputGain -> (LUFS tap)
+  // Signal chain: source -> [MonoMix] -> [Ducking] -> [Dynamics] -> [PreLimiter*] -> [NoiseSuppression] -> [BassCut] -> [EQ] -> [TrebleCut] -> [Gate] -> [AutoGain] -> [SoftClip] -> [Limiter] -> outputGain -> (LUFS tap)
   // *PreLimiter is a fixed safety limiter, only active when noise suppression is on (protects RNNoise from loud transients)
   // Limiter is the user-controllable output limiter at the end (prevents clipping from EQ/AGC boosts)
   let currentNode = source;
+
+  // Mono-to-stereo fixer (forces mono downmix → auto upmix to both channels)
+  if (settings.monoMixEnabled) {
+    currentNode.connect(monoMixer);
+    currentNode = monoMixer;
+  }
 
   // Audio Ducking stage (detects speech, reduces non-speech content)
   if (settings.duckingEnabled) {
@@ -964,6 +1012,13 @@ function rebuildSignalChain(state) {
     setAgcEnabled(false);
   }
 
+  // Soft clipper (smooth peak taming - before limiter for transparent peak rounding)
+  if (settings.softClipEnabled) {
+    currentNode.connect(softClipDriveGain);
+    // Drive -> WaveShaper -> Compensating gain (already connected internally)
+    currentNode = softClipCompGain;
+  }
+
   // Limiter (user-controllable, brick wall output limiter - prevents clipping from EQ/AGC boosts)
   if (settings.limiterEnabled) {
     currentNode.connect(limiter);
@@ -989,7 +1044,8 @@ function updateSettings(tabId, newSettings) {
 
   const { compressor, makeupGain, outputGain, noiseGain,
           crossover1, crossover2, subBand, midBand, highBand, eqBands,
-          bassCutFilter, trebleCutFilter, limiter, setAgcTarget, setAgcSpeed } = state;
+          bassCutFilter, trebleCutFilter, softClipDriveGain, softClipCompGain,
+          limiter, setAgcTarget, setAgcSpeed } = state;
 
   const oldNoiseType = state.settings.noiseType;
   const oldBassCut = state.settings.bassCutFreq;
@@ -1016,6 +1072,8 @@ function updateSettings(tabId, newSettings) {
     newSettings.autoGainEnabled !== undefined && newSettings.autoGainEnabled !== state.settings.autoGainEnabled ||
     newSettings.gateEnabled !== undefined && newSettings.gateEnabled !== state.settings.gateEnabled ||
     newSettings.duckingEnabled !== undefined && newSettings.duckingEnabled !== state.settings.duckingEnabled ||
+    newSettings.softClipEnabled !== undefined && newSettings.softClipEnabled !== state.settings.softClipEnabled ||
+    newSettings.monoMixEnabled !== undefined && newSettings.monoMixEnabled !== state.settings.monoMixEnabled ||
     newSettings.filtersEnabled !== undefined && newSettings.filtersEnabled !== state.settings.filtersEnabled ||
     bassCutRoutingChanged || trebleCutRoutingChanged
   );
@@ -1084,6 +1142,13 @@ function updateSettings(tabId, newSettings) {
   }
   if (newSettings.trebleCutFreq !== undefined) {
     trebleCutFilter.frequency.value = Math.min(22050, s.trebleCutFreq);
+  }
+
+  // Soft clipper drive
+  if (newSettings.softClipDrive !== undefined) {
+    const driveLinear = Math.pow(10, (s.softClipDrive || 0) / 20);
+    softClipDriveGain.gain.value = driveLinear;
+    softClipCompGain.gain.value = 1 / driveLinear;
   }
 
   // Limiter

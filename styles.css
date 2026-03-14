@@ -338,6 +338,57 @@ h1 {
   line-height: 1.2;
 }
 
+/* Ghost slots (empty + buttons for custom presets) */
+.preset-btn.preset-ghost {
+  background: transparent;
+  border: 1px dashed #444;
+  color: #555;
+  min-height: 50px;
+}
+.preset-btn.preset-ghost:hover {
+  border-color: #6366f1;
+  color: #8888cc;
+  background: rgba(79, 70, 229, 0.08);
+}
+.preset-ghost-icon {
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+/* Custom presets (user-created) */
+.preset-btn.preset-custom {
+  position: relative;
+  background: linear-gradient(135deg, #252542, #2a2d42);
+  border: 1px solid #3b82f6;
+}
+.preset-btn.preset-custom:hover {
+  background: linear-gradient(135deg, #333355, #354055);
+  border-color: #60a5fa;
+}
+.preset-btn.preset-custom.active {
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  border-color: #60a5fa;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+}
+.preset-delete {
+  position: absolute;
+  top: 1px;
+  right: 4px;
+  font-size: 12px;
+  color: #666;
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.preset-btn.preset-custom:hover .preset-delete {
+  opacity: 1;
+}
+.preset-delete:hover {
+  color: #ef4444;
+}
+
 /* Controls */
 .controls {
   display: flex;

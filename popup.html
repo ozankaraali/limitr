@@ -264,6 +264,31 @@
             </div>
             <input type="range" id="limiterThreshold" min="-30" max="0" value="-1" step="0.5">
           </div>
+          <div class="control-group soft-clip-group">
+            <div class="control-header">
+              <label>Soft Clip</label>
+              <label class="toggle small">
+                <input type="checkbox" id="softClipToggle">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="control-group soft-clip-drive" id="softClipDriveGroup">
+            <div class="control-header">
+              <label for="softClipDrive">Drive</label>
+              <span class="value" id="softClipDriveValue">0 dB</span>
+            </div>
+            <input type="range" id="softClipDrive" min="0" max="12" value="0" step="1">
+          </div>
+          <div class="control-group mono-mix-group">
+            <div class="control-header">
+              <label>Mono Fix</label>
+              <label class="toggle small">
+                <input type="checkbox" id="monoMixToggle">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
         </div>
       </div>
 
