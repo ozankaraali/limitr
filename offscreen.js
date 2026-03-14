@@ -860,7 +860,7 @@ async function createAudioChain(tabId, mediaStreamId) {
 function rebuildSignalChain(state) {
   const { source, compressor, makeupGain, outputGain,
           crossover1, multibandSum, eqBands, bassCutFilter, trebleCutFilter,
-          softClipDriveGain, softClipCompGain, monoMixer,
+          softClipper, softClipDriveGain, softClipCompGain, monoMixer,
           limiter, preLimiter, autoGainNode, analyser, setAgcEnabled,
           gateNode, gateAnalyser, setGateEnabled,
           duckingSidechainBP, duckLowShelf, duckHighShelf, setDuckingEnabled,
@@ -886,6 +886,7 @@ function rebuildSignalChain(state) {
   gateNode.disconnect();
   gateAnalyser.disconnect();
   softClipDriveGain.disconnect();
+  try { softClipper.disconnect(); } catch (e) {}
   try { softClipCompGain.disconnect(); } catch (e) {}
   try { monoMixer.disconnect(); } catch (e) {}
   limiter.disconnect();
@@ -1014,8 +1015,9 @@ function rebuildSignalChain(state) {
 
   // Soft clipper (smooth peak taming - before limiter for transparent peak rounding)
   if (settings.softClipEnabled) {
+    softClipDriveGain.connect(softClipper);
+    softClipper.connect(softClipCompGain);
     currentNode.connect(softClipDriveGain);
-    // Drive -> WaveShaper -> Compensating gain (already connected internally)
     currentNode = softClipCompGain;
   }
 
