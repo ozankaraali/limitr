@@ -200,6 +200,17 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   }
 });
 
+// React to global enabled toggle from popup
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (changes.limitrGlobalEnabled) {
+    if (!changes.limitrGlobalEnabled.newValue) {
+      // User disabled — clear badge
+      updateBadge(false);
+    }
+  }
+});
+
 // Handle messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target === 'offscreen') {
@@ -406,5 +417,119 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // Clear badge on install/update (inactive by default)
   chrome.action.setBadgeText({ text: '' });
 });
+
+// --- Auto-activation: process tabs without needing to open the popup ---
+
+// Track which tabs have been auto-injected (simple mode) to avoid duplicates
+const autoInjectedTabs = new Set();
+
+// Update the toolbar icon badge from background
+function updateBadge(active, mixerMode) {
+  if (active) {
+    const color = mixerMode ? '#F59E0B' : '#A855F7';
+    chrome.action.setBadgeBackgroundColor({ color });
+    chrome.action.setBadgeText({ text: ' ' });
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
+}
+
+// Auto-activate on a tab (simple mode: inject content script)
+async function autoActivateSimple(tabId) {
+  if (autoInjectedTabs.has(tabId)) return;
+
+  try {
+    // Check if already injected
+    const response = await chrome.tabs.sendMessage(tabId, { action: 'fallback-ping' });
+    if (response && response.active) {
+      autoInjectedTabs.add(tabId);
+      return;
+    }
+  } catch (e) {
+    // Not injected yet
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content-audio.js']
+    });
+    autoInjectedTabs.add(tabId);
+    updateBadge(true, false);
+    console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
+  } catch (error) {
+    console.log(`[Limitr] Could not auto-inject on tab ${tabId}:`, error.message);
+  }
+}
+
+// Auto-activate on a tab (exclusive mode: init capture)
+async function autoActivateExclusive(tabId) {
+  try {
+    // Check if already capturing
+    const state = await getTabState(tabId);
+    if (state) return;
+
+    await initAudioCapture(tabId);
+    updateBadge(true, true);
+    console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId}`);
+  } catch (error) {
+    console.log(`[Limitr] Could not auto-activate exclusive on tab ${tabId}:`, error.message);
+  }
+}
+
+// Try to auto-activate on a tab based on current settings
+async function tryAutoActivate(tabId) {
+  try {
+    const stored = await chrome.storage.local.get(['limitrGlobalEnabled', 'limitrMixerMode']);
+    if (!stored.limitrGlobalEnabled) return;
+
+    // Get tab info to validate it's a real page (not chrome://, etc.)
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') ||
+        tab.url.startsWith('about:') || tab.url.startsWith('edge://')) {
+      return;
+    }
+
+    if (stored.limitrMixerMode) {
+      await autoActivateExclusive(tabId);
+    } else {
+      await autoActivateSimple(tabId);
+    }
+  } catch (error) {
+    // Tab may have been closed
+  }
+}
+
+// Listen for tabs that start playing audio
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.audible === true) {
+    tryAutoActivate(tabId);
+  }
+});
+
+// Clean up auto-injected tracking when tab is closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  autoInjectedTabs.delete(tabId);
+});
+
+// On startup, restore badge state based on active processing tabs
+async function restoreBadgeState() {
+  const stored = await chrome.storage.local.get(['limitrGlobalEnabled', 'limitrMixerMode']);
+  if (!stored.limitrGlobalEnabled) {
+    updateBadge(false);
+    return;
+  }
+
+  if (stored.limitrMixerMode) {
+    const activeTabs = await getProcessingTabs();
+    updateBadge(activeTabs.length > 0, true);
+  } else {
+    // For simple mode, check if any injected tabs exist
+    // Badge will update on next auto-activation
+    updateBadge(false);
+  }
+}
+
+restoreBadgeState();
 
 console.log('[Limitr] Service worker loaded');

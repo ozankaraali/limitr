@@ -645,9 +645,13 @@ async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTabId = tab?.id;
 
-  const stored = await chrome.storage.local.get(['limitrAdvancedMode', 'limitrMixerMode', 'limitrCollapseState']);
+  const stored = await chrome.storage.local.get(['limitrAdvancedMode', 'limitrMixerMode', 'limitrCollapseState', 'limitrGlobalEnabled']);
   advancedMode = stored.limitrAdvancedMode || false;
   mixerMode = stored.limitrMixerMode || false;
+
+  // Restore global enabled state (default to true for first use)
+  const globalEnabled = stored.limitrGlobalEnabled !== undefined ? stored.limitrGlobalEnabled : true;
+  currentSettings.enabled = globalEnabled;
   if (stored.limitrCollapseState) {
     collapseState = { ...collapseState, ...stored.limitrCollapseState };
   }
@@ -798,6 +802,9 @@ async function updateTabSettings() {
 
 async function setEnabled(enabled) {
   currentSettings.enabled = enabled;
+
+  // Persist global enabled state so background can auto-activate on new tabs
+  await chrome.storage.local.set({ limitrGlobalEnabled: enabled });
 
   if (mixerMode) {
     if (enabled && !isCapturing) {
