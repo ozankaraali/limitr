@@ -4,7 +4,9 @@
   <title>Generate Limitr Icons</title>
   <style>
     body { font-family: sans-serif; padding: 20px; background: #1a1a2e; color: #fff; }
-    .icons { display: flex; gap: 20px; flex-wrap: wrap; margin: 20px 0; }
+    .theme-section { margin: 20px 0; }
+    .theme-section h2 { margin-bottom: 10px; }
+    .icons { display: flex; gap: 20px; flex-wrap: wrap; margin: 10px 0; }
     .icon-box { text-align: center; }
     canvas { border: 1px solid #333; }
     button { padding: 10px 20px; background: #4f46e5; color: #fff; border: none; border-radius: 6px; cursor: pointer; margin: 5px; }
@@ -13,40 +15,27 @@
 </head>
 <body>
   <h1>Limitr Icon Generator</h1>
-  <p>Click the buttons below to download each icon size:</p>
+  <p>Three icon variants: default (purple, for manifest), active (gold, when processing), gray (when inactive).</p>
 
-  <div class="icons">
-    <div class="icon-box">
-      <canvas id="icon16" width="16" height="16"></canvas>
-      <br><button onclick="download(16)">Download 16x16</button>
-    </div>
-    <div class="icon-box">
-      <canvas id="icon32" width="32" height="32"></canvas>
-      <br><button onclick="download(32)">Download 32x32</button>
-    </div>
-    <div class="icon-box">
-      <canvas id="icon48" width="48" height="48"></canvas>
-      <br><button onclick="download(48)">Download 48x48</button>
-    </div>
-    <div class="icon-box">
-      <canvas id="icon128" width="128" height="128"></canvas>
-      <br><button onclick="download(128)">Download 128x128</button>
-    </div>
-  </div>
+  <div id="output"></div>
 
   <button onclick="downloadAll()">Download All Icons</button>
 
   <script>
     const sizes = [16, 32, 48, 128];
+    const themes = {
+      '': { label: 'Default (Purple)', grad: ['#4f46e5', '#7c3aed'], stroke: '#fff' },
+      '-active': { label: 'Active (Gold)', grad: ['#d97706', '#f59e0b'], stroke: '#fff' },
+      '-gray': { label: 'Inactive (Gray)', grad: ['#4b5563', '#6b7280'], stroke: '#9ca3af' },
+    };
 
-    function drawIcon(size) {
-      const canvas = document.getElementById(`icon${size}`);
+    function drawIcon(canvas, size, theme) {
       const ctx = canvas.getContext('2d');
 
       // Background gradient
       const gradient = ctx.createLinearGradient(0, 0, size, size);
-      gradient.addColorStop(0, '#4f46e5');
-      gradient.addColorStop(1, '#7c3aed');
+      gradient.addColorStop(0, theme.grad[0]);
+      gradient.addColorStop(1, theme.grad[1]);
 
       // Rounded rectangle background
       const radius = size * 0.15;
@@ -56,7 +45,7 @@
       ctx.fill();
 
       // Draw audio waveform / limiter symbol
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = theme.stroke;
       ctx.lineWidth = Math.max(1.5, size * 0.06);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -92,22 +81,47 @@
       return canvas;
     }
 
-    function download(size) {
-      const canvas = document.getElementById(`icon${size}`);
+    function download(size, suffix) {
+      const canvas = document.getElementById(`icon${size}${suffix}`);
       const link = document.createElement('a');
-      link.download = `icon${size}.png`;
+      link.download = `icon${size}${suffix}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
     }
 
     function downloadAll() {
-      sizes.forEach((size, i) => {
-        setTimeout(() => download(size), i * 100);
-      });
+      let i = 0;
+      for (const suffix of Object.keys(themes)) {
+        for (const size of sizes) {
+          setTimeout(() => download(size, suffix), i * 100);
+          i++;
+        }
+      }
     }
 
-    // Draw all icons on load
-    sizes.forEach(drawIcon);
+    // Build UI and draw all icons
+    const output = document.getElementById('output');
+    for (const [suffix, theme] of Object.entries(themes)) {
+      const section = document.createElement('div');
+      section.className = 'theme-section';
+      section.innerHTML = `<h2>${theme.label}</h2>`;
+      const row = document.createElement('div');
+      row.className = 'icons';
+      for (const size of sizes) {
+        const box = document.createElement('div');
+        box.className = 'icon-box';
+        const canvas = document.createElement('canvas');
+        canvas.id = `icon${size}${suffix}`;
+        canvas.width = size;
+        canvas.height = size;
+        drawIcon(canvas, size, theme);
+        box.appendChild(canvas);
+        box.innerHTML += `<br><button onclick="download(${size}, '${suffix}')">${size}x${size}</button>`;
+        row.appendChild(box);
+      }
+      section.appendChild(row);
+      output.appendChild(section);
+    }
   </script>
 </body>
 </html>
