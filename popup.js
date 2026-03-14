@@ -46,6 +46,10 @@ const defaults = {
   // AI Noise Suppression (RNNoise)
   noiseSuppressionEnabled: false,
 
+  // Soft clipper (smooth peak taming)
+  softClipEnabled: false,
+  softClipDrive: 0,
+
   // Limiter (brick wall, prevents clipping)
   limiterEnabled: true,
   limiterThreshold: -1,
@@ -96,6 +100,7 @@ const presets = {
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
     duckingEnabled: false, duckingThreshold: -35, duckingAmount: -12, duckingRelease: 300,
+    softClipEnabled: false, softClipDrive: 0,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   music: {
@@ -116,8 +121,10 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
-    limiterEnabled: true, limiterThreshold: -0.5,
+    softClipEnabled: false, softClipDrive: 0,
+    limiterEnabled: true, limiterThreshold: -1.5,
     limiterAttack: 1, limiterRelease: 100,
+    softClipEnabled: false, softClipDrive: 0,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   lofi: {
@@ -140,6 +147,7 @@ const presets = {
     gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
+    softClipEnabled: false, softClipDrive: 0,
     // Subtle brown noise for warmth
     noiseLevel: 0.05, noiseType: 'brown', effectsEnabled: true
   },
@@ -154,42 +162,46 @@ const presets = {
     eqEnabled: true,
     eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: 1, eq3Q: 1.0, eq3Type: 'peaking',
+    eq3Freq: 3000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 6000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 10000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
     gateEnabled: true, gateThreshold: -45, gateHold: 150, gateRelease: 250,
+    softClipEnabled: false, softClipDrive: 0,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
-  podcast: {
-    name: 'Podcast',
-    // Moderate compression — only tame loud talkers, keep quiet speech natural
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -18, ratio: 4, knee: 10, attack: 5, release: 150,
-    makeupGain: 0, gainEnabled: true,
-    // De-essing + presence boost + proximity reduction
+  dialogBoost: {
+    name: 'Dialog Boost',
+    // Multiband: compress bass (rumble/sfx), boost mids (dialog), tame highs
+    compressorEnabled: false,
+    multibandEnabled: true,
+    crossover1: 250, crossover2: 4000,
+    subThreshold: -18, subRatio: 8, subGain: -4,
+    midThreshold: -20, midRatio: 3, midGain: 4,
+    highThreshold: -15, highRatio: 4, highGain: -1,
     eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 200, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 2000, eq3Gain: 2, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 6000, eq4Gain: -3, eq4Q: 1.5, eq4Type: 'peaking',
-    eq5Freq: 12000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
+    eq3Freq: 2500, eq3Gain: 3, eq3Q: 1.5, eq3Type: 'peaking',
+    eq4Freq: 5000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 10000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
+    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
+    softClipEnabled: false, softClipDrive: 0,
     limiterEnabled: true, limiterThreshold: -2,
     limiterAttack: 1, limiterRelease: 100,
+    makeupGain: 0, gainEnabled: true,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   voiceFocus: {
     name: 'Voice Focus',
-    // Multiband: compress bass (music/sfx) hard, leave mids (voice) mostly alone, tame highs (sibilance)
+    // Multiband: compress bass (music/sfx) hard, boost mids (voice clarity), tame highs (sibilance)
     compressorEnabled: false,
     multibandEnabled: true,
     crossover1: 200, crossover2: 3000,
@@ -205,6 +217,7 @@ const presets = {
     eq5Freq: 12000, eq5Gain: -2, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
+    softClipEnabled: false, softClipDrive: 0,
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
@@ -231,6 +244,7 @@ const presets = {
     gateEnabled: false, gateThreshold: -50,
     // Audio ducking: lower music/SFX when dialog is detected (Exclusive mode)
     duckingEnabled: true, duckingThreshold: -35, duckingAmount: -10, duckingRelease: 300,
+    softClipEnabled: false, softClipDrive: 0,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     makeupGain: 0, gainEnabled: true,
@@ -238,8 +252,8 @@ const presets = {
   },
   bassTamer: {
     name: 'Bass Tamer',
-    // Light compression — this preset's job is mostly EQ, not dynamics
-    compressorEnabled: true,
+    // Pure EQ-based bass reduction — no compression needed
+    compressorEnabled: false,
     multibandEnabled: false,
     threshold: -18, ratio: 4, knee: 8, attack: 5, release: 100,
     makeupGain: 0, gainEnabled: true,
@@ -254,6 +268,7 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
+    softClipEnabled: false, softClipDrive: 0,
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -271,6 +286,7 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
+    softClipEnabled: false, softClipDrive: 0,
     limiterEnabled: true, limiterThreshold: -2,
     limiterAttack: 1, limiterRelease: 100,
     // Brown noise for that analog warmth
@@ -294,16 +310,17 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
+    softClipEnabled: true, softClipDrive: 4,
     limiterEnabled: true, limiterThreshold: -6,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   antiScream: {
     name: 'Anti-Scream',
-    // True peak clamp — only engages on loud screams/shouts, leaves normal audio alone
+    // True peak clamp — only fires on screams/shouts + soft clipper for smooth peak rounding
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -10, ratio: 20, knee: 3, attack: 0.5, release: 150,
+    threshold: -6, ratio: 20, knee: 1, attack: 0.5, release: 150,
     makeupGain: 0, gainEnabled: true,
     // EQ cuts at scream harmonics (3-5kHz) for extra taming
     eqEnabled: true,
@@ -316,13 +333,14 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -10, autoGainSpeed: 'fast',
     gateEnabled: false, gateThreshold: -50,
+    softClipEnabled: true, softClipDrive: 8,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   sleep: {
     name: 'Sleep',
-    // Catch loud peaks, leave quiet content alone, reduce overall volume
+    // Catch loud peaks + soft clip for smooth rounding, reduce overall volume
     compressorEnabled: true,
     multibandEnabled: false,
     threshold: -18, ratio: 6, knee: 10, attack: 3, release: 300,
@@ -338,6 +356,7 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -30, autoGainSpeed: 'slow',
     gateEnabled: true, gateThreshold: -50, gateHold: 200, gateRelease: 300,
+    softClipEnabled: true, softClipDrive: 3,
     limiterEnabled: true, limiterThreshold: -6,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -346,7 +365,7 @@ const presets = {
 
 // Display order — reorder here to change the UI, no need to touch presets object
 const presetOrder = [
-  'off', 'music', 'lofi', 'streamWatch', 'podcast', 'voiceFocus',
+  'off', 'music', 'lofi', 'streamWatch', 'dialogBoost', 'voiceFocus',
   'movie', 'bassTamer', 'tv90s', 'nightMode', 'antiScream', 'sleep'
 ];
 
@@ -355,15 +374,15 @@ const presetUI = {
   off:          { desc: 'No processing' },
   music:        { desc: 'Preserve dynamics' },
   lofi:         { desc: 'Warm & mellow' },
-  streamWatch:  { desc: 'Twitch & YouTube' },
-  podcast:      { desc: 'Voice clarity' },
-  voiceFocus:   { desc: 'Podcasts & streams', style: 'preset-featured' },
-  movie:        { desc: 'Dialog duck & clarity' },
-  bassTamer:    { desc: 'Reduce bass' },
+  streamWatch:  { desc: 'Level streams' },
+  dialogBoost:  { desc: 'Hear dialog clearly' },
+  voiceFocus:   { desc: 'Isolate voice', style: 'preset-featured' },
+  movie:        { desc: 'Tame action scenes' },
+  bassTamer:    { desc: 'Cut excess bass' },
   tv90s:        { desc: 'Tap twice for TV+' },
-  nightMode:    { desc: 'Comfy low-volume' },
-  antiScream:   { desc: 'Crush all peaks', style: 'preset-safety' },
-  sleep:        { desc: 'Fall asleep easy' }
+  nightMode:    { desc: 'Quiet peak taming' },
+  antiScream:   { desc: 'Clip screams & shouts', style: 'preset-safety' },
+  sleep:        { desc: 'Smooth & quiet' }
 };
 
 // Generate preset buttons from presetOrder + presetUI
@@ -424,6 +443,8 @@ const presetKeys = [
   'bassCutFreq', 'trebleCutFreq',
   // Noise suppression
   'noiseSuppressionEnabled',
+  // Soft Clipper
+  'softClipEnabled', 'softClipDrive',
   // Limiter & Auto-Gain
   'limiterEnabled', 'limiterThreshold',
   'autoGainEnabled', 'autoGainTarget', 'autoGainSpeed',
@@ -594,6 +615,11 @@ async function init() {
     limiterLabel: document.getElementById('limiterLabel'),
     limiterThreshold: document.getElementById('limiterThreshold'),
     limiterThresholdValue: document.getElementById('limiterThresholdValue'),
+    // Soft Clipper
+    softClipToggle: document.getElementById('softClipToggle'),
+    softClipDrive: document.getElementById('softClipDrive'),
+    softClipDriveValue: document.getElementById('softClipDriveValue'),
+    softClipDriveGroup: document.getElementById('softClipDriveGroup'),
     // Auto-Gain
     autoGainToggle: document.getElementById('autoGainToggle'),
     autoGainLabel: document.getElementById('autoGainLabel'),
@@ -1015,6 +1041,18 @@ function updateUI() {
   if (elements.limiterThreshold) {
     elements.limiterThreshold.value = currentSettings.limiterThreshold;
     elements.limiterThresholdValue.textContent = `${currentSettings.limiterThreshold} dB`;
+  }
+
+  // Soft Clipper
+  if (elements.softClipToggle) {
+    elements.softClipToggle.checked = currentSettings.softClipEnabled;
+  }
+  if (elements.softClipDrive) {
+    elements.softClipDrive.value = currentSettings.softClipDrive || 0;
+    elements.softClipDriveValue.textContent = `${currentSettings.softClipDrive || 0} dB`;
+  }
+  if (elements.softClipDriveGroup) {
+    elements.softClipDriveGroup.style.display = currentSettings.softClipEnabled ? '' : 'none';
   }
 
   // Noise Gate
@@ -1570,6 +1608,16 @@ function setupEventListeners() {
     });
   }
   setupSlider('limiterThreshold', 'limiterThreshold', 'limiterThresholdValue', v => `${v} dB`, true);
+
+  // Soft Clipper toggle and drive
+  if (elements.softClipToggle) {
+    elements.softClipToggle.addEventListener('change', (e) => {
+      currentSettings.softClipEnabled = e.target.checked;
+      updateUI();
+      updateTabSettings();
+    });
+  }
+  setupSlider('softClipDrive', 'softClipDrive', 'softClipDriveValue', v => `${v} dB`, true);
 
   // Auto-Gain toggle and target
   if (elements.autoGainToggle) {

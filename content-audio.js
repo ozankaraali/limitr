@@ -35,6 +35,11 @@
   let limiter = null;
 
   // LUFS meter
+  // Soft clipper (WaveShaperNode for smooth peak taming)
+  let softClipper = null;
+  let softClipDriveGain = null;
+  let softClipCompGain = null;
+
   let lufsPreFilter = null;
   let lufsRlbFilter = null;
   let lufsAnalyser = null;
@@ -86,6 +91,10 @@
 
     // AI Noise Suppression (not supported in fallback mode - requires AudioWorklet)
     noiseSuppressionEnabled: false,
+
+    // Soft clipper (smooth peak taming)
+    softClipEnabled: false,
+    softClipDrive: 0,
 
     // Limiter (brick wall, prevents clipping / auto-level)
     limiterEnabled: true,
@@ -268,6 +277,24 @@
       limiter.attack.value = (settings.limiterAttack || 1) / 1000;
       limiter.release.value = (settings.limiterRelease || 100) / 1000;
 
+      // Soft clipper (smooth peak taming via tanh waveshaper)
+      softClipper = audioContext.createWaveShaper();
+      const clipCurve = new Float32Array(8192);
+      for (let i = 0; i < 8192; i++) {
+        const x = (2 * i / 8192) - 1;
+        clipCurve[i] = Math.tanh(x);
+      }
+      softClipper.curve = clipCurve;
+      softClipper.oversample = '2x';
+
+      softClipDriveGain = audioContext.createGain();
+      softClipDriveGain.gain.value = 1;
+      softClipCompGain = audioContext.createGain();
+      softClipCompGain.gain.value = 1;
+
+      softClipDriveGain.connect(softClipper);
+      softClipper.connect(softClipCompGain);
+
       // LUFS meter (K-weighted loudness measurement)
       lufsPreFilter = audioContext.createBiquadFilter();
       lufsPreFilter.type = 'highshelf';
@@ -351,15 +378,24 @@
     try { bassCutFilter.disconnect(); } catch (e) {}
     try { eqBands[4].disconnect(); } catch (e) {}
     try { trebleCutFilter.disconnect(); } catch (e) {}
+    try { softClipDriveGain.disconnect(); } catch (e) {}
+    try { softClipCompGain.disconnect(); } catch (e) {}
     try { limiter.disconnect(); } catch (e) {}
 
     const bassCutActive = settings.filtersEnabled && settings.bassCutFreq > 20;
     const trebleCutActive = settings.filtersEnabled && settings.trebleCutFreq < 20000;
 
-    // finalNode: limiter (if enabled) sits between frequency processing and outputGain
-    const finalNode = settings.limiterEnabled ? limiter : outputGain;
+    // Build tail of chain: [soft clipper] -> [limiter] -> outputGain
+    let finalNode = outputGain;
     if (settings.limiterEnabled) {
       limiter.connect(outputGain);
+      finalNode = limiter;
+    }
+    if (settings.softClipEnabled) {
+      softClipDriveGain.connect(softClipper);
+      softClipper.connect(softClipCompGain);
+      softClipCompGain.connect(finalNode);
+      finalNode = softClipDriveGain;
     }
 
     if (!settings.enabled) {
@@ -515,6 +551,13 @@
     bassCutFilter.frequency.value = Math.max(20, settings.bassCutFreq);
     trebleCutFilter.frequency.value = Math.min(22050, settings.trebleCutFreq);
 
+    // Soft clipper drive
+    if (softClipDriveGain && softClipCompGain) {
+      const driveLinear = Math.pow(10, (settings.softClipDrive || 0) / 20);
+      softClipDriveGain.gain.value = driveLinear;
+      softClipCompGain.gain.value = 1 / driveLinear;
+    }
+
     // Limiter
     if (limiter) {
       limiter.threshold.value = settings.limiterThreshold;
@@ -579,6 +622,7 @@
       const oldTrebleCut = settings.trebleCutFreq;
       const oldLimiter = settings.limiterEnabled;
       const oldFilters = settings.filtersEnabled;
+      const oldSoftClip = settings.softClipEnabled;
 
       settings = { ...settings, ...message.settings };
 
@@ -594,6 +638,7 @@
         oldEnabled !== settings.enabled ||
         oldLimiter !== settings.limiterEnabled ||
         oldFilters !== settings.filtersEnabled ||
+        oldSoftClip !== settings.softClipEnabled ||
         bassCutRoutingChanged || trebleCutRoutingChanged
       );
 
