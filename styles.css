@@ -748,6 +748,20 @@ input[type="range"]::-moz-range-thumb {
   filter: grayscale(50%);
 }
 
+.simple-feature-row {
+  margin-top: 8px;
+  padding: 8px;
+  background: #1a1a2e;
+  border-radius: 6px;
+  border: 1px solid #252542;
+}
+
+/* Mono Fix standalone row in advanced mode */
+.mono-mix-header {
+  margin: 8px 0;
+  padding: 8px 12px;
+}
+
 /* ============ EXCLUSIVE FEATURES GROUP ============ */
 
 .exclusive-features-group {
@@ -902,7 +916,9 @@ input[type="range"]::-moz-range-thumb {
 .compressor-header,
 .gain-header,
 .effects-header,
-.filters-header {
+.filters-header,
+.soft-clip-header,
+.mono-mix-header {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -912,7 +928,9 @@ input[type="range"]::-moz-range-thumb {
 .compressor-header .toggle,
 .gain-header .toggle,
 .effects-header .toggle,
-.filters-header .toggle {
+.filters-header .toggle,
+.soft-clip-header .toggle,
+.mono-mix-header .toggle {
   margin-left: auto;
 }
 
@@ -920,7 +938,9 @@ input[type="range"]::-moz-range-thumb {
 .compressor-label,
 .gain-label,
 .effects-label,
-.filters-label {
+.filters-label,
+.soft-clip-label,
+.mono-mix-label {
   font-size: 10px;
   color: #888;
   text-transform: uppercase;
@@ -930,7 +950,9 @@ input[type="range"]::-moz-range-thumb {
 .compressor-label.active,
 .gain-label.active,
 .effects-label.active,
-.filters-label.active {
+.filters-label.active,
+.soft-clip-label.active,
+.mono-mix-label.active {
   color: #22c55e;
 }
 

@@ -732,8 +732,14 @@ async function init() {
     softClipDrive: document.getElementById('softClipDrive'),
     softClipDriveValue: document.getElementById('softClipDriveValue'),
     softClipDriveGroup: document.getElementById('softClipDriveGroup'),
+    softClipLabel: document.getElementById('softClipLabel'),
+    // Simple mode Soft Clip
+    softClipToggleSimple: document.getElementById('softClipToggleSimple'),
     // Mono-to-Stereo fixer
     monoMixToggle: document.getElementById('monoMixToggle'),
+    monoMixLabel: document.getElementById('monoMixLabel'),
+    // Simple mode Mono Fix
+    monoMixToggleSimple: document.getElementById('monoMixToggleSimple'),
     // Auto-Gain
     autoGainToggle: document.getElementById('autoGainToggle'),
     autoGainLabel: document.getElementById('autoGainLabel'),
@@ -1165,6 +1171,13 @@ function updateUI() {
   if (elements.softClipToggle) {
     elements.softClipToggle.checked = currentSettings.softClipEnabled;
   }
+  if (elements.softClipToggleSimple) {
+    elements.softClipToggleSimple.checked = currentSettings.softClipEnabled;
+  }
+  if (elements.softClipLabel) {
+    elements.softClipLabel.textContent = currentSettings.softClipEnabled ? 'On' : 'Off';
+    elements.softClipLabel.classList.toggle('active', currentSettings.softClipEnabled);
+  }
   if (elements.softClipDrive) {
     elements.softClipDrive.value = currentSettings.softClipDrive || 0;
     elements.softClipDriveValue.textContent = `${currentSettings.softClipDrive || 0} dB`;
@@ -1176,6 +1189,13 @@ function updateUI() {
   // Mono-to-Stereo fixer
   if (elements.monoMixToggle) {
     elements.monoMixToggle.checked = currentSettings.monoMixEnabled;
+  }
+  if (elements.monoMixToggleSimple) {
+    elements.monoMixToggleSimple.checked = currentSettings.monoMixEnabled;
+  }
+  if (elements.monoMixLabel) {
+    elements.monoMixLabel.textContent = currentSettings.monoMixEnabled ? 'On' : 'Off';
+    elements.monoMixLabel.classList.toggle('active', currentSettings.monoMixEnabled);
   }
 
   // Noise Gate
@@ -1740,12 +1760,27 @@ function setupEventListeners() {
       updateTabSettings();
     });
   }
+  if (elements.softClipToggleSimple) {
+    elements.softClipToggleSimple.addEventListener('change', (e) => {
+      currentSettings.softClipEnabled = e.target.checked;
+      updateUI();
+      updateTabSettings();
+    });
+  }
   setupSlider('softClipDrive', 'softClipDrive', 'softClipDriveValue', v => `${v} dB`, true);
 
   // Mono-to-Stereo fixer toggle
   if (elements.monoMixToggle) {
     elements.monoMixToggle.addEventListener('change', (e) => {
       currentSettings.monoMixEnabled = e.target.checked;
+      updateUI();
+      updateTabSettings();
+    });
+  }
+  if (elements.monoMixToggleSimple) {
+    elements.monoMixToggleSimple.addEventListener('change', (e) => {
+      currentSettings.monoMixEnabled = e.target.checked;
+      updateUI();
       updateTabSettings();
     });
   }
