@@ -89,6 +89,9 @@ const defaultSettings = {
   softClipEnabled: false,
   softClipDrive: 0,      // dB (0-12), drives signal into tanh curve
 
+  // === MONO-TO-STEREO FIXER ===
+  monoMixEnabled: false,  // Forces mono downmix → auto upmix to both channels
+
   // === LIMITER (brick wall, prevents clipping) ===
   limiterEnabled: true,
   limiterThreshold: -1,  // dB ceiling
@@ -310,6 +313,13 @@ async function createAudioChain(tabId, mediaStreamId) {
 
     softClipDriveGain.connect(softClipper);
     softClipper.connect(softClipCompGain);
+
+    // === MONO-TO-STEREO FIXER (forces mono downmix → auto upmix to both channels) ===
+    const monoMixer = audioContext.createGain();
+    monoMixer.channelCount = 1;
+    monoMixer.channelCountMode = 'explicit';
+    monoMixer.channelInterpretation = 'speakers';
+    monoMixer.gain.value = 1;
 
     // === PRE-RNNOISE SAFETY LIMITER (protects noise suppressor from loud transients) ===
     const preLimiter = audioContext.createDynamicsCompressor();
@@ -773,6 +783,8 @@ async function createAudioChain(tabId, mediaStreamId) {
       softClipper,
       softClipDriveGain,
       softClipCompGain,
+      // Mono-to-stereo fixer
+      monoMixer,
       // Limiter
       limiter,
       preLimiter,
@@ -848,7 +860,7 @@ async function createAudioChain(tabId, mediaStreamId) {
 function rebuildSignalChain(state) {
   const { source, compressor, makeupGain, outputGain,
           crossover1, multibandSum, eqBands, bassCutFilter, trebleCutFilter,
-          softClipDriveGain, softClipCompGain,
+          softClipDriveGain, softClipCompGain, monoMixer,
           limiter, preLimiter, autoGainNode, analyser, setAgcEnabled,
           gateNode, gateAnalyser, setGateEnabled,
           duckingSidechainBP, duckLowShelf, duckHighShelf, setDuckingEnabled,
@@ -875,6 +887,7 @@ function rebuildSignalChain(state) {
   gateAnalyser.disconnect();
   softClipDriveGain.disconnect();
   try { softClipCompGain.disconnect(); } catch (e) {}
+  try { monoMixer.disconnect(); } catch (e) {}
   limiter.disconnect();
   preLimiter.disconnect();
   duckingSidechainBP.disconnect();
@@ -901,10 +914,16 @@ function rebuildSignalChain(state) {
     return;
   }
 
-  // Signal chain: source -> [Ducking] -> [Dynamics] -> [PreLimiter*] -> [NoiseSuppression] -> [BassCut] -> [EQ] -> [TrebleCut] -> [Gate] -> [AutoGain] -> [SoftClip] -> [Limiter] -> outputGain -> (LUFS tap)
+  // Signal chain: source -> [MonoMix] -> [Ducking] -> [Dynamics] -> [PreLimiter*] -> [NoiseSuppression] -> [BassCut] -> [EQ] -> [TrebleCut] -> [Gate] -> [AutoGain] -> [SoftClip] -> [Limiter] -> outputGain -> (LUFS tap)
   // *PreLimiter is a fixed safety limiter, only active when noise suppression is on (protects RNNoise from loud transients)
   // Limiter is the user-controllable output limiter at the end (prevents clipping from EQ/AGC boosts)
   let currentNode = source;
+
+  // Mono-to-stereo fixer (forces mono downmix → auto upmix to both channels)
+  if (settings.monoMixEnabled) {
+    currentNode.connect(monoMixer);
+    currentNode = monoMixer;
+  }
 
   // Audio Ducking stage (detects speech, reduces non-speech content)
   if (settings.duckingEnabled) {
@@ -1054,6 +1073,7 @@ function updateSettings(tabId, newSettings) {
     newSettings.gateEnabled !== undefined && newSettings.gateEnabled !== state.settings.gateEnabled ||
     newSettings.duckingEnabled !== undefined && newSettings.duckingEnabled !== state.settings.duckingEnabled ||
     newSettings.softClipEnabled !== undefined && newSettings.softClipEnabled !== state.settings.softClipEnabled ||
+    newSettings.monoMixEnabled !== undefined && newSettings.monoMixEnabled !== state.settings.monoMixEnabled ||
     newSettings.filtersEnabled !== undefined && newSettings.filtersEnabled !== state.settings.filtersEnabled ||
     bassCutRoutingChanged || trebleCutRoutingChanged
   );

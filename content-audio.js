@@ -40,6 +40,9 @@
   let softClipDriveGain = null;
   let softClipCompGain = null;
 
+  // Mono-to-stereo fixer (forces mono downmix, upmixed to both channels by default)
+  let monoMixer = null;
+
   let lufsPreFilter = null;
   let lufsRlbFilter = null;
   let lufsAnalyser = null;
@@ -95,6 +98,9 @@
     // Soft clipper (smooth peak taming)
     softClipEnabled: false,
     softClipDrive: 0,
+
+    // Mono-to-stereo fixer
+    monoMixEnabled: false,
 
     // Limiter (brick wall, prevents clipping / auto-level)
     limiterEnabled: true,
@@ -295,6 +301,13 @@
       softClipDriveGain.connect(softClipper);
       softClipper.connect(softClipCompGain);
 
+      // Mono-to-stereo fixer (forces mono downmix → auto upmix to both channels)
+      monoMixer = audioContext.createGain();
+      monoMixer.channelCount = 1;
+      monoMixer.channelCountMode = 'explicit';
+      monoMixer.channelInterpretation = 'speakers';
+      monoMixer.gain.value = 1;
+
       // LUFS meter (K-weighted loudness measurement)
       lufsPreFilter = audioContext.createBiquadFilter();
       lufsPreFilter.type = 'highshelf';
@@ -361,7 +374,7 @@
   }
 
   // Rebuild signal chain based on settings
-  // Chain: Source → [Dynamics] → [Bass Cut] → [EQ] → [Treble Cut] → Output
+  // Chain: Source → [MonoMix] → [Dynamics] → [Bass Cut] → [EQ] → [Treble Cut] → [SoftClip] → [Limiter] → Output
   // Dynamics FIRST so loud sounds get tamed before hitting any frequency shaping
   function rebuildSignalChain() {
     if (!audioContext) return;
@@ -381,6 +394,7 @@
     try { softClipDriveGain.disconnect(); } catch (e) {}
     try { softClipCompGain.disconnect(); } catch (e) {}
     try { limiter.disconnect(); } catch (e) {}
+    try { monoMixer.disconnect(); } catch (e) {}
 
     const bassCutActive = settings.filtersEnabled && settings.bassCutFreq > 20;
     const trebleCutActive = settings.filtersEnabled && settings.trebleCutFreq < 20000;
@@ -478,9 +492,17 @@
       entryNode = finalNode;
     }
 
-    // Connect all sources to the entry point
+    // Connect all sources to the entry point (optionally through mono mixer)
     connectedMedia.forEach(({ source }) => {
-      if (entryNode === null) {
+      if (settings.monoMixEnabled) {
+        source.connect(monoMixer);
+        if (entryNode === null) {
+          monoMixer.connect(crossover1.lowpass);
+          monoMixer.connect(crossover1.highpass);
+        } else {
+          monoMixer.connect(entryNode);
+        }
+      } else if (entryNode === null) {
         // Multiband: sources connect to crossovers
         source.connect(crossover1.lowpass);
         source.connect(crossover1.highpass);
@@ -623,6 +645,7 @@
       const oldLimiter = settings.limiterEnabled;
       const oldFilters = settings.filtersEnabled;
       const oldSoftClip = settings.softClipEnabled;
+      const oldMonoMix = settings.monoMixEnabled;
 
       settings = { ...settings, ...message.settings };
 
@@ -639,6 +662,7 @@
         oldLimiter !== settings.limiterEnabled ||
         oldFilters !== settings.filtersEnabled ||
         oldSoftClip !== settings.softClipEnabled ||
+        oldMonoMix !== settings.monoMixEnabled ||
         bassCutRoutingChanged || trebleCutRoutingChanged
       );
 

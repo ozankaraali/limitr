@@ -15,6 +15,7 @@ const defaults = {
   outputGain: 0,
   bassCutFreq: 0,
   trebleCutFreq: 22050,
+  monoMixEnabled: false,
   noiseLevel: 0,
   noiseType: 'brown'
 };

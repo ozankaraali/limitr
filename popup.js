@@ -75,6 +75,9 @@ const defaults = {
   duckingAmount: -12,     // dB — how much to reduce non-speech content
   duckingRelease: 300,    // ms — how fast ducking releases after speech stops
 
+  // Mono-to-stereo fixer (duplicates single-channel audio to both channels)
+  monoMixEnabled: false,
+
   // Effects
   noiseLevel: 0,
   noiseType: 'brown',
@@ -100,7 +103,7 @@ const presets = {
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
     duckingEnabled: false, duckingThreshold: -35, duckingAmount: -12, duckingRelease: 300,
-    softClipEnabled: false, softClipDrive: 0,
+    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   music: {
@@ -112,7 +115,7 @@ const presets = {
     makeupGain: 0, gainEnabled: true,
     // Subtle EQ enhancement
     eqEnabled: true,
-    eq1Freq: 50, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq1Freq: 80, eq1Gain: 2, eq1Q: 0.7, eq1Type: 'lowshelf',
     eq2Freq: 100, eq2Gain: 1, eq2Q: 1.0, eq2Type: 'lowshelf',
     eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 4000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
@@ -121,10 +124,9 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: false, softClipDrive: 0,
+    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -1.5,
     limiterAttack: 1, limiterRelease: 100,
-    softClipEnabled: false, softClipDrive: 0,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   lofi: {
@@ -136,7 +138,7 @@ const presets = {
     makeupGain: 0, gainEnabled: true,
     // Warm bass boost + high-shelf rolloff
     eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq1Freq: 80, eq1Gain: 3, eq1Q: 0.7, eq1Type: 'lowshelf',
     eq2Freq: 200, eq2Gain: 2, eq2Q: 1.0, eq2Type: 'lowshelf',
     eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
@@ -147,7 +149,7 @@ const presets = {
     gateEnabled: false, gateThreshold: -50,
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
-    softClipEnabled: false, softClipDrive: 0,
+    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     // Subtle brown noise for warmth
     noiseLevel: 0.05, noiseType: 'brown', effectsEnabled: true
   },
@@ -169,7 +171,7 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
     gateEnabled: true, gateThreshold: -45, gateHold: 150, gateRelease: 250,
-    softClipEnabled: false, softClipDrive: 0,
+    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -193,7 +195,7 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: false, softClipDrive: 0,
+    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -2,
     limiterAttack: 1, limiterRelease: 100,
     makeupGain: 0, gainEnabled: true,
@@ -217,7 +219,7 @@ const presets = {
     eq5Freq: 12000, eq5Gain: -2, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
-    softClipEnabled: false, softClipDrive: 0,
+    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
@@ -244,7 +246,7 @@ const presets = {
     gateEnabled: false, gateThreshold: -50,
     // Audio ducking: lower music/SFX when dialog is detected (Exclusive mode)
     duckingEnabled: true, duckingThreshold: -35, duckingAmount: -10, duckingRelease: 300,
-    softClipEnabled: false, softClipDrive: 0,
+    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     makeupGain: 0, gainEnabled: true,
@@ -259,7 +261,7 @@ const presets = {
     makeupGain: 0, gainEnabled: true,
     // Aggressive bass reduction via EQ
     eqEnabled: true,
-    eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq1Freq: 120, eq1Gain: -6, eq1Q: 0.7, eq1Type: 'lowshelf',
     eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
     eq3Freq: 500, eq3Gain: -2, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 2000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
@@ -268,7 +270,7 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: false, softClipDrive: 0,
+    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -286,7 +288,7 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: false, softClipDrive: 0,
+    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -2,
     limiterAttack: 1, limiterRelease: 100,
     // Brown noise for that analog warmth
@@ -301,7 +303,7 @@ const presets = {
     makeupGain: -10, gainEnabled: true,
     // Bass rumble cut + scream frequency taming (3k/5k) for quiet watching
     eqEnabled: true,
-    eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq1Freq: 120, eq1Gain: -3, eq1Q: 0.7, eq1Type: 'lowshelf',
     eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
     eq3Freq: 3000, eq3Gain: -2, eq3Q: 1.5, eq3Type: 'peaking',
     eq4Freq: 5000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
@@ -310,7 +312,7 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 4,
+    softClipEnabled: true, softClipDrive: 4, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -6,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -333,7 +335,7 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -10, autoGainSpeed: 'fast',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 8,
+    softClipEnabled: true, softClipDrive: 8, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -347,7 +349,7 @@ const presets = {
     makeupGain: -15, gainEnabled: true,
     // Aggressive treble/harsh frequency cuts for sleep comfort
     eqEnabled: true,
-    eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq1Freq: 120, eq1Gain: -4, eq1Q: 0.7, eq1Type: 'lowshelf',
     eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
     eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
     eq4Freq: 3000, eq4Gain: -6, eq4Q: 1.0, eq4Type: 'peaking',
@@ -356,7 +358,7 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -30, autoGainSpeed: 'slow',
     gateEnabled: true, gateThreshold: -50, gateHold: 200, gateRelease: 300,
-    softClipEnabled: true, softClipDrive: 3,
+    softClipEnabled: true, softClipDrive: 3, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -6,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
@@ -445,6 +447,8 @@ const presetKeys = [
   'noiseSuppressionEnabled',
   // Soft Clipper
   'softClipEnabled', 'softClipDrive',
+  // Mono-to-Stereo fixer
+  'monoMixEnabled',
   // Limiter & Auto-Gain
   'limiterEnabled', 'limiterThreshold',
   'autoGainEnabled', 'autoGainTarget', 'autoGainSpeed',
@@ -620,6 +624,8 @@ async function init() {
     softClipDrive: document.getElementById('softClipDrive'),
     softClipDriveValue: document.getElementById('softClipDriveValue'),
     softClipDriveGroup: document.getElementById('softClipDriveGroup'),
+    // Mono-to-Stereo fixer
+    monoMixToggle: document.getElementById('monoMixToggle'),
     // Auto-Gain
     autoGainToggle: document.getElementById('autoGainToggle'),
     autoGainLabel: document.getElementById('autoGainLabel'),
@@ -1053,6 +1059,11 @@ function updateUI() {
   }
   if (elements.softClipDriveGroup) {
     elements.softClipDriveGroup.style.display = currentSettings.softClipEnabled ? '' : 'none';
+  }
+
+  // Mono-to-Stereo fixer
+  if (elements.monoMixToggle) {
+    elements.monoMixToggle.checked = currentSettings.monoMixEnabled;
   }
 
   // Noise Gate
@@ -1618,6 +1629,14 @@ function setupEventListeners() {
     });
   }
   setupSlider('softClipDrive', 'softClipDrive', 'softClipDriveValue', v => `${v} dB`, true);
+
+  // Mono-to-Stereo fixer toggle
+  if (elements.monoMixToggle) {
+    elements.monoMixToggle.addEventListener('change', (e) => {
+      currentSettings.monoMixEnabled = e.target.checked;
+      updateTabSettings();
+    });
+  }
 
   // Auto-Gain toggle and target
   if (elements.autoGainToggle) {
