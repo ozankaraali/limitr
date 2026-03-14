@@ -49,9 +49,9 @@
 
     // Global compressor
     compressorEnabled: true,
-    threshold: -24,
-    ratio: 8,
-    knee: 12,
+    threshold: -18,
+    ratio: 6,
+    knee: 10,
     attack: 5,
     release: 100,
     makeupGain: 0,

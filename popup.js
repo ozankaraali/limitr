@@ -8,9 +8,9 @@ const defaults = {
 
   // Global compressor
   compressorEnabled: true,
-  threshold: -24,
-  ratio: 8,
-  knee: 12,
+  threshold: -18,
+  ratio: 6,
+  knee: 10,
   attack: 5,
   release: 100,
   makeupGain: 0,
@@ -167,10 +167,10 @@ const presets = {
   },
   podcast: {
     name: 'Podcast',
-    // Single-band compression for voice consistency
+    // Moderate compression — only tame loud talkers, keep quiet speech natural
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -30, ratio: 6, knee: 10, attack: 3, release: 150,
+    threshold: -18, ratio: 4, knee: 10, attack: 5, release: 150,
     makeupGain: 0, gainEnabled: true,
     // De-essing + presence boost + proximity reduction
     eqEnabled: true,
@@ -189,13 +189,13 @@ const presets = {
   },
   voiceFocus: {
     name: 'Voice Focus',
-    // Multiband: duck bass (music/sfx), boost mids (voice), tame highs (sibilance)
+    // Multiband: compress bass (music/sfx) hard, leave mids (voice) mostly alone, tame highs (sibilance)
     compressorEnabled: false,
     multibandEnabled: true,
     crossover1: 200, crossover2: 3000,
-    subThreshold: -15, subRatio: 12, subGain: -8,
-    midThreshold: -35, midRatio: 3, midGain: 4,
-    highThreshold: -25, highRatio: 6, highGain: -2,
+    subThreshold: -20, subRatio: 10, subGain: -6,
+    midThreshold: -15, midRatio: 3, midGain: 2,
+    highThreshold: -12, highRatio: 6, highGain: -2,
     // EQ: presence boost for clarity
     eqEnabled: true,
     eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
@@ -214,10 +214,10 @@ const presets = {
   },
   movie: {
     name: 'Movie',
-    // Single-band compression + dialog EQ + audio ducking — no multiband bass crushing
+    // Catch loud explosions/effects but leave dialog untouched
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -26, ratio: 6, knee: 10, attack: 3, release: 150,
+    threshold: -15, ratio: 5, knee: 10, attack: 3, release: 150,
     // Light dialog clarity + tame rumble
     eqEnabled: true,
     eq1Freq: 40, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
@@ -238,11 +238,12 @@ const presets = {
   },
   bassTamer: {
     name: 'Bass Tamer',
+    // Light compression — this preset's job is mostly EQ, not dynamics
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -30, ratio: 10, knee: 8, attack: 2, release: 100,
+    threshold: -18, ratio: 4, knee: 8, attack: 5, release: 100,
     makeupGain: 0, gainEnabled: true,
-    // Aggressive bass reduction
+    // Aggressive bass reduction via EQ
     eqEnabled: true,
     eq1Freq: 120, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
@@ -259,10 +260,11 @@ const presets = {
   },
   tv90s: {
     name: '90s TV',
+    // Moderate compression — 90s broadcast feel, not total squash
     compressorEnabled: true,
     multibandEnabled: false,
     eqEnabled: false,
-    threshold: -35, ratio: 15, knee: 6, attack: 2, release: 100,
+    threshold: -20, ratio: 6, knee: 6, attack: 2, release: 100,
     makeupGain: 0, gainEnabled: true,
     // Classic narrow bandwidth
     bassCutFreq: 200, trebleCutFreq: 8000, filtersEnabled: true,
@@ -276,10 +278,10 @@ const presets = {
   },
   nightMode: {
     name: 'Night Mode',
-    // Gentle compression for comfortable low-volume watching + scream taming
+    // Clamp loud peaks only — keep quiet dialog natural, reduce overall volume
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -25, ratio: 4, knee: 12, attack: 3, release: 200,
+    threshold: -15, ratio: 8, knee: 6, attack: 1, release: 200,
     makeupGain: -10, gainEnabled: true,
     // Bass rumble cut + scream frequency taming (3k/5k) for quiet watching
     eqEnabled: true,
@@ -292,37 +294,38 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
-    limiterEnabled: true, limiterThreshold: -3,
+    limiterEnabled: true, limiterThreshold: -6,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   antiScream: {
     name: 'Anti-Scream',
-    // 12:1 compression at -35dB crushes all peaks + EQ cuts at scream harmonics (3-5kHz)
+    // True peak clamp — only engages on loud screams/shouts, leaves normal audio alone
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -35, ratio: 12, knee: 6, attack: 1, release: 200,
+    threshold: -10, ratio: 20, knee: 3, attack: 0.5, release: 150,
     makeupGain: 0, gainEnabled: true,
+    // EQ cuts at scream harmonics (3-5kHz) for extra taming
     eqEnabled: true,
     eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: -3, eq3Q: 2.0, eq3Type: 'peaking',
-    eq4Freq: 5000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
+    eq3Freq: 3000, eq3Gain: -4, eq3Q: 2.0, eq3Type: 'peaking',
+    eq4Freq: 5000, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 8000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -10, autoGainSpeed: 'fast',
     gateEnabled: false, gateThreshold: -50,
-    limiterEnabled: true, limiterThreshold: -6,
+    limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   sleep: {
     name: 'Sleep',
-    // Soft compression + heavy treble cuts for falling asleep — limiter catches peaks
+    // Catch loud peaks, leave quiet content alone, reduce overall volume
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -30, ratio: 8, knee: 15, attack: 3, release: 300,
+    threshold: -18, ratio: 6, knee: 10, attack: 3, release: 300,
     makeupGain: -15, gainEnabled: true,
     // Aggressive treble/harsh frequency cuts for sleep comfort
     eqEnabled: true,
@@ -335,7 +338,7 @@ const presets = {
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -30, autoGainSpeed: 'slow',
     gateEnabled: true, gateThreshold: -50, gateHold: 200, gateRelease: 300,
-    limiterEnabled: true, limiterThreshold: -10,
+    limiterEnabled: true, limiterThreshold: -6,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   }

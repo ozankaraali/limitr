@@ -24,9 +24,9 @@ const defaultSettings = {
 
   // === GLOBAL COMPRESSOR (single-band dynamics) ===
   compressorEnabled: true,
-  threshold: -24,
-  ratio: 8,
-  knee: 12,
+  threshold: -18,
+  ratio: 6,
+  knee: 10,
   attack: 5,      // ms
   release: 100,   // ms
   makeupGain: 0,
