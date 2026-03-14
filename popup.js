@@ -1206,6 +1206,21 @@ function updateStatusIndicator() {
     statusEl?.classList.remove('active');
     if (textEl) textEl.textContent = 'Off';
   }
+
+  updateIconBadge();
+}
+
+function updateIconBadge() {
+  const active = currentSettings.enabled && isCapturing;
+
+  if (active) {
+    // Purple for simple mode, gold for exclusive/mixer mode
+    const color = mixerMode ? '#F59E0B' : '#A855F7';
+    chrome.action.setBadgeBackgroundColor({ color });
+    chrome.action.setBadgeText({ text: ' ' });
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
 }
 
 function updatePresetButtons() {

@@ -192,6 +192,12 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   // Clean up stored settings and muted state tracking
   await chrome.storage.local.remove([`tabSettings_${tabId}`]);
   tabMutedState.delete(tabId);
+
+  // Clear badge if no more tabs are being processed
+  const remainingTabs = await getProcessingTabs();
+  if (remainingTabs.length === 0) {
+    chrome.action.setBadgeText({ text: '' });
+  }
 });
 
 // Handle messages from popup
@@ -397,6 +403,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     console.log('[Limitr] Extension installed');
   }
   createContextMenus();
+  // Clear badge on install/update (inactive by default)
+  chrome.action.setBadgeText({ text: '' });
 });
 
 console.log('[Limitr] Service worker loaded');
