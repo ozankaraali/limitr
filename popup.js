@@ -732,9 +732,6 @@ async function init() {
     softClipDrive: document.getElementById('softClipDrive'),
     softClipDriveValue: document.getElementById('softClipDriveValue'),
     softClipDriveGroup: document.getElementById('softClipDriveGroup'),
-    softClipLabel: document.getElementById('softClipLabel'),
-    // Simple mode Soft Clip
-    softClipToggleSimple: document.getElementById('softClipToggleSimple'),
     // Mono-to-Stereo fixer
     monoMixToggle: document.getElementById('monoMixToggle'),
     monoMixLabel: document.getElementById('monoMixLabel'),
@@ -1170,13 +1167,6 @@ function updateUI() {
   // Soft Clipper
   if (elements.softClipToggle) {
     elements.softClipToggle.checked = currentSettings.softClipEnabled;
-  }
-  if (elements.softClipToggleSimple) {
-    elements.softClipToggleSimple.checked = currentSettings.softClipEnabled;
-  }
-  if (elements.softClipLabel) {
-    elements.softClipLabel.textContent = currentSettings.softClipEnabled ? 'On' : 'Off';
-    elements.softClipLabel.classList.toggle('active', currentSettings.softClipEnabled);
   }
   if (elements.softClipDrive) {
     elements.softClipDrive.value = currentSettings.softClipDrive || 0;
@@ -1755,13 +1745,6 @@ function setupEventListeners() {
   // Soft Clipper toggle and drive
   if (elements.softClipToggle) {
     elements.softClipToggle.addEventListener('change', (e) => {
-      currentSettings.softClipEnabled = e.target.checked;
-      updateUI();
-      updateTabSettings();
-    });
-  }
-  if (elements.softClipToggleSimple) {
-    elements.softClipToggleSimple.addEventListener('change', (e) => {
       currentSettings.softClipEnabled = e.target.checked;
       updateUI();
       updateTabSettings();
