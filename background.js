@@ -464,8 +464,15 @@ async function autoActivateSimple(tabId) {
   }
 
   try {
+    // Inject bridge in ISOLATED world (for chrome.runtime messaging)
+    // and content-audio.js in MAIN world (for reliable Web Audio API access)
     await chrome.scripting.executeScript({
       target: { tabId },
+      files: ['content-bridge.js']
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
       files: ['content-audio.js']
     });
     autoInjectedTabs.add(tabId);

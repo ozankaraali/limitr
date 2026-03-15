@@ -891,8 +891,14 @@ async function initFallbackCapture() {
     } catch (e) {}
 
     if (!alreadyInjected) {
+      // Inject bridge (ISOLATED) + audio processor (MAIN world)
       await chrome.scripting.executeScript({
         target: { tabId: currentTabId },
+        files: ['content-bridge.js']
+      });
+      await chrome.scripting.executeScript({
+        target: { tabId: currentTabId },
+        world: 'MAIN',
         files: ['content-audio.js']
       });
       isCapturing = true;
