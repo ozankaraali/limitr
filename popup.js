@@ -313,71 +313,56 @@ const presets = {
   },
   nightMode: {
     name: 'Night Mode',
-    // Clamp loud peaks only — keep quiet dialog natural, reduce overall volume
+    // Single-band: compress everything uniformly, then turn volume down.
+    // Low threshold catches most of the dynamic range, high ratio flattens it.
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -15, ratio: 8, knee: 6, attack: 1, release: 200,
-    makeupGain: -10, gainEnabled: true,
-    // Bass rumble cut + scream frequency taming (3k/5k) for quiet watching
-    eqEnabled: true,
-    eq1Freq: 120, eq1Gain: -3, eq1Q: 0.7, eq1Type: 'lowshelf',
-    eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: -2, eq3Q: 1.5, eq3Type: 'peaking',
-    eq4Freq: 5000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -3, eq5Q: 0.7, eq5Type: 'highshelf',
+    threshold: -24, ratio: 12, knee: 6, attack: 1, release: 200,
+    makeupGain: -12, gainEnabled: true,
+    eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
     softClipEnabled: true, softClipDrive: 4, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -6,
-    limiterAttack: 1, limiterRelease: 100,
+    limiterEnabled: true, limiterThreshold: -10,
+    limiterAttack: 0.5, limiterRelease: 80,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   antiScream: {
     name: 'Anti-Scream',
-    // True peak clamp — only fires on screams/shouts + soft clipper for smooth peak rounding
+    // Single-band: hard knee, fast attack, very high ratio = brick wall.
+    // Anything above -15 dB gets smashed. Makeup gain pulls result down.
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -6, ratio: 20, knee: 1, attack: 0.5, release: 150,
-    makeupGain: 0, gainEnabled: true,
-    // EQ cuts at scream harmonics (3-5kHz) for extra taming
-    eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: -4, eq3Q: 2.0, eq3Type: 'peaking',
-    eq4Freq: 5000, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
+    threshold: -15, ratio: 20, knee: 1, attack: 0.3, release: 100,
+    makeupGain: -8, gainEnabled: true,
+    eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -10, autoGainSpeed: 'fast',
     gateEnabled: false, gateThreshold: -50,
     softClipEnabled: true, softClipDrive: 8, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -3,
-    limiterAttack: 1, limiterRelease: 100,
+    limiterEnabled: true, limiterThreshold: -8,
+    limiterAttack: 0.3, limiterRelease: 60,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   sleep: {
     name: 'Sleep',
-    // Catch loud peaks + soft clip for smooth rounding, reduce overall volume
+    // Single-band: maximum compression + volume way down.
+    // Threshold at -26 catches almost everything, ratio 15 flattens it.
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -18, ratio: 6, knee: 10, attack: 3, release: 300,
-    makeupGain: -15, gainEnabled: true,
-    // Aggressive treble/harsh frequency cuts for sleep comfort
-    eqEnabled: true,
-    eq1Freq: 120, eq1Gain: -4, eq1Q: 0.7, eq1Type: 'lowshelf',
-    eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 3000, eq4Gain: -6, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 6000, eq5Gain: -8, eq5Q: 0.7, eq5Type: 'highshelf',
+    threshold: -26, ratio: 15, knee: 10, attack: 1, release: 250,
+    makeupGain: -16, gainEnabled: true,
+    eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -30, autoGainSpeed: 'slow',
     gateEnabled: true, gateThreshold: -50, gateHold: 200, gateRelease: 300,
-    softClipEnabled: true, softClipDrive: 3, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -6,
-    limiterAttack: 1, limiterRelease: 100,
+    softClipEnabled: true, softClipDrive: 4, monoMixEnabled: false,
+    limiterEnabled: true, limiterThreshold: -12,
+    limiterAttack: 0.3, limiterRelease: 60,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   }
 };
@@ -462,8 +447,9 @@ function renderPresetGrid() {
 }
 
 function rebindPresetButtons() {
-  elements.presetBtns = document.querySelectorAll('.preset-btn:not(.preset-ghost)');
-  elements.presetBtns.forEach(btn => {
+  const btns = document.querySelectorAll('.preset-btn:not(.preset-ghost)');
+  try { elements.presetBtns = btns; } catch (_) { /* elements not yet initialized */ }
+  btns.forEach(btn => {
     // Remove old listeners by cloning (safe since we rebuild the grid)
     btn.addEventListener('click', (e) => {
       // Check if delete button was clicked
@@ -733,6 +719,9 @@ async function init() {
     softClipDriveGroup: document.getElementById('softClipDriveGroup'),
     // Mono-to-Stereo fixer
     monoMixToggle: document.getElementById('monoMixToggle'),
+    monoMixLabel: document.getElementById('monoMixLabel'),
+    // Simple mode Mono Fix
+    monoMixToggleSimple: document.getElementById('monoMixToggleSimple'),
     // Auto-Gain
     autoGainToggle: document.getElementById('autoGainToggle'),
     autoGainLabel: document.getElementById('autoGainLabel'),
@@ -1176,6 +1165,13 @@ function updateUI() {
   if (elements.monoMixToggle) {
     elements.monoMixToggle.checked = currentSettings.monoMixEnabled;
   }
+  if (elements.monoMixToggleSimple) {
+    elements.monoMixToggleSimple.checked = currentSettings.monoMixEnabled;
+  }
+  if (elements.monoMixLabel) {
+    elements.monoMixLabel.textContent = currentSettings.monoMixEnabled ? 'On' : 'Off';
+    elements.monoMixLabel.classList.toggle('active', currentSettings.monoMixEnabled);
+  }
 
   // Noise Gate
   if (elements.gateToggle) {
@@ -1382,15 +1378,18 @@ function updateStatusIndicator() {
 
 function updateIconBadge() {
   const active = currentSettings.enabled && isCapturing;
-
-  if (active) {
-    // Purple for simple mode, gold for exclusive/mixer mode
-    const color = mixerMode ? '#F59E0B' : '#A855F7';
-    chrome.action.setBadgeBackgroundColor({ color });
-    chrome.action.setBadgeText({ text: ' ' });
-  } else {
-    chrome.action.setBadgeText({ text: '' });
-  }
+  const iconSet = active ? {
+    16: 'icons/icon16-active.png',
+    32: 'icons/icon32-active.png',
+    48: 'icons/icon48-active.png',
+    128: 'icons/icon128-active.png'
+  } : {
+    16: 'icons/icon16-gray.png',
+    32: 'icons/icon32-gray.png',
+    48: 'icons/icon48-gray.png',
+    128: 'icons/icon128-gray.png'
+  };
+  chrome.action.setIcon({ path: iconSet });
 }
 
 function updatePresetButtons() {
@@ -1745,6 +1744,14 @@ function setupEventListeners() {
   if (elements.monoMixToggle) {
     elements.monoMixToggle.addEventListener('change', (e) => {
       currentSettings.monoMixEnabled = e.target.checked;
+      updateUI();
+      updateTabSettings();
+    });
+  }
+  if (elements.monoMixToggleSimple) {
+    elements.monoMixToggleSimple.addEventListener('change', (e) => {
+      currentSettings.monoMixEnabled = e.target.checked;
+      updateUI();
       updateTabSettings();
     });
   }

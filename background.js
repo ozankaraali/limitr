@@ -197,7 +197,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   // Clear badge if no more tabs are being processed
   const remainingTabs = await getProcessingTabs();
   if (remainingTabs.length === 0) {
-    chrome.action.setBadgeText({ text: '' });
+    updateBadge(false);
   }
 });
 
@@ -415,8 +415,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     console.log('[Limitr] Extension installed');
   }
   createContextMenus();
-  // Clear badge on install/update (inactive by default)
-  chrome.action.setBadgeText({ text: '' });
+  // Set gray icon on install/update (inactive by default)
+  updateBadge(false);
 });
 
 // --- Auto-activation: process tabs without needing to open the popup ---
@@ -424,15 +424,25 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // Track which tabs have been auto-injected (simple mode) to avoid duplicates
 const autoInjectedTabs = new Set();
 
-// Update the toolbar icon badge from background
-function updateBadge(active, mixerMode) {
-  if (active) {
-    const color = mixerMode ? '#F59E0B' : '#A855F7';
-    chrome.action.setBadgeBackgroundColor({ color });
-    chrome.action.setBadgeText({ text: ' ' });
-  } else {
-    chrome.action.setBadgeText({ text: '' });
+// Icon paths for each state
+const ICONS = {
+  active: {
+    16: 'icons/icon16-active.png',
+    32: 'icons/icon32-active.png',
+    48: 'icons/icon48-active.png',
+    128: 'icons/icon128-active.png'
+  },
+  inactive: {
+    16: 'icons/icon16-gray.png',
+    32: 'icons/icon32-gray.png',
+    48: 'icons/icon48-gray.png',
+    128: 'icons/icon128-gray.png'
   }
+};
+
+// Update the toolbar icon to reflect active/inactive state
+function updateBadge(active) {
+  chrome.action.setIcon({ path: active ? ICONS.active : ICONS.inactive });
 }
 
 // Auto-activate on a tab (simple mode: inject content script)
@@ -456,7 +466,7 @@ async function autoActivateSimple(tabId) {
       files: ['content-audio.js']
     });
     autoInjectedTabs.add(tabId);
-    updateBadge(true, false);
+    updateBadge(true);
     console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
   } catch (error) {
     console.log(`[Limitr] Could not auto-inject on tab ${tabId}:`, error.message);
@@ -471,7 +481,7 @@ async function autoActivateExclusive(tabId) {
     if (state) return;
 
     await initAudioCapture(tabId);
-    updateBadge(true, true);
+    updateBadge(true);
     console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId}`);
   } catch (error) {
     console.log(`[Limitr] Could not auto-activate exclusive on tab ${tabId}:`, error.message);
@@ -523,7 +533,7 @@ async function restoreBadgeState() {
 
   if (stored.limitrMixerMode) {
     const activeTabs = await getProcessingTabs();
-    updateBadge(activeTabs.length > 0, true);
+    updateBadge(activeTabs.length > 0);
   } else {
     // For simple mode, check if any injected tabs exist
     // Badge will update on next auto-activation
