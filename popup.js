@@ -313,48 +313,48 @@ const presets = {
   },
   nightMode: {
     name: 'Night Mode',
-    // Clamp loud peaks only — keep quiet dialog natural, reduce overall volume
+    // Aggressive dynamic range compression for quiet late-night listening
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -15, ratio: 8, knee: 6, attack: 1, release: 200,
-    makeupGain: -10, gainEnabled: true,
-    // Bass rumble cut + scream frequency taming (3k/5k) for quiet watching
+    threshold: -24, ratio: 10, knee: 6, attack: 1, release: 200,
+    makeupGain: -6, gainEnabled: true,
+    // Cut bass rumble + tame harsh mids/treble that pierce at low volume
     eqEnabled: true,
-    eq1Freq: 120, eq1Gain: -3, eq1Q: 0.7, eq1Type: 'lowshelf',
-    eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: -2, eq3Q: 1.5, eq3Type: 'peaking',
-    eq4Freq: 5000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -3, eq5Q: 0.7, eq5Type: 'highshelf',
+    eq1Freq: 80, eq1Gain: -4, eq1Q: 0.7, eq1Type: 'lowshelf',
+    eq2Freq: 250, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 3000, eq3Gain: -5, eq3Q: 1.5, eq3Type: 'peaking',
+    eq4Freq: 5000, eq4Gain: -4, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 8000, eq5Gain: -5, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 4, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -6,
+    softClipEnabled: true, softClipDrive: 6, monoMixEnabled: false,
+    limiterEnabled: true, limiterThreshold: -8,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   antiScream: {
     name: 'Anti-Scream',
-    // True peak clamp — only fires on screams/shouts + soft clipper for smooth peak rounding
+    // Hard clamp on loud peaks + aggressive EQ cuts at scream frequencies
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -6, ratio: 20, knee: 1, attack: 0.5, release: 150,
+    threshold: -15, ratio: 20, knee: 1, attack: 0.3, release: 100,
     makeupGain: 0, gainEnabled: true,
-    // EQ cuts at scream harmonics (3-5kHz) for extra taming
+    // Heavy cuts at scream harmonics (2-6kHz) where screams are most piercing
     eqEnabled: true,
     eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: -4, eq3Q: 2.0, eq3Type: 'peaking',
-    eq4Freq: 5000, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
+    eq2Freq: 2000, eq2Gain: -6, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 3500, eq3Gain: -8, eq3Q: 1.5, eq3Type: 'peaking',
+    eq4Freq: 5000, eq4Gain: -6, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 8000, eq5Gain: -4, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -10, autoGainSpeed: 'fast',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 8, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -3,
-    limiterAttack: 1, limiterRelease: 100,
+    softClipEnabled: true, softClipDrive: 10, monoMixEnabled: false,
+    limiterEnabled: true, limiterThreshold: -6,
+    limiterAttack: 0.5, limiterRelease: 80,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   sleep: {
