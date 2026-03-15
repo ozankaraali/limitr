@@ -482,15 +482,9 @@ async function autoActivateSimple(tabId) {
       // Content script may not be ready yet — it will use stored settings
     }
 
-    // Verify content script is actually processing before showing active icon
-    try {
-      const ping = await chrome.tabs.sendMessage(tabId, { action: 'fallback-ping' });
-      if (ping && ping.active) {
-        updateBadge(true);
-      }
-    } catch (e) {
-      // Content script not responding — icon stays as-is
-    }
+    // Content script injected and settings sent — show regular (purple) icon.
+    // This is always simple/regular mode; exclusive upgrades when popup opens.
+    chrome.action.setIcon({ path: ICONS.regular });
     console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
   } catch (error) {
     console.log(`[Limitr] Could not auto-inject on tab ${tabId}:`, error.message);
@@ -500,7 +494,7 @@ async function autoActivateSimple(tabId) {
 // Try to auto-activate on a tab based on current settings
 async function tryAutoActivate(tabId) {
   try {
-    const stored = await chrome.storage.local.get(['limitrGlobalEnabled', 'limitrMixerMode']);
+    const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
     if (!stored.limitrGlobalEnabled) return;
 
     // Get tab info to validate it's a real page (not chrome://, etc.)
@@ -510,22 +504,12 @@ async function tryAutoActivate(tabId) {
       return;
     }
 
-    if (stored.limitrMixerMode) {
-      // Exclusive mode: use tabCapture via offscreen document
-      await initAudioCapture(tabId);
-      // Verify capture is actually running before showing active icon
-      const activeTabs = await getProcessingTabs();
-      updateBadge(activeTabs.length > 0);
-      console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId}`);
-    } else {
-      // Simple mode: inject content script
-      await autoActivateSimple(tabId);
-    }
+    // Always use simple mode (content script) for autoinit.
+    // tabCapture requires a user gesture, so exclusive mode can only
+    // activate when the user opens the popup — it upgrades there.
+    await autoActivateSimple(tabId);
   } catch (error) {
-    // Activation failed — ensure icon reflects reality
     console.log(`[Limitr] Auto-activate failed on tab ${tabId}:`, error.message);
-    const activeTabs = await getProcessingTabs();
-    updateBadge(activeTabs.length > 0);
   }
 }
 
