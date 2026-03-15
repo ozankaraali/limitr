@@ -509,6 +509,63 @@ async function autoActivateSimple(tabId) {
   }
 }
 
+// Pre-inject the content script on page load so MutationObserver catches
+// video/audio elements as soon as they're added to the DOM.
+// This is lightweight — the script does nothing if no media is found.
+async function earlyInjectContentScript(tabId) {
+  const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
+  if (!stored.limitrGlobalEnabled) return;
+  if (autoInjectedTabs.has(tabId)) return;
+
+  try {
+    // Check if already injected
+    const response = await chrome.tabs.sendMessage(tabId, { action: 'fallback-ping' });
+    if (response && response.active) {
+      autoInjectedTabs.add(tabId);
+      return;
+    }
+  } catch (e) {
+    // Not injected yet — proceed
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content-bridge.js']
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      files: ['content-audio.js']
+    });
+    autoInjectedTabs.add(tabId);
+
+    // Send user's settings with exclusive-only features disabled
+    const settingsStored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings']);
+    let settings;
+    if (settingsStored.limitrCurrentSettings) {
+      settings = { ...defaults, ...settingsStored.limitrCurrentSettings, enabled: true };
+    } else {
+      settings = { ...defaults, ...(settingsStored.limitrFallbackSettings || {}), enabled: true };
+    }
+    settings.autoGainEnabled = false;
+    settings.noiseSuppressionEnabled = false;
+    settings.gateEnabled = false;
+    settings.duckingEnabled = false;
+
+    try {
+      await chrome.tabs.sendMessage(tabId, {
+        action: 'fallback-update-settings',
+        settings
+      });
+    } catch (e) {}
+
+    console.log(`[Limitr] Early-injected content script on tab ${tabId}`);
+  } catch (e) {
+    // Normal for restricted pages
+  }
+}
+
 // Try to auto-activate on a tab based on current settings
 async function tryAutoActivate(tabId) {
   try {
@@ -535,6 +592,13 @@ async function tryAutoActivate(tabId) {
           if (activeTabs.includes(tabId)) {
             exclusiveOk = true;
             chrome.action.setIcon({ path: ICONS.exclusive, tabId });
+            // Disable the early-injected content script so it doesn't double-process
+            try {
+              await chrome.tabs.sendMessage(tabId, {
+                action: 'fallback-update-settings',
+                settings: { enabled: false }
+              });
+            } catch (e) {}
             console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId} (attempt ${attempt + 1})`);
           }
         } catch (e) {
@@ -564,6 +628,16 @@ async function tryAutoActivate(tabId) {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.audible === true) {
     tryAutoActivate(tabId);
+  }
+
+  // Inject content script early on page load so it's ready when video appears.
+  // Sites like Kick load the page first, then the video stream later.
+  // The content script's MutationObserver will catch the video element as soon
+  // as it's added to the DOM, so processing starts the moment audio begins.
+  if (changeInfo.status === 'complete' && tab.url &&
+      !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') &&
+      !tab.url.startsWith('about:') && !tab.url.startsWith('edge://')) {
+    earlyInjectContentScript(tabId);
   }
 });
 
