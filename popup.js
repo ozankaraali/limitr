@@ -314,14 +314,13 @@ const presets = {
   nightMode: {
     name: 'Night Mode',
     // Compress hard → turn volume down. Like reaching for the knob on loud parts.
-    // Multiband so bass booms and scream peaks compress independently.
-    // All band gains at 0 — no permanent frequency cuts, just dynamic compression.
+    // Band gains negative to counteract compression bringing quiet parts up.
     compressorEnabled: false,
     multibandEnabled: true,
     crossover1: 250, crossover2: 3500,
-    subThreshold: -25, subRatio: 8, subGain: 0,
-    midThreshold: -25, midRatio: 8, midGain: 0,
-    highThreshold: -25, highRatio: 10, highGain: 0,
+    subThreshold: -25, subRatio: 8, subGain: -6,
+    midThreshold: -25, midRatio: 8, midGain: -4,
+    highThreshold: -25, highRatio: 10, highGain: -6,
     makeupGain: -10, gainEnabled: true,
     eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
@@ -336,13 +335,12 @@ const presets = {
   antiScream: {
     name: 'Anti-Scream',
     // Compress hard → turn volume down. Catches screams/blerps/jumpscares fast.
-    // All band gains at 0 — audio sounds normal, just quieter when loud.
     compressorEnabled: false,
     multibandEnabled: true,
     crossover1: 300, crossover2: 2500,
-    subThreshold: -20, subRatio: 6, subGain: 0,
-    midThreshold: -18, midRatio: 8, midGain: 0,
-    highThreshold: -20, highRatio: 20, highGain: 0,
+    subThreshold: -20, subRatio: 6, subGain: -4,
+    midThreshold: -18, midRatio: 8, midGain: -2,
+    highThreshold: -20, highRatio: 20, highGain: -6,
     makeupGain: -6, gainEnabled: true,
     eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
@@ -357,13 +355,12 @@ const presets = {
   sleep: {
     name: 'Sleep',
     // Maximum compression → volume way down. Nothing is ever loud.
-    // Like having someone with the remote turning it down every time it gets loud.
     compressorEnabled: false,
     multibandEnabled: true,
     crossover1: 200, crossover2: 3000,
-    subThreshold: -30, subRatio: 12, subGain: 0,
-    midThreshold: -28, midRatio: 12, midGain: 0,
-    highThreshold: -28, highRatio: 20, highGain: 0,
+    subThreshold: -30, subRatio: 12, subGain: -8,
+    midThreshold: -28, midRatio: 12, midGain: -6,
+    highThreshold: -28, highRatio: 20, highGain: -8,
     makeupGain: -14, gainEnabled: true,
     eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
