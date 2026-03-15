@@ -170,27 +170,27 @@ const presets = {
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
-    gateEnabled: true, gateThreshold: -45, gateHold: 150, gateRelease: 250,
+    gateEnabled: false, gateThreshold: -45, gateHold: 150, gateRelease: 250,
     softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -3,
     limiterAttack: 1, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
-  dialogBoost: {
-    name: 'Dialog Boost',
-    // Multiband: compress bass (rumble/sfx), boost mids (dialog), tame highs
-    compressorEnabled: false,
-    multibandEnabled: true,
-    crossover1: 250, crossover2: 4000,
-    subThreshold: -18, subRatio: 8, subGain: -4,
-    midThreshold: -20, midRatio: 3, midGain: 4,
-    highThreshold: -15, highRatio: 4, highGain: -1,
+  voiceFocus: {
+    name: 'Voice Focus',
+    // Single-band compression + EQ for voice clarity
+    // Compresses peaks, boosts speech frequencies, cuts rumble and sibilance
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -22, ratio: 5, knee: 10, attack: 3, release: 150,
+    makeupGain: 0, gainEnabled: true,
+    // Voice-focused EQ: cut rumble, boost presence, tame sibilance
     eqEnabled: true,
-    eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 200, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
+    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 200, eq2Gain: -3, eq2Q: 1.0, eq2Type: 'peaking',
     eq3Freq: 2500, eq3Gain: 3, eq3Q: 1.5, eq3Type: 'peaking',
     eq4Freq: 5000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 10000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
+    eq5Freq: 10000, eq5Gain: -2, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
@@ -198,33 +198,6 @@ const presets = {
     softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -2,
     limiterAttack: 1, limiterRelease: 100,
-    makeupGain: 0, gainEnabled: true,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  voiceFocus: {
-    name: 'Voice Focus',
-    // Multiband: compress bass (music/sfx) hard, boost mids (voice clarity), tame highs (sibilance)
-    compressorEnabled: false,
-    multibandEnabled: true,
-    crossover1: 200, crossover2: 3000,
-    subThreshold: -20, subRatio: 10, subGain: -6,
-    midThreshold: -15, midRatio: 3, midGain: 2,
-    highThreshold: -12, highRatio: 6, highGain: -2,
-    // EQ: presence boost for clarity
-    eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 200, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 2500, eq3Gain: 3, eq3Q: 1.5, eq3Type: 'peaking',
-    eq4Freq: 5000, eq4Gain: 2, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 12000, eq5Gain: -2, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -1,
-    limiterAttack: 1, limiterRelease: 100,
-    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    makeupGain: 0, gainEnabled: true,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   movie: {
@@ -292,7 +265,7 @@ const presets = {
     limiterEnabled: true, limiterThreshold: -2,
     limiterAttack: 1, limiterRelease: 100,
     // Brown noise for that analog warmth
-    noiseLevel: 0.15, noiseType: 'brown', effectsEnabled: true
+    noiseLevel: 0.02, noiseType: 'brown', effectsEnabled: true
   },
   normalize: {
     name: 'Normalize',
@@ -305,7 +278,7 @@ const presets = {
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: true, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: true, gateThreshold: -50, gateHold: 150, gateRelease: 250,
+    gateEnabled: false, gateThreshold: -50, gateHold: 150, gateRelease: 250,
     softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -1,
     limiterAttack: 1, limiterRelease: 100,
@@ -369,9 +342,9 @@ const presets = {
 
 // Display order — reorder here to change the UI, no need to touch presets object
 const presetOrder = [
-  'off', 'music', 'lofi', 'streamWatch', 'dialogBoost', 'voiceFocus',
-  'movie', 'bassTamer', 'normalize', 'nightMode', 'antiScream', 'sleep',
-  'tv90s'
+  'off', 'music', 'lofi', 'streamWatch',
+  'voiceFocus', 'movie', 'bassTamer', 'normalize',
+  'antiScream', 'nightMode', 'sleep', 'tv90s'
 ];
 
 // Preset UI metadata — descriptions and optional CSS class
@@ -380,20 +353,18 @@ const presetUI = {
   music:        { desc: 'Preserve dynamics' },
   lofi:         { desc: 'Warm & mellow' },
   streamWatch:  { desc: 'Level streams' },
-  dialogBoost:  { desc: 'Hear dialog clearly' },
-  voiceFocus:   { desc: 'Isolate voice', style: 'preset-featured' },
+  voiceFocus:   { desc: 'Boost voice clarity', style: 'preset-featured' },
   movie:        { desc: 'Tame action scenes' },
   bassTamer:    { desc: 'Cut excess bass' },
   normalize:    { desc: 'Boost quiet audio' },
-  nightMode:    { desc: 'Quiet peak taming' },
   antiScream:   { desc: 'Clip screams & shouts', style: 'preset-safety' },
-  sleep:        { desc: 'Smooth & quiet' },
+  nightMode:    { desc: 'Flatten & reduce' },
+  sleep:        { desc: 'Maximum quiet' },
   tv90s:        { desc: 'Tap twice for TV+' }
 };
 
 // Custom presets (user-created, loaded from storage)
 let customPresets = {};
-const MAX_GRID_SLOTS = 16; // 4×4 grid
 
 // Render all preset buttons: factory + custom + ghost slots
 function renderPresetGrid() {
@@ -430,9 +401,10 @@ function renderPresetGrid() {
     grid.appendChild(btn);
   }
 
-  // Ghost slots (fill remaining up to MAX_GRID_SLOTS)
+  // Ghost slots: fill current row + add one extra row when full
   const totalUsed = presetOrder.length + customKeys.length;
-  const ghostCount = Math.max(0, MAX_GRID_SLOTS - totalUsed);
+  const slotsInGrid = Math.ceil(totalUsed / 4) * 4;
+  const ghostCount = slotsInGrid > totalUsed ? slotsInGrid - totalUsed : 4;
   for (let i = 0; i < ghostCount; i++) {
     const ghost = document.createElement('button');
     ghost.className = 'preset-btn preset-ghost';
@@ -813,6 +785,23 @@ async function init() {
   // Load custom presets and re-render grid (factory presets already rendered at load)
   await loadCustomPresets();
   renderPresetGrid();
+
+  // Reapply active preset if switching modes (Regular ↔ Exclusive)
+  const pendingStored = await chrome.storage.local.get(['limitrPendingPreset']);
+  if (pendingStored.limitrPendingPreset) {
+    const presetName = pendingStored.limitrPendingPreset;
+    const effectivePreset = getEffectivePreset(presetName);
+    if (effectivePreset) {
+      const savedOutputGain = currentSettings.outputGain;
+      const savedEnabled = currentSettings.enabled;
+      Object.assign(currentSettings, effectivePreset.settings);
+      // Keep user's output gain as-is (no offset — avoid accumulation on repeated switches)
+      currentSettings.outputGain = savedOutputGain;
+      currentSettings.enabled = savedEnabled;
+      updateTabSettings();
+    }
+    await chrome.storage.local.remove(['limitrPendingPreset']);
+  }
 
   updateUI();
   updateModeDisplay();
@@ -1593,6 +1582,19 @@ function setupEventListeners() {
 
       if (mixerMode && !newMixerMode) {
         await sendToBackground({ action: 'cleanup-tab', tabId: currentTabId });
+      }
+
+      // Find the currently active preset so we can reapply it for the new mode
+      let activePreset = null;
+      if (elements.presetBtns) {
+        elements.presetBtns.forEach(btn => {
+          if (btn.classList.contains('active') && btn.dataset.preset !== 'off') {
+            activePreset = btn.dataset.preset;
+          }
+        });
+      }
+      if (activePreset) {
+        await chrome.storage.local.set({ limitrPendingPreset: activePreset });
       }
 
       await chrome.storage.local.set({ limitrMixerMode: newMixerMode });

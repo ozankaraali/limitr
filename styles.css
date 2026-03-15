@@ -8,7 +8,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   background: #1a1a2e;
   color: #eee;
-  min-width: 300px;
+  width: 340px;
 }
 
 .container {
@@ -748,6 +748,23 @@ input[type="range"]::-moz-range-thumb {
   filter: grayscale(50%);
 }
 
+/* Simple mode toggle rows: status label before toggle, toggle rightmost */
+.simple-toggle-row .toggle {
+  order: 3;
+  flex-shrink: 0;
+}
+
+.simple-toggle-row .noise-suppression-label,
+.simple-toggle-row .transcriber-label {
+  margin-left: auto;
+  order: 2;
+  min-width: 20px;
+  text-align: right;
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+}
+
 .simple-feature-row {
   margin-top: 8px;
   padding: 8px;
@@ -758,14 +775,17 @@ input[type="range"]::-moz-range-thumb {
 
 /* Mono Fix standalone row in advanced mode */
 .mono-mix-header {
-  margin: 8px 0;
-  padding: 8px 12px;
+  margin: 0 0 6px 0;
+  padding: 10px 12px;
+  background: #1e1e36;
+  border-radius: 6px;
+  border: 1px solid #252542;
 }
 
 /* ============ EXCLUSIVE FEATURES GROUP ============ */
 
 .exclusive-features-group {
-  margin: 12px 0;
+  margin: 6px 0;
   padding: 12px;
   background: #1a1a2e;
   border-radius: 8px;
@@ -828,13 +848,18 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .noise-suppression-header .toggle {
-  margin-left: auto;
+  order: 3;
+  flex-shrink: 0;
 }
 
 .noise-suppression-label {
   font-size: 10px;
   color: #888;
   text-transform: uppercase;
+  margin-left: auto;
+  order: 2;
+  min-width: 20px;
+  text-align: right;
 }
 
 .noise-suppression-label.active {
@@ -856,13 +881,18 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .noise-gate-header .toggle {
-  margin-left: auto;
+  order: 3;
+  flex-shrink: 0;
 }
 
 .noise-gate-label {
   font-size: 10px;
   color: #888;
   text-transform: uppercase;
+  margin-left: auto;
+  order: 2;
+  min-width: 20px;
+  text-align: right;
 }
 
 .noise-gate-label.active {
@@ -877,13 +907,18 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .ducking-header .toggle {
-  margin-left: auto;
+  order: 3;
+  flex-shrink: 0;
 }
 
 .ducking-label {
   font-size: 10px;
   color: #888;
   text-transform: uppercase;
+  margin-left: auto;
+  order: 2;
+  min-width: 20px;
+  text-align: right;
 }
 
 .ducking-label.active {
@@ -898,13 +933,18 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .auto-gain-header .toggle {
-  margin-left: auto;
+  order: 3;
+  flex-shrink: 0;
 }
 
 .auto-gain-label {
   font-size: 10px;
   color: #888;
   text-transform: uppercase;
+  margin-left: auto;
+  order: 2;
+  min-width: 20px;
+  text-align: right;
 }
 
 .auto-gain-label.active {
@@ -931,7 +971,8 @@ input[type="range"]::-moz-range-thumb {
 .filters-header .toggle,
 .soft-clip-header .toggle,
 .mono-mix-header .toggle {
-  margin-left: auto;
+  order: 3;
+  flex-shrink: 0;
 }
 
 .limiter-label,
@@ -944,6 +985,10 @@ input[type="range"]::-moz-range-thumb {
   font-size: 10px;
   color: #888;
   text-transform: uppercase;
+  margin-left: auto;
+  order: 2;
+  min-width: 20px;
+  text-align: right;
 }
 
 .limiter-label.active,
@@ -964,13 +1009,18 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .eq-header .toggle {
-  margin-left: auto;
+  order: 3;
+  flex-shrink: 0;
 }
 
 .eq-label {
   font-size: 10px;
   color: #888;
   text-transform: uppercase;
+  margin-left: auto;
+  order: 2;
+  min-width: 20px;
+  text-align: right;
 }
 
 .eq-label.active {
@@ -1141,13 +1191,18 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .multiband-header .toggle {
-  margin-left: auto;
+  order: 3;
+  flex-shrink: 0;
 }
 
 .multiband-label {
   font-size: 10px;
   color: #888;
   text-transform: uppercase;
+  margin-left: auto;
+  order: 2;
+  min-width: 20px;
+  text-align: right;
 }
 
 .multiband-label.active {
@@ -1292,13 +1347,18 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .transcriber-header .toggle {
-  margin-left: auto;
+  order: 3;
+  flex-shrink: 0;
 }
 
 .transcriber-label {
   font-size: 10px;
   color: #888;
   text-transform: uppercase;
+  margin-left: auto;
+  order: 2;
+  min-width: 20px;
+  text-align: right;
 }
 
 .transcriber-label.active {

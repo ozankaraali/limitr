@@ -448,60 +448,75 @@ async function updateBadge(active) {
   chrome.action.setIcon({ path: iconSet });
 }
 
-// Auto-activate on a tab (simple mode: inject content script)
-async function autoActivateSimple(tabId) {
-  if (autoInjectedTabs.has(tabId)) return;
+// Inject content scripts (bridge + audio) and send settings.
+// Shared by autoActivateSimple and earlyInjectContentScript.
+async function injectContentScripts(tabId) {
+  // Inject bridge in ISOLATED world (for chrome.runtime messaging)
+  // and content-audio.js in MAIN world (for reliable Web Audio API access)
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['content-bridge.js']
+  });
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    files: ['content-audio.js']
+  });
+  autoInjectedTabs.add(tabId);
+
+  // Use the user's actual settings from storage, with exclusive-only features disabled
+  const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings']);
+  let settings;
+  if (stored.limitrCurrentSettings) {
+    settings = { ...defaults, ...stored.limitrCurrentSettings, enabled: true };
+  } else {
+    settings = { ...defaults, ...(stored.limitrFallbackSettings || {}), enabled: true };
+  }
+  // Disable exclusive-only features for fallback
+  settings.autoGainEnabled = false;
+  settings.noiseSuppressionEnabled = false;
+  settings.gateEnabled = false;
+  settings.duckingEnabled = false;
 
   try {
-    // Check if already injected
+    await chrome.tabs.sendMessage(tabId, {
+      action: 'fallback-update-settings',
+      settings
+    });
+  } catch (e) {
+    // Content script may not be ready yet — it will use stored settings
+  }
+}
+
+// Check if content script is already running in a tab
+async function isContentScriptActive(tabId) {
+  try {
     const response = await chrome.tabs.sendMessage(tabId, { action: 'fallback-ping' });
     if (response && response.active) {
       autoInjectedTabs.add(tabId);
-      return;
+      return true;
     }
   } catch (e) {
-    // Not injected yet
+    // Not injected
+  }
+  return false;
+}
+
+// Auto-activate on a tab (simple mode: inject content script)
+async function autoActivateSimple(tabId) {
+  if (autoInjectedTabs.has(tabId)) {
+    // Already injected — just ensure icon is correct
+    chrome.action.setIcon({ path: ICONS.regular, tabId });
+    return;
+  }
+
+  if (await isContentScriptActive(tabId)) {
+    chrome.action.setIcon({ path: ICONS.regular, tabId });
+    return;
   }
 
   try {
-    // Inject bridge in ISOLATED world (for chrome.runtime messaging)
-    // and content-audio.js in MAIN world (for reliable Web Audio API access)
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['content-bridge.js']
-    });
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN',
-      files: ['content-audio.js']
-    });
-    autoInjectedTabs.add(tabId);
-
-    // Use the user's actual settings from storage, with exclusive-only features disabled
-    const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings']);
-    let settings;
-    if (stored.limitrCurrentSettings) {
-      // Use the user's current settings (same as what popup uses)
-      settings = { ...defaults, ...stored.limitrCurrentSettings, enabled: true };
-    } else {
-      settings = { ...defaults, ...(stored.limitrFallbackSettings || {}), enabled: true };
-    }
-    // Disable exclusive-only features for fallback
-    settings.autoGainEnabled = false;
-    settings.noiseSuppressionEnabled = false;
-    settings.gateEnabled = false;
-    settings.duckingEnabled = false;
-
-    try {
-      await chrome.tabs.sendMessage(tabId, {
-        action: 'fallback-update-settings',
-        settings
-      });
-    } catch (e) {
-      // Content script may not be ready yet — it will use stored settings
-    }
-
-    // Content script injected and settings sent — show regular (purple) icon.
+    await injectContentScripts(tabId);
     chrome.action.setIcon({ path: ICONS.regular, tabId });
     console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
   } catch (error) {
@@ -516,50 +531,10 @@ async function earlyInjectContentScript(tabId) {
   const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
   if (!stored.limitrGlobalEnabled) return;
   if (autoInjectedTabs.has(tabId)) return;
+  if (await isContentScriptActive(tabId)) return;
 
   try {
-    // Check if already injected
-    const response = await chrome.tabs.sendMessage(tabId, { action: 'fallback-ping' });
-    if (response && response.active) {
-      autoInjectedTabs.add(tabId);
-      return;
-    }
-  } catch (e) {
-    // Not injected yet — proceed
-  }
-
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['content-bridge.js']
-    });
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN',
-      files: ['content-audio.js']
-    });
-    autoInjectedTabs.add(tabId);
-
-    // Send user's settings with exclusive-only features disabled
-    const settingsStored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings']);
-    let settings;
-    if (settingsStored.limitrCurrentSettings) {
-      settings = { ...defaults, ...settingsStored.limitrCurrentSettings, enabled: true };
-    } else {
-      settings = { ...defaults, ...(settingsStored.limitrFallbackSettings || {}), enabled: true };
-    }
-    settings.autoGainEnabled = false;
-    settings.noiseSuppressionEnabled = false;
-    settings.gateEnabled = false;
-    settings.duckingEnabled = false;
-
-    try {
-      await chrome.tabs.sendMessage(tabId, {
-        action: 'fallback-update-settings',
-        settings
-      });
-    } catch (e) {}
-
+    await injectContentScripts(tabId);
     console.log(`[Limitr] Early-injected content script on tab ${tabId}`);
   } catch (e) {
     // Normal for restricted pages

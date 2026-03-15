@@ -82,26 +82,26 @@
 
       <!-- AI Noise Suppression (Exclusive mode only) -->
       <div class="simple-anc-row" id="simpleAncRow">
-        <div class="control-header">
+        <div class="control-header simple-toggle-row">
           <label>AI Noise Suppression</label>
+          <span class="noise-suppression-label" id="noiseSuppressionLabelSimple">Off</span>
           <label class="toggle small">
             <input type="checkbox" id="noiseSuppressionToggleSimple">
             <span class="slider"></span>
           </label>
-          <span class="noise-suppression-label" id="noiseSuppressionLabelSimple">Off</span>
         </div>
         <div class="control-note">RNNoise AI — Exclusive mode only</div>
       </div>
 
       <!-- Video Transcriber (Exclusive mode only) -->
       <div class="simple-anc-row" id="simpleTranscriberRow">
-        <div class="control-header">
+        <div class="control-header simple-toggle-row">
           <label>Video Transcriber</label>
+          <span class="transcriber-label" id="transcriberLabelSimple">Off</span>
           <label class="toggle small">
             <input type="checkbox" id="transcriberToggleSimple">
             <span class="slider"></span>
           </label>
-          <span class="transcriber-label" id="transcriberLabelSimple">Off</span>
         </div>
         <div class="control-note">Whisper AI captions — Exclusive mode only</div>
         <div class="transcriber-output" id="transcriberOutputSimple" style="display: none;">
@@ -258,6 +258,25 @@
         </div>
       </div>
 
+      <!-- Output Volume (always visible, most used control) -->
+      <div class="control-group output-volume-group">
+        <div class="control-header">
+          <label for="outputGain">Output Volume</label>
+          <span class="value" id="outputGainValue">0 dB</span>
+        </div>
+        <input type="range" id="outputGain" min="-24" max="24" value="0" step="1">
+      </div>
+
+      <!-- Mono Fix (works in both Regular and Exclusive modes) -->
+      <div class="control-section-label mono-mix-header">
+        <span>Mono Fix</span>
+        <span class="mono-mix-label" id="monoMixLabel">Off</span>
+        <label class="toggle small">
+          <input type="checkbox" id="monoMixToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+
       <!-- Limiter (works in both Regular and Exclusive modes) -->
       <div class="collapsible-section" id="limiterSection">
         <div class="control-section-label limiter-header section-header">
@@ -293,16 +312,6 @@
             <input type="range" id="softClipDrive" min="0" max="12" value="0" step="1">
           </div>
         </div>
-      </div>
-
-      <!-- Mono Fix (works in both Regular and Exclusive modes) -->
-      <div class="control-section-label mono-mix-header">
-        <span>Mono Fix</span>
-        <label class="toggle small">
-          <input type="checkbox" id="monoMixToggle">
-          <span class="slider"></span>
-        </label>
-        <span class="mono-mix-label" id="monoMixLabel">Off</span>
       </div>
 
       <div class="collapsible-section" id="compressorSection">
@@ -372,19 +381,10 @@
               <label for="makeupGain">Makeup Gain</label>
               <span class="value" id="makeupGainValue">0 dB</span>
             </div>
-            <input type="range" id="makeupGain" min="0" max="24" value="0" step="1">
+            <input type="range" id="makeupGain" min="-24" max="24" value="0" step="1">
           </div>
 
         </div>
-      </div>
-
-      <!-- Output Volume (always visible) -->
-      <div class="control-group output-volume-group">
-        <div class="control-header">
-          <label for="outputGain">Output Volume</label>
-          <span class="value" id="outputGainValue">0 dB</span>
-        </div>
-        <input type="range" id="outputGain" min="-24" max="24" value="0" step="1">
       </div>
 
       <div class="collapsible-section" id="effectsSection">
