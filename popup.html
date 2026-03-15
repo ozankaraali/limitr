@@ -108,6 +108,18 @@
           <div class="transcriber-text" id="transcriberTextSimple"></div>
         </div>
       </div>
+
+      <!-- Mono Fix (works in both modes) -->
+      <div class="simple-feature-row">
+        <div class="control-header">
+          <label>Mono Fix</label>
+          <label class="toggle small">
+            <input type="checkbox" id="monoMixToggleSimple">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="control-note">Fix single-channel audio</div>
+      </div>
     </div>
 
     <!-- Advanced Mode Controls -->
@@ -273,23 +285,24 @@
               </label>
             </div>
           </div>
-          <div class="control-group soft-clip-drive" id="softClipDriveGroup">
+          <div class="control-group" id="softClipDriveGroup">
             <div class="control-header">
               <label for="softClipDrive">Drive</label>
               <span class="value" id="softClipDriveValue">0 dB</span>
             </div>
             <input type="range" id="softClipDrive" min="0" max="12" value="0" step="1">
           </div>
-          <div class="control-group mono-mix-group">
-            <div class="control-header">
-              <label>Mono Fix</label>
-              <label class="toggle small">
-                <input type="checkbox" id="monoMixToggle">
-                <span class="slider"></span>
-              </label>
-            </div>
-          </div>
         </div>
+      </div>
+
+      <!-- Mono Fix (works in both Regular and Exclusive modes) -->
+      <div class="control-section-label mono-mix-header">
+        <span>Mono Fix</span>
+        <label class="toggle small">
+          <input type="checkbox" id="monoMixToggle">
+          <span class="slider"></span>
+        </label>
+        <span class="mono-mix-label" id="monoMixLabel">Off</span>
       </div>
 
       <div class="collapsible-section" id="compressorSection">
