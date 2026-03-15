@@ -502,21 +502,6 @@ async function autoActivateSimple(tabId) {
   }
 }
 
-// Auto-activate on a tab (exclusive mode: init capture)
-async function autoActivateExclusive(tabId) {
-  try {
-    // Check if already capturing
-    const state = await getTabState(tabId);
-    if (state) return;
-
-    await initAudioCapture(tabId);
-    updateBadge(true);
-    console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId}`);
-  } catch (error) {
-    console.log(`[Limitr] Could not auto-activate exclusive on tab ${tabId}:`, error.message);
-  }
-}
-
 // Try to auto-activate on a tab based on current settings
 async function tryAutoActivate(tabId) {
   try {
