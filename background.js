@@ -426,12 +426,21 @@ const autoInjectedTabs = new Set();
 
 // Icon paths for each state
 const ICONS = {
-  active: {
+  // Gold — active in exclusive (mixer) mode
+  exclusive: {
     16: 'icons/icon16-active.png',
     32: 'icons/icon32-active.png',
     48: 'icons/icon48-active.png',
     128: 'icons/icon128-active.png'
   },
+  // Purple — active in regular (non-exclusive) mode
+  regular: {
+    16: 'icons/icon16.png',
+    32: 'icons/icon32.png',
+    48: 'icons/icon48.png',
+    128: 'icons/icon128.png'
+  },
+  // Gray — inactive/disabled
   inactive: {
     16: 'icons/icon16-gray.png',
     32: 'icons/icon32-gray.png',
@@ -440,9 +449,15 @@ const ICONS = {
   }
 };
 
-// Update the toolbar icon to reflect active/inactive state
-function updateBadge(active) {
-  chrome.action.setIcon({ path: active ? ICONS.active : ICONS.inactive });
+// Update the toolbar icon to reflect active/inactive state and mode
+async function updateBadge(active) {
+  if (!active) {
+    chrome.action.setIcon({ path: ICONS.inactive });
+    return;
+  }
+  const stored = await chrome.storage.local.get(['limitrMixerMode']);
+  const iconSet = stored.limitrMixerMode ? ICONS.exclusive : ICONS.regular;
+  chrome.action.setIcon({ path: iconSet });
 }
 
 // Auto-activate on a tab (simple mode: inject content script)
@@ -466,6 +481,19 @@ async function autoActivateSimple(tabId) {
       files: ['content-audio.js']
     });
     autoInjectedTabs.add(tabId);
+
+    // Send stored settings (with enabled: true) so the content script activates immediately
+    const stored = await chrome.storage.local.get(['limitrFallbackSettings']);
+    const settings = { ...defaults, ...(stored.limitrFallbackSettings || {}), enabled: true };
+    try {
+      await chrome.tabs.sendMessage(tabId, {
+        action: 'fallback-update-settings',
+        settings
+      });
+    } catch (e) {
+      // Content script may not be ready yet — it will use stored settings
+    }
+
     updateBadge(true);
     console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
   } catch (error) {

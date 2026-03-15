@@ -720,9 +720,13 @@
   // Load saved settings and init
   async function init() {
     try {
-      const stored = await chrome.storage.local.get(['limitrFallbackSettings']);
+      const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrGlobalEnabled']);
       if (stored.limitrFallbackSettings) {
         settings = { ...settings, ...stored.limitrFallbackSettings };
+      }
+      // Sync enabled state with global toggle (takes precedence)
+      if (stored.limitrGlobalEnabled !== undefined) {
+        settings.enabled = stored.limitrGlobalEnabled;
       }
     } catch (e) {
       console.log('[Limitr Fallback] Could not load saved settings');
