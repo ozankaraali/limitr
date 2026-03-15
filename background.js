@@ -494,7 +494,7 @@ async function autoActivateSimple(tabId) {
 // Try to auto-activate on a tab based on current settings
 async function tryAutoActivate(tabId) {
   try {
-    const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
+    const stored = await chrome.storage.local.get(['limitrGlobalEnabled', 'limitrMixerMode']);
     if (!stored.limitrGlobalEnabled) return;
 
     // Get tab info to validate it's a real page (not chrome://, etc.)
@@ -504,12 +504,30 @@ async function tryAutoActivate(tabId) {
       return;
     }
 
-    // Always use simple mode (content script) for autoinit.
-    // tabCapture requires a user gesture, so exclusive mode can only
-    // activate when the user opens the popup — it upgrades there.
-    await autoActivateSimple(tabId);
+    if (stored.limitrMixerMode) {
+      // Exclusive mode: tabCapture via offscreen document.
+      // MV3's getMediaStreamId does NOT require a user gesture (unlike MV2's capture()).
+      await initAudioCapture(tabId);
+      const activeTabs = await getProcessingTabs();
+      if (activeTabs.includes(tabId)) {
+        chrome.action.setIcon({ path: ICONS.exclusive });
+        console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId}`);
+      } else {
+        // Exclusive failed — fall back to simple mode
+        console.log(`[Limitr] Exclusive autoinit failed for tab ${tabId}, falling back to simple`);
+        await autoActivateSimple(tabId);
+      }
+    } else {
+      await autoActivateSimple(tabId);
+    }
   } catch (error) {
-    console.log(`[Limitr] Auto-activate failed on tab ${tabId}:`, error.message);
+    // Exclusive threw — fall back to simple mode so the user still gets audio processing
+    console.log(`[Limitr] Exclusive autoinit error on tab ${tabId}: ${error.message}, falling back to simple`);
+    try {
+      await autoActivateSimple(tabId);
+    } catch (e) {
+      console.log(`[Limitr] Simple fallback also failed on tab ${tabId}:`, e.message);
+    }
   }
 }
 
