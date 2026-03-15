@@ -482,7 +482,7 @@ async function autoActivateSimple(tabId) {
 // Try to auto-activate on a tab based on current settings
 async function tryAutoActivate(tabId) {
   try {
-    const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
+    const stored = await chrome.storage.local.get(['limitrGlobalEnabled', 'limitrMixerMode']);
     if (!stored.limitrGlobalEnabled) return;
 
     // Get tab info to validate it's a real page (not chrome://, etc.)
@@ -492,11 +492,18 @@ async function tryAutoActivate(tabId) {
       return;
     }
 
-    // Use simple mode (content script) for autoinit — exclusive mode requires
-    // tabCapture which needs a user gesture. The popup upgrades to exclusive on open.
-    await autoActivateSimple(tabId);
+    if (stored.limitrMixerMode) {
+      // Exclusive mode: use tabCapture via offscreen document
+      await initAudioCapture(tabId);
+      updateBadge(true);
+      console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId}`);
+    } else {
+      // Simple mode: inject content script
+      await autoActivateSimple(tabId);
+    }
   } catch (error) {
-    // Tab may have been closed
+    // Tab may have been closed or tabCapture failed
+    console.log(`[Limitr] Auto-activate failed on tab ${tabId}:`, error.message);
   }
 }
 
