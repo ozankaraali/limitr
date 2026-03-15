@@ -313,8 +313,8 @@ const presets = {
   },
   nightMode: {
     name: 'Night Mode',
-    // Multiband: crush everything into a narrow dynamic range for quiet listening
-    // Sub keeps bass from booming, mid keeps dialog steady, high kills scream peaks
+    // Multiband: crush dynamic range for quiet listening
+    // Sub tames bass booms, mid keeps dialog, high crushes scream peaks dynamically
     compressorEnabled: false,
     multibandEnabled: true,
     crossover1: 250, crossover2: 3500,
@@ -322,13 +322,8 @@ const presets = {
     midThreshold: -28, midRatio: 8, midGain: 2,
     highThreshold: -30, highRatio: 12, highGain: -4,
     makeupGain: -4, gainEnabled: true,
-    // Tame harsh frequencies that pierce at low volume
-    eqEnabled: true,
-    eq1Freq: 60, eq1Gain: -3, eq1Q: 0.7, eq1Type: 'lowshelf',
-    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: -4, eq3Q: 1.5, eq3Type: 'peaking',
-    eq4Freq: 5000, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -5, eq5Q: 0.7, eq5Type: 'highshelf',
+    // EQ off — multiband handles dynamics, no static treble cuts
+    eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'normal',
@@ -340,7 +335,7 @@ const presets = {
   },
   antiScream: {
     name: 'Anti-Scream',
-    // Multiband: leave sub alone, moderate mid compression, nuke highs
+    // Multiband: leave sub alone, moderate mid, nuke highs dynamically
     // Designed for IShowSpeed/blerps/jumpscares — instant reaction, hard ceiling
     compressorEnabled: false,
     multibandEnabled: true,
@@ -349,13 +344,8 @@ const presets = {
     midThreshold: -20, midRatio: 6, midGain: 0,
     highThreshold: -25, highRatio: 20, highGain: -8,
     makeupGain: 0, gainEnabled: true,
-    // Steep cuts at scream harmonics (2-6kHz) — always-on taming
-    eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 2000, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3500, eq3Gain: -8, eq3Q: 1.5, eq3Type: 'peaking',
-    eq4Freq: 5000, eq4Gain: -6, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -5, eq5Q: 0.7, eq5Type: 'highshelf',
+    // EQ off — multiband high band does the scream taming dynamically
+    eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -10, autoGainSpeed: 'fast',
@@ -376,13 +366,8 @@ const presets = {
     midThreshold: -30, midRatio: 10, midGain: 0,
     highThreshold: -35, highRatio: 20, highGain: -10,
     makeupGain: -8, gainEnabled: true,
-    // Kill everything harsh — only warm mids survive
-    eqEnabled: true,
-    eq1Freq: 80, eq1Gain: -6, eq1Q: 0.7, eq1Type: 'lowshelf',
-    eq2Freq: 250, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 2000, eq3Gain: -4, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: -8, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 6000, eq5Gain: -10, eq5Q: 0.7, eq5Type: 'highshelf',
+    // EQ off — multiband handles all frequency balancing dynamically
+    eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -30, autoGainSpeed: 'slow',
