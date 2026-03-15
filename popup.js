@@ -313,15 +313,12 @@ const presets = {
   },
   nightMode: {
     name: 'Night Mode',
-    // Compress hard → turn volume down. Like reaching for the knob on loud parts.
-    // Band gains negative to counteract compression bringing quiet parts up.
-    compressorEnabled: false,
-    multibandEnabled: true,
-    crossover1: 250, crossover2: 3500,
-    subThreshold: -25, subRatio: 8, subGain: -6,
-    midThreshold: -25, midRatio: 8, midGain: -4,
-    highThreshold: -25, highRatio: 10, highGain: -6,
-    makeupGain: -10, gainEnabled: true,
+    // Single-band: compress everything uniformly, then turn volume down.
+    // Low threshold catches most of the dynamic range, high ratio flattens it.
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -24, ratio: 12, knee: 6, attack: 1, release: 200,
+    makeupGain: -12, gainEnabled: true,
     eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
@@ -334,14 +331,12 @@ const presets = {
   },
   antiScream: {
     name: 'Anti-Scream',
-    // Compress hard → turn volume down. Catches screams/blerps/jumpscares fast.
-    compressorEnabled: false,
-    multibandEnabled: true,
-    crossover1: 300, crossover2: 2500,
-    subThreshold: -20, subRatio: 6, subGain: -4,
-    midThreshold: -18, midRatio: 8, midGain: -2,
-    highThreshold: -20, highRatio: 20, highGain: -6,
-    makeupGain: -6, gainEnabled: true,
+    // Single-band: hard knee, fast attack, very high ratio = brick wall.
+    // Anything above -15 dB gets smashed. Makeup gain pulls result down.
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -15, ratio: 20, knee: 1, attack: 0.3, release: 100,
+    makeupGain: -8, gainEnabled: true,
     eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
@@ -354,20 +349,18 @@ const presets = {
   },
   sleep: {
     name: 'Sleep',
-    // Maximum compression → volume way down. Nothing is ever loud.
-    compressorEnabled: false,
-    multibandEnabled: true,
-    crossover1: 200, crossover2: 3000,
-    subThreshold: -30, subRatio: 12, subGain: -8,
-    midThreshold: -28, midRatio: 12, midGain: -6,
-    highThreshold: -28, highRatio: 20, highGain: -8,
-    makeupGain: -14, gainEnabled: true,
+    // Single-band: maximum compression + volume way down.
+    // Threshold at -26 catches almost everything, ratio 15 flattens it.
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -26, ratio: 15, knee: 10, attack: 1, release: 250,
+    makeupGain: -16, gainEnabled: true,
     eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -30, autoGainSpeed: 'slow',
     gateEnabled: true, gateThreshold: -50, gateHold: 200, gateRelease: 300,
-    softClipEnabled: true, softClipDrive: 8, monoMixEnabled: false,
+    softClipEnabled: true, softClipDrive: 4, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -12,
     limiterAttack: 0.3, limiterRelease: 60,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
