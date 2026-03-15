@@ -223,8 +223,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.action) {
     case 'init-capture': {
       initAudioCapture(message.tabId)
-        .then(settings => sendResponse({ success: true, settings }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
+        .then(async (settings) => {
+          const activeTabs = await getProcessingTabs();
+          updateBadge(activeTabs.length > 0);
+          sendResponse({ success: true, settings });
+        })
+        .catch(async (error) => {
+          const activeTabs = await getProcessingTabs();
+          updateBadge(activeTabs.length > 0);
+          sendResponse({ success: false, error: error.message });
+        });
       return true;
     }
 
@@ -359,6 +367,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
           // Remove stored settings for this tab
           await chrome.storage.local.remove([`tabSettings_${tabId}`]);
+          // Update icon to reflect remaining active tabs
+          const remaining = await getProcessingTabs();
+          updateBadge(remaining.length > 0);
           return { success: true };
         })
         .then(response => sendResponse(response))
@@ -471,8 +482,15 @@ async function autoActivateSimple(tabId) {
       // Content script may not be ready yet — it will use stored settings
     }
 
-    // Autoinit always runs regular mode — show purple icon
-    chrome.action.setIcon({ path: ICONS.regular });
+    // Verify content script is actually processing before showing active icon
+    try {
+      const ping = await chrome.tabs.sendMessage(tabId, { action: 'fallback-ping' });
+      if (ping && ping.active) {
+        updateBadge(true);
+      }
+    } catch (e) {
+      // Content script not responding — icon stays as-is
+    }
     console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
   } catch (error) {
     console.log(`[Limitr] Could not auto-inject on tab ${tabId}:`, error.message);
@@ -495,15 +513,19 @@ async function tryAutoActivate(tabId) {
     if (stored.limitrMixerMode) {
       // Exclusive mode: use tabCapture via offscreen document
       await initAudioCapture(tabId);
-      updateBadge(true);
+      // Verify capture is actually running before showing active icon
+      const activeTabs = await getProcessingTabs();
+      updateBadge(activeTabs.length > 0);
       console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId}`);
     } else {
       // Simple mode: inject content script
       await autoActivateSimple(tabId);
     }
   } catch (error) {
-    // Tab may have been closed or tabCapture failed
+    // Activation failed — ensure icon reflects reality
     console.log(`[Limitr] Auto-activate failed on tab ${tabId}:`, error.message);
+    const activeTabs = await getProcessingTabs();
+    updateBadge(activeTabs.length > 0);
   }
 }
 
