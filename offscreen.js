@@ -753,7 +753,13 @@ async function createAudioChain(tabId, mediaStreamId) {
     // === DESTINATION ===
     const destination = audioContext.createMediaStreamDestination();
     outputGain.connect(destination);
-    outputGain.connect(audioContext.destination);
+
+    // Play processed audio via an <audio> element — more reliable than
+    // audioContext.destination in offscreen documents where Chrome may
+    // block direct AudioContext output.
+    const audioEl = document.createElement('audio');
+    audioEl.srcObject = destination.stream;
+    audioEl.play().catch(e => console.warn('[Limitr] Audio playback failed:', e));
 
     // Default signal chain: source -> compressor -> makeupGain -> outputGain
     source.connect(compressor);
@@ -847,6 +853,7 @@ async function createAudioChain(tabId, mediaStreamId) {
       changeNoiseType,
       // Output
       destination,
+      audioEl,
       settings: { ...defaultSettings },
       enabled: true
     };
@@ -1260,6 +1267,10 @@ function cleanupTab(tabId) {
   state.setAgcEnabled(false);
 
   if (state.noiseSource) state.noiseSource.stop();
+  if (state.audioEl) {
+    state.audioEl.pause();
+    state.audioEl.srcObject = null;
+  }
   state.stream.getTracks().forEach(track => track.stop());
   state.audioContext.close();
   tabAudioState.delete(tabId);

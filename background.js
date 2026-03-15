@@ -37,8 +37,8 @@ async function ensureOffscreenDocument() {
 
   await chrome.offscreen.createDocument({
     url: OFFSCREEN_DOCUMENT_PATH,
-    reasons: ['USER_MEDIA'],
-    justification: 'Audio processing for tab capture'
+    reasons: ['USER_MEDIA', 'AUDIO_PLAYBACK'],
+    justification: 'Audio processing and playback for tab capture'
   });
 }
 
