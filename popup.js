@@ -898,6 +898,10 @@ async function initFallbackCapture() {
       if (stored.limitrFallbackSettings) {
         currentSettings = { ...defaults, ...stored.limitrFallbackSettings };
       }
+
+      // Ensure the content script has the correct enabled state
+      currentSettings.enabled = (await chrome.storage.local.get(['limitrGlobalEnabled'])).limitrGlobalEnabled !== false;
+      await updateFallbackSettings();
     }
 
     updateUI();
@@ -1378,17 +1382,31 @@ function updateStatusIndicator() {
 
 function updateIconBadge() {
   const active = currentSettings.enabled && isCapturing;
-  const iconSet = active ? {
-    16: 'icons/icon16-active.png',
-    32: 'icons/icon32-active.png',
-    48: 'icons/icon48-active.png',
-    128: 'icons/icon128-active.png'
-  } : {
-    16: 'icons/icon16-gray.png',
-    32: 'icons/icon32-gray.png',
-    48: 'icons/icon48-gray.png',
-    128: 'icons/icon128-gray.png'
-  };
+  let iconSet;
+  if (!active) {
+    iconSet = {
+      16: 'icons/icon16-gray.png',
+      32: 'icons/icon32-gray.png',
+      48: 'icons/icon48-gray.png',
+      128: 'icons/icon128-gray.png'
+    };
+  } else if (mixerMode) {
+    // Gold for exclusive mode
+    iconSet = {
+      16: 'icons/icon16-active.png',
+      32: 'icons/icon32-active.png',
+      48: 'icons/icon48-active.png',
+      128: 'icons/icon128-active.png'
+    };
+  } else {
+    // Purple for regular (non-exclusive) mode
+    iconSet = {
+      16: 'icons/icon16.png',
+      32: 'icons/icon32.png',
+      48: 'icons/icon48.png',
+      128: 'icons/icon128.png'
+    };
+  }
   chrome.action.setIcon({ path: iconSet });
 }
 

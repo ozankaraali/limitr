@@ -220,6 +220,10 @@ async function createAudioChain(tabId, mediaStreamId) {
     });
 
     const audioContext = new AudioContext();
+    // Ensure AudioContext is running (may be suspended without user gesture, e.g. autoinit)
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
     const source = audioContext.createMediaStreamSource(stream);
 
     // === GLOBAL COMPRESSOR ===
