@@ -939,6 +939,9 @@ async function updateFallbackSettings() {
 async function updateTabSettings() {
   if (!currentTabId || !isCapturing) return;
 
+  // Persist current settings so autoinit can use them for new tabs
+  chrome.storage.local.set({ limitrCurrentSettings: currentSettings });
+
   if (mixerMode) {
     await sendToBackground({
       action: 'update-settings',

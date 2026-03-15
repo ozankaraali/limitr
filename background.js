@@ -477,9 +477,21 @@ async function autoActivateSimple(tabId) {
     });
     autoInjectedTabs.add(tabId);
 
-    // Send stored settings (with enabled: true) so the content script activates immediately
-    const stored = await chrome.storage.local.get(['limitrFallbackSettings']);
-    const settings = { ...defaults, ...(stored.limitrFallbackSettings || {}), enabled: true };
+    // Use the user's actual settings from storage, with exclusive-only features disabled
+    const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings']);
+    let settings;
+    if (stored.limitrCurrentSettings) {
+      // Use the user's current settings (same as what popup uses)
+      settings = { ...defaults, ...stored.limitrCurrentSettings, enabled: true };
+    } else {
+      settings = { ...defaults, ...(stored.limitrFallbackSettings || {}), enabled: true };
+    }
+    // Disable exclusive-only features for fallback
+    settings.autoGainEnabled = false;
+    settings.noiseSuppressionEnabled = false;
+    settings.gateEnabled = false;
+    settings.duckingEnabled = false;
+
     try {
       await chrome.tabs.sendMessage(tabId, {
         action: 'fallback-update-settings',
@@ -490,8 +502,7 @@ async function autoActivateSimple(tabId) {
     }
 
     // Content script injected and settings sent — show regular (purple) icon.
-    // This is always simple/regular mode; exclusive upgrades when popup opens.
-    chrome.action.setIcon({ path: ICONS.regular });
+    chrome.action.setIcon({ path: ICONS.regular, tabId });
     console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
   } catch (error) {
     console.log(`[Limitr] Could not auto-inject on tab ${tabId}:`, error.message);
@@ -514,13 +525,25 @@ async function tryAutoActivate(tabId) {
     if (stored.limitrMixerMode) {
       // Exclusive mode: tabCapture via offscreen document.
       // MV3's getMediaStreamId does NOT require a user gesture (unlike MV2's capture()).
-      await initAudioCapture(tabId);
-      const activeTabs = await getProcessingTabs();
-      if (activeTabs.includes(tabId)) {
-        chrome.action.setIcon({ path: ICONS.exclusive });
-        console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId}`);
-      } else {
-        // Exclusive failed — fall back to simple mode
+      // Retry once after a short delay if first attempt fails (tab may not be fully ready).
+      let exclusiveOk = false;
+      for (let attempt = 0; attempt < 2 && !exclusiveOk; attempt++) {
+        try {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 1000));
+          await initAudioCapture(tabId);
+          const activeTabs = await getProcessingTabs();
+          if (activeTabs.includes(tabId)) {
+            exclusiveOk = true;
+            chrome.action.setIcon({ path: ICONS.exclusive, tabId });
+            console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId} (attempt ${attempt + 1})`);
+          }
+        } catch (e) {
+          console.log(`[Limitr] Exclusive attempt ${attempt + 1} failed for tab ${tabId}: ${e.message}`);
+        }
+      }
+
+      if (!exclusiveOk) {
+        // Exclusive failed after retries — fall back to simple mode
         console.log(`[Limitr] Exclusive autoinit failed for tab ${tabId}, falling back to simple`);
         await autoActivateSimple(tabId);
       }
@@ -528,8 +551,7 @@ async function tryAutoActivate(tabId) {
       await autoActivateSimple(tabId);
     }
   } catch (error) {
-    // Exclusive threw — fall back to simple mode so the user still gets audio processing
-    console.log(`[Limitr] Exclusive autoinit error on tab ${tabId}: ${error.message}, falling back to simple`);
+    console.log(`[Limitr] Autoinit error on tab ${tabId}: ${error.message}, falling back to simple`);
     try {
       await autoActivateSimple(tabId);
     } catch (e) {
