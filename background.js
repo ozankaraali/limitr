@@ -42,9 +42,6 @@ async function ensureOffscreenDocument() {
   });
 }
 
-// Track muted state before capture (to restore on cleanup)
-const tabMutedState = new Map();
-
 // Initialize audio capture for a tab
 async function initAudioCapture(tabId) {
   // Ensure offscreen document exists
@@ -67,14 +64,9 @@ async function initAudioCapture(tabId) {
     return stateResponse.state;
   }
 
-  // Get current muted state before we mute
-  const tab = await chrome.tabs.get(tabId);
-  tabMutedState.set(tabId, tab.mutedInfo?.muted || false);
-
-  // Mute the tab to prevent double audio (processed + original)
-  await chrome.tabs.update(tabId, { muted: true });
-
   // Get media stream ID for the tab
+  // tabCapture redirects the tab's audio to the captured stream,
+  // so no muting is needed — the tab audio is already taken over.
   const mediaStreamId = await chrome.tabCapture.getMediaStreamId({
     targetTabId: tabId
   });
@@ -88,10 +80,6 @@ async function initAudioCapture(tabId) {
   });
 
   if (!response.success) {
-    // Restore muted state on failure
-    const wasMuted = tabMutedState.get(tabId) || false;
-    await chrome.tabs.update(tabId, { muted: wasMuted });
-    tabMutedState.delete(tabId);
     throw new Error(response.error || 'Failed to initialize audio');
   }
 
@@ -190,9 +178,8 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
     });
   }
 
-  // Clean up stored settings and muted state tracking
+  // Clean up stored settings
   await chrome.storage.local.remove([`tabSettings_${tabId}`]);
-  tabMutedState.delete(tabId);
 
   // Clear badge if no more tabs are being processed
   const remainingTabs = await getProcessingTabs();
@@ -236,8 +223,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.action) {
     case 'init-capture': {
       initAudioCapture(message.tabId)
-        .then(settings => sendResponse({ success: true, settings }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
+        .then(async (settings) => {
+          const activeTabs = await getProcessingTabs();
+          updateBadge(activeTabs.length > 0);
+          sendResponse({ success: true, settings });
+        })
+        .catch(async (error) => {
+          const activeTabs = await getProcessingTabs();
+          updateBadge(activeTabs.length > 0);
+          sendResponse({ success: false, error: error.message });
+        });
       return true;
     }
 
@@ -370,18 +365,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               tabId
             });
           }
-          // Restore original muted state only if we tracked it
-          if (tabMutedState.has(tabId)) {
-            const wasMuted = tabMutedState.get(tabId);
-            try {
-              await chrome.tabs.update(tabId, { muted: wasMuted });
-            } catch (e) {
-              // Tab might be closed already
-            }
-            tabMutedState.delete(tabId);
-          }
           // Remove stored settings for this tab
           await chrome.storage.local.remove([`tabSettings_${tabId}`]);
+          // Update icon to reflect remaining active tabs
+          const remaining = await getProcessingTabs();
+          updateBadge(remaining.length > 0);
           return { success: true };
         })
         .then(response => sendResponse(response))
@@ -476,15 +464,34 @@ async function autoActivateSimple(tabId) {
   }
 
   try {
+    // Inject bridge in ISOLATED world (for chrome.runtime messaging)
+    // and content-audio.js in MAIN world (for reliable Web Audio API access)
     await chrome.scripting.executeScript({
       target: { tabId },
+      files: ['content-bridge.js']
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
       files: ['content-audio.js']
     });
     autoInjectedTabs.add(tabId);
 
-    // Send stored settings (with enabled: true) so the content script activates immediately
-    const stored = await chrome.storage.local.get(['limitrFallbackSettings']);
-    const settings = { ...defaults, ...(stored.limitrFallbackSettings || {}), enabled: true };
+    // Use the user's actual settings from storage, with exclusive-only features disabled
+    const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings']);
+    let settings;
+    if (stored.limitrCurrentSettings) {
+      // Use the user's current settings (same as what popup uses)
+      settings = { ...defaults, ...stored.limitrCurrentSettings, enabled: true };
+    } else {
+      settings = { ...defaults, ...(stored.limitrFallbackSettings || {}), enabled: true };
+    }
+    // Disable exclusive-only features for fallback
+    settings.autoGainEnabled = false;
+    settings.noiseSuppressionEnabled = false;
+    settings.gateEnabled = false;
+    settings.duckingEnabled = false;
+
     try {
       await chrome.tabs.sendMessage(tabId, {
         action: 'fallback-update-settings',
@@ -494,18 +501,75 @@ async function autoActivateSimple(tabId) {
       // Content script may not be ready yet — it will use stored settings
     }
 
-    // Autoinit always runs regular mode — show purple icon
-    chrome.action.setIcon({ path: ICONS.regular });
+    // Content script injected and settings sent — show regular (purple) icon.
+    chrome.action.setIcon({ path: ICONS.regular, tabId });
     console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
   } catch (error) {
     console.log(`[Limitr] Could not auto-inject on tab ${tabId}:`, error.message);
   }
 }
 
+// Pre-inject the content script on page load so MutationObserver catches
+// video/audio elements as soon as they're added to the DOM.
+// This is lightweight — the script does nothing if no media is found.
+async function earlyInjectContentScript(tabId) {
+  const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
+  if (!stored.limitrGlobalEnabled) return;
+  if (autoInjectedTabs.has(tabId)) return;
+
+  try {
+    // Check if already injected
+    const response = await chrome.tabs.sendMessage(tabId, { action: 'fallback-ping' });
+    if (response && response.active) {
+      autoInjectedTabs.add(tabId);
+      return;
+    }
+  } catch (e) {
+    // Not injected yet — proceed
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content-bridge.js']
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      files: ['content-audio.js']
+    });
+    autoInjectedTabs.add(tabId);
+
+    // Send user's settings with exclusive-only features disabled
+    const settingsStored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings']);
+    let settings;
+    if (settingsStored.limitrCurrentSettings) {
+      settings = { ...defaults, ...settingsStored.limitrCurrentSettings, enabled: true };
+    } else {
+      settings = { ...defaults, ...(settingsStored.limitrFallbackSettings || {}), enabled: true };
+    }
+    settings.autoGainEnabled = false;
+    settings.noiseSuppressionEnabled = false;
+    settings.gateEnabled = false;
+    settings.duckingEnabled = false;
+
+    try {
+      await chrome.tabs.sendMessage(tabId, {
+        action: 'fallback-update-settings',
+        settings
+      });
+    } catch (e) {}
+
+    console.log(`[Limitr] Early-injected content script on tab ${tabId}`);
+  } catch (e) {
+    // Normal for restricted pages
+  }
+}
+
 // Try to auto-activate on a tab based on current settings
 async function tryAutoActivate(tabId) {
   try {
-    const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
+    const stored = await chrome.storage.local.get(['limitrGlobalEnabled', 'limitrMixerMode']);
     if (!stored.limitrGlobalEnabled) return;
 
     // Get tab info to validate it's a real page (not chrome://, etc.)
@@ -515,12 +579,48 @@ async function tryAutoActivate(tabId) {
       return;
     }
 
-    // Always use simple mode (content script) for autoinit — exclusive mode
-    // mutes the tab and the offscreen AudioContext can't play without a user
-    // gesture, so the user hears nothing. The popup upgrades to exclusive on open.
-    await autoActivateSimple(tabId);
+    if (stored.limitrMixerMode) {
+      // Exclusive mode: tabCapture via offscreen document.
+      // MV3's getMediaStreamId does NOT require a user gesture (unlike MV2's capture()).
+      // Retry once after a short delay if first attempt fails (tab may not be fully ready).
+      let exclusiveOk = false;
+      for (let attempt = 0; attempt < 2 && !exclusiveOk; attempt++) {
+        try {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 1000));
+          await initAudioCapture(tabId);
+          const activeTabs = await getProcessingTabs();
+          if (activeTabs.includes(tabId)) {
+            exclusiveOk = true;
+            chrome.action.setIcon({ path: ICONS.exclusive, tabId });
+            // Disable the early-injected content script so it doesn't double-process
+            try {
+              await chrome.tabs.sendMessage(tabId, {
+                action: 'fallback-update-settings',
+                settings: { enabled: false }
+              });
+            } catch (e) {}
+            console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId} (attempt ${attempt + 1})`);
+          }
+        } catch (e) {
+          console.log(`[Limitr] Exclusive attempt ${attempt + 1} failed for tab ${tabId}: ${e.message}`);
+        }
+      }
+
+      if (!exclusiveOk) {
+        // Exclusive failed after retries — fall back to simple mode
+        console.log(`[Limitr] Exclusive autoinit failed for tab ${tabId}, falling back to simple`);
+        await autoActivateSimple(tabId);
+      }
+    } else {
+      await autoActivateSimple(tabId);
+    }
   } catch (error) {
-    // Tab may have been closed
+    console.log(`[Limitr] Autoinit error on tab ${tabId}: ${error.message}, falling back to simple`);
+    try {
+      await autoActivateSimple(tabId);
+    } catch (e) {
+      console.log(`[Limitr] Simple fallback also failed on tab ${tabId}:`, e.message);
+    }
   }
 }
 
@@ -528,6 +628,16 @@ async function tryAutoActivate(tabId) {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.audible === true) {
     tryAutoActivate(tabId);
+  }
+
+  // Inject content script early on page load so it's ready when video appears.
+  // Sites like Kick load the page first, then the video stream later.
+  // The content script's MutationObserver will catch the video element as soon
+  // as it's added to the DOM, so processing starts the moment audio begins.
+  if (changeInfo.status === 'complete' && tab.url &&
+      !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') &&
+      !tab.url.startsWith('about:') && !tab.url.startsWith('edge://')) {
+    earlyInjectContentScript(tabId);
   }
 });
 

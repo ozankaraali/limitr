@@ -633,8 +633,9 @@
     });
   }
 
-  // Message handler
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Message handler — works via bridge (window.postMessage) in MAIN world
+  // and directly via chrome.runtime.onMessage in ISOLATED world
+  function handleMessage(message, sendResponse) {
     if (message.action === 'fallback-update-settings') {
       const oldEq = settings.eqEnabled;
       const oldMultiband = settings.multibandEnabled;
@@ -671,7 +672,7 @@
       }
       applySettings();
 
-      chrome.storage.local.set({ limitrFallbackSettings: settings });
+      saveToStorage({ limitrFallbackSettings: settings });
       sendResponse({ success: true });
     } else if (message.action === 'fallback-get-reduction') {
       let reduction = 0;
@@ -714,24 +715,58 @@
     } else if (message.action === 'fallback-ping') {
       sendResponse({ active: true, mediaCount: connectedMedia.size, settings });
     }
-    return true;
+  }
+
+  // Storage helper — uses chrome.storage in ISOLATED world, bridge in MAIN world
+  function saveToStorage(data) {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set(data);
+    } else {
+      window.postMessage({ type: 'limitr-bridge-storage-set', data }, '*');
+    }
+  }
+
+  // Register both ISOLATED (chrome.runtime) and MAIN world (window.postMessage) listeners
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      handleMessage(message, sendResponse);
+      return true;
+    });
+  }
+
+  // MAIN world bridge listener
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'limitr-bridge-request') {
+      handleMessage(event.data.payload, (response) => {
+        window.postMessage({
+          type: 'limitr-bridge-response',
+          id: event.data.id,
+          payload: response
+        }, '*');
+      });
+    }
   });
 
   // Load saved settings and init
-  async function init() {
+  let initResolved = false;
+
+  function applyStoredSettings(stored) {
+    if (initResolved) return;
+    initResolved = true;
     try {
-      const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrGlobalEnabled']);
       if (stored.limitrFallbackSettings) {
         settings = { ...settings, ...stored.limitrFallbackSettings };
       }
-      // Sync enabled state with global toggle (takes precedence)
       if (stored.limitrGlobalEnabled !== undefined) {
         settings.enabled = stored.limitrGlobalEnabled;
       }
     } catch (e) {
       console.log('[Limitr Fallback] Could not load saved settings');
     }
+    startScan();
+  }
 
+  function startScan() {
     if (document.body) {
       scanMedia();
       observeDOM();
@@ -741,9 +776,36 @@
         observeDOM();
       });
     }
-
     setInterval(scanMedia, 2000);
-    console.log('[Limitr Fallback] Content script loaded - EQ + Multiband + Limiter + fullscreen compatible');
+    console.log('[Limitr Fallback] Content script loaded (MAIN world) - EQ + Multiband + Limiter + fullscreen compatible');
+  }
+
+  async function init() {
+    // Try chrome.storage first (ISOLATED world)
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      try {
+        const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrGlobalEnabled']);
+        applyStoredSettings(stored);
+        return;
+      } catch (e) {
+        // Not in isolated world or storage unavailable
+      }
+    }
+
+    // MAIN world: wait for bridge to send stored settings
+    window.addEventListener('message', function onBridgeInit(event) {
+      if (event.data && event.data.type === 'limitr-bridge-init') {
+        window.removeEventListener('message', onBridgeInit);
+        applyStoredSettings(event.data.stored || {});
+      }
+    });
+
+    // Fallback: if bridge doesn't respond in 500ms, start with defaults
+    setTimeout(() => {
+      if (!initResolved) {
+        applyStoredSettings({});
+      }
+    }, 500);
   }
 
   init();
