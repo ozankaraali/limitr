@@ -494,32 +494,18 @@ async function autoActivateSimple(tabId) {
       // Content script may not be ready yet — it will use stored settings
     }
 
-    updateBadge(true);
+    // Autoinit always runs regular mode — show purple icon
+    chrome.action.setIcon({ path: ICONS.regular });
     console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
   } catch (error) {
     console.log(`[Limitr] Could not auto-inject on tab ${tabId}:`, error.message);
   }
 }
 
-// Auto-activate on a tab (exclusive mode: init capture)
-async function autoActivateExclusive(tabId) {
-  try {
-    // Check if already capturing
-    const state = await getTabState(tabId);
-    if (state) return;
-
-    await initAudioCapture(tabId);
-    updateBadge(true);
-    console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId}`);
-  } catch (error) {
-    console.log(`[Limitr] Could not auto-activate exclusive on tab ${tabId}:`, error.message);
-  }
-}
-
 // Try to auto-activate on a tab based on current settings
 async function tryAutoActivate(tabId) {
   try {
-    const stored = await chrome.storage.local.get(['limitrGlobalEnabled', 'limitrMixerMode']);
+    const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
     if (!stored.limitrGlobalEnabled) return;
 
     // Get tab info to validate it's a real page (not chrome://, etc.)
@@ -529,11 +515,10 @@ async function tryAutoActivate(tabId) {
       return;
     }
 
-    if (stored.limitrMixerMode) {
-      await autoActivateExclusive(tabId);
-    } else {
-      await autoActivateSimple(tabId);
-    }
+    // Always use simple mode (content script) for autoinit — exclusive mode
+    // mutes the tab and the offscreen AudioContext can't play without a user
+    // gesture, so the user hears nothing. The popup upgrades to exclusive on open.
+    await autoActivateSimple(tabId);
   } catch (error) {
     // Tab may have been closed
   }

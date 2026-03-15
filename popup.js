@@ -799,6 +799,11 @@ async function init() {
       currentSettings = { ...defaults, ...stateResponse.state.settings };
       isCapturing = true;
     } else {
+      // Autoinit may have started regular mode — tell the content script to
+      // disconnect so exclusive capture gets a clean audio stream.
+      try {
+        await chrome.tabs.sendMessage(currentTabId, { action: 'fallback-update-settings', settings: { enabled: false } });
+      } catch (e) { /* no content script running */ }
       await initCapture();
     }
   } else {
