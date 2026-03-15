@@ -313,60 +313,58 @@ const presets = {
   },
   nightMode: {
     name: 'Night Mode',
-    // Multiband: crush dynamic range for quiet listening
-    // Sub tames bass booms, mid keeps dialog, high crushes scream peaks dynamically
+    // Compress hard → turn volume down. Like reaching for the knob on loud parts.
+    // Multiband so bass booms and scream peaks compress independently.
+    // All band gains at 0 — no permanent frequency cuts, just dynamic compression.
     compressorEnabled: false,
     multibandEnabled: true,
     crossover1: 250, crossover2: 3500,
-    subThreshold: -25, subRatio: 8, subGain: -6,
-    midThreshold: -28, midRatio: 8, midGain: 2,
-    highThreshold: -30, highRatio: 12, highGain: -4,
-    makeupGain: -4, gainEnabled: true,
-    // EQ off — multiband handles dynamics, no static treble cuts
+    subThreshold: -25, subRatio: 8, subGain: 0,
+    midThreshold: -25, midRatio: 8, midGain: 0,
+    highThreshold: -25, highRatio: 10, highGain: 0,
+    makeupGain: -10, gainEnabled: true,
     eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 6, monoMixEnabled: false,
+    softClipEnabled: true, softClipDrive: 4, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -10,
     limiterAttack: 0.5, limiterRelease: 80,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   antiScream: {
     name: 'Anti-Scream',
-    // Multiband: leave sub alone, moderate mid, nuke highs dynamically
-    // Designed for IShowSpeed/blerps/jumpscares — instant reaction, hard ceiling
+    // Compress hard → turn volume down. Catches screams/blerps/jumpscares fast.
+    // All band gains at 0 — audio sounds normal, just quieter when loud.
     compressorEnabled: false,
     multibandEnabled: true,
     crossover1: 300, crossover2: 2500,
-    subThreshold: -20, subRatio: 4, subGain: 0,
-    midThreshold: -20, midRatio: 6, midGain: 0,
-    highThreshold: -25, highRatio: 20, highGain: -8,
-    makeupGain: 0, gainEnabled: true,
-    // EQ off — multiband high band does the scream taming dynamically
+    subThreshold: -20, subRatio: 6, subGain: 0,
+    midThreshold: -18, midRatio: 8, midGain: 0,
+    highThreshold: -20, highRatio: 20, highGain: 0,
+    makeupGain: -6, gainEnabled: true,
     eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -10, autoGainSpeed: 'fast',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 12, monoMixEnabled: false,
+    softClipEnabled: true, softClipDrive: 8, monoMixEnabled: false,
     limiterEnabled: true, limiterThreshold: -8,
     limiterAttack: 0.3, limiterRelease: 60,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   sleep: {
     name: 'Sleep',
-    // Multiband: flatten everything — no bass booms, no scream spikes
-    // Brick wall limiter at -12 dB so nothing is ever loud
+    // Maximum compression → volume way down. Nothing is ever loud.
+    // Like having someone with the remote turning it down every time it gets loud.
     compressorEnabled: false,
     multibandEnabled: true,
     crossover1: 200, crossover2: 3000,
-    subThreshold: -30, subRatio: 10, subGain: -8,
-    midThreshold: -30, midRatio: 10, midGain: 0,
-    highThreshold: -35, highRatio: 20, highGain: -10,
-    makeupGain: -8, gainEnabled: true,
-    // EQ off — multiband handles all frequency balancing dynamically
+    subThreshold: -30, subRatio: 12, subGain: 0,
+    midThreshold: -28, midRatio: 12, midGain: 0,
+    highThreshold: -28, highRatio: 20, highGain: 0,
+    makeupGain: -14, gainEnabled: true,
     eqEnabled: false,
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
