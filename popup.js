@@ -313,71 +313,83 @@ const presets = {
   },
   nightMode: {
     name: 'Night Mode',
-    // Aggressive dynamic range compression for quiet late-night listening
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -24, ratio: 10, knee: 6, attack: 1, release: 200,
-    makeupGain: -6, gainEnabled: true,
-    // Cut bass rumble + tame harsh mids/treble that pierce at low volume
+    // Multiband: crush everything into a narrow dynamic range for quiet listening
+    // Sub keeps bass from booming, mid keeps dialog steady, high kills scream peaks
+    compressorEnabled: false,
+    multibandEnabled: true,
+    crossover1: 250, crossover2: 3500,
+    subThreshold: -25, subRatio: 8, subGain: -6,
+    midThreshold: -28, midRatio: 8, midGain: 2,
+    highThreshold: -30, highRatio: 12, highGain: -4,
+    makeupGain: -4, gainEnabled: true,
+    // Tame harsh frequencies that pierce at low volume
     eqEnabled: true,
-    eq1Freq: 80, eq1Gain: -4, eq1Q: 0.7, eq1Type: 'lowshelf',
-    eq2Freq: 250, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: -5, eq3Q: 1.5, eq3Type: 'peaking',
-    eq4Freq: 5000, eq4Gain: -4, eq4Q: 1.0, eq4Type: 'peaking',
+    eq1Freq: 60, eq1Gain: -3, eq1Q: 0.7, eq1Type: 'lowshelf',
+    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 3000, eq3Gain: -4, eq3Q: 1.5, eq3Type: 'peaking',
+    eq4Freq: 5000, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
     eq5Freq: 8000, eq5Gain: -5, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
     softClipEnabled: true, softClipDrive: 6, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -8,
-    limiterAttack: 1, limiterRelease: 100,
+    limiterEnabled: true, limiterThreshold: -10,
+    limiterAttack: 0.5, limiterRelease: 80,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   antiScream: {
     name: 'Anti-Scream',
-    // Hard clamp on loud peaks + aggressive EQ cuts at scream frequencies
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -15, ratio: 20, knee: 1, attack: 0.3, release: 100,
+    // Multiband: leave sub alone, moderate mid compression, nuke highs
+    // Designed for IShowSpeed/blerps/jumpscares — instant reaction, hard ceiling
+    compressorEnabled: false,
+    multibandEnabled: true,
+    crossover1: 300, crossover2: 2500,
+    subThreshold: -20, subRatio: 4, subGain: 0,
+    midThreshold: -20, midRatio: 6, midGain: 0,
+    highThreshold: -25, highRatio: 20, highGain: -8,
     makeupGain: 0, gainEnabled: true,
-    // Heavy cuts at scream harmonics (2-6kHz) where screams are most piercing
+    // Steep cuts at scream harmonics (2-6kHz) — always-on taming
     eqEnabled: true,
     eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 2000, eq2Gain: -6, eq2Q: 1.0, eq2Type: 'peaking',
+    eq2Freq: 2000, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
     eq3Freq: 3500, eq3Gain: -8, eq3Q: 1.5, eq3Type: 'peaking',
     eq4Freq: 5000, eq4Gain: -6, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -4, eq5Q: 0.7, eq5Type: 'highshelf',
+    eq5Freq: 8000, eq5Gain: -5, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -10, autoGainSpeed: 'fast',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 10, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -6,
-    limiterAttack: 0.5, limiterRelease: 80,
+    softClipEnabled: true, softClipDrive: 12, monoMixEnabled: false,
+    limiterEnabled: true, limiterThreshold: -8,
+    limiterAttack: 0.3, limiterRelease: 60,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   sleep: {
     name: 'Sleep',
-    // Catch loud peaks + soft clip for smooth rounding, reduce overall volume
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -18, ratio: 6, knee: 10, attack: 3, release: 300,
-    makeupGain: -15, gainEnabled: true,
-    // Aggressive treble/harsh frequency cuts for sleep comfort
+    // Multiband: flatten everything — no bass booms, no scream spikes
+    // Brick wall limiter at -12 dB so nothing is ever loud
+    compressorEnabled: false,
+    multibandEnabled: true,
+    crossover1: 200, crossover2: 3000,
+    subThreshold: -30, subRatio: 10, subGain: -8,
+    midThreshold: -30, midRatio: 10, midGain: 0,
+    highThreshold: -35, highRatio: 20, highGain: -10,
+    makeupGain: -8, gainEnabled: true,
+    // Kill everything harsh — only warm mids survive
     eqEnabled: true,
-    eq1Freq: 120, eq1Gain: -4, eq1Q: 0.7, eq1Type: 'lowshelf',
-    eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 3000, eq4Gain: -6, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 6000, eq5Gain: -8, eq5Q: 0.7, eq5Type: 'highshelf',
+    eq1Freq: 80, eq1Gain: -6, eq1Q: 0.7, eq1Type: 'lowshelf',
+    eq2Freq: 250, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 2000, eq3Gain: -4, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 4000, eq4Gain: -8, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 6000, eq5Gain: -10, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -30, autoGainSpeed: 'slow',
     gateEnabled: true, gateThreshold: -50, gateHold: 200, gateRelease: 300,
-    softClipEnabled: true, softClipDrive: 3, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -6,
-    limiterAttack: 1, limiterRelease: 100,
+    softClipEnabled: true, softClipDrive: 8, monoMixEnabled: false,
+    limiterEnabled: true, limiterThreshold: -12,
+    limiterAttack: 0.3, limiterRelease: 60,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   }
 };
