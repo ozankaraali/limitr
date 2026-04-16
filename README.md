@@ -32,6 +32,7 @@
   - **Bass Tamer** — Heavy compression with bass reduction
   - **90s TV** — Warm CRT-style sound with noise, and optional TV+ visual mode
   - **Night Mode** — Comfy low-volume watching with scream frequency taming
+  - **Comfy Guard** — Tames sudden spikes without boosting quiet moments
   - **Anti-Scream** — Crushes all peaks (12:1 compression + scream EQ cuts)
   - **Sleep** — Fall asleep easy (heavy compression + treble cuts + volume reduction)
 - **Single-band compressor** with full parameter control (threshold, ratio, knee, attack, release)

@@ -302,6 +302,31 @@ const presets = {
     limiterAttack: 0.5, limiterRelease: 80,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
+  comfyGuard: {
+    name: 'Comfy Guard',
+    // Downward-only vibe: aggressively tame peaks without lifting quiet parts.
+    // Fast attack catches jumpscares/screams, negative makeup keeps overall level calm.
+    compressorEnabled: true,
+    multibandEnabled: false,
+    threshold: -28, ratio: 12, knee: 4, attack: 0.5, release: 220,
+    makeupGain: -6, gainEnabled: true,
+    eqEnabled: true,
+    // Gentle top-end trim to reduce painful transients
+    eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
+    eq3Freq: 2500, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
+    eq4Freq: 5000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 9000, eq5Gain: -3, eq5Q: 0.7, eq5Type: 'highshelf',
+    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
+    noiseSuppressionEnabled: false,
+    autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'slow',
+    gateEnabled: false, gateThreshold: -50,
+    softClipEnabled: true, softClipDrive: 3, monoMixEnabled: false,
+    limiterEnabled: true, limiterThreshold: -9,
+    limiterAttack: 0.2, limiterRelease: 120,
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false,
+    outputGain: -2
+  },
   antiScream: {
     name: 'Anti-Scream',
     // Single-band: hard knee, fast attack, very high ratio = brick wall.
@@ -344,7 +369,7 @@ const presets = {
 const presetOrder = [
   'off', 'music', 'lofi', 'streamWatch',
   'voiceFocus', 'movie', 'bassTamer', 'normalize',
-  'antiScream', 'nightMode', 'sleep', 'tv90s'
+  'comfyGuard', 'antiScream', 'nightMode', 'sleep', 'tv90s'
 ];
 
 // Preset UI metadata — descriptions and optional CSS class
@@ -357,6 +382,7 @@ const presetUI = {
   movie:        { desc: 'Tame action scenes' },
   bassTamer:    { desc: 'Cut excess bass' },
   normalize:    { desc: 'Boost quiet audio' },
+  comfyGuard:   { desc: 'Tame sudden spikes', style: 'preset-safety' },
   antiScream:   { desc: 'Clip screams & shouts', style: 'preset-safety' },
   nightMode:    { desc: 'Flatten & reduce' },
   sleep:        { desc: 'Maximum quiet' },
