@@ -37,7 +37,7 @@
 
   // Forward storage data to MAIN world on init
   try {
-    chrome.storage.local.get(['limitrFallbackSettings', 'limitrGlobalEnabled'], (stored) => {
+    chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings', 'limitrGlobalEnabled'], (stored) => {
       window.postMessage({
         type: 'limitr-bridge-init',
         stored

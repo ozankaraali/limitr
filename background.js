@@ -20,6 +20,27 @@ const defaults = {
   noiseType: 'brown'
 };
 
+function isGloballyEnabled(value) {
+  return value !== false;
+}
+
+async function getStoredSettingsForTab(tabId) {
+  const storageKey = `tabSettings_${tabId}`;
+  const stored = await chrome.storage.local.get([
+    storageKey,
+    'limitrCurrentSettings',
+    'limitrFallbackSettings',
+    'limitrGlobalEnabled'
+  ]);
+
+  return {
+    ...(stored.limitrFallbackSettings || {}),
+    ...(stored.limitrCurrentSettings || {}),
+    ...(stored[storageKey] || {}),
+    enabled: isGloballyEnabled(stored.limitrGlobalEnabled)
+  };
+}
+
 // Check if offscreen document exists
 async function hasOffscreenDocument() {
   const contexts = await chrome.runtime.getContexts({
@@ -61,7 +82,7 @@ async function initAudioCapture(tabId) {
       action: 'get-state',
       tabId
     });
-    return stateResponse.state;
+    return stateResponse.state?.settings || defaults;
   }
 
   // Get media stream ID for the tab
@@ -71,27 +92,19 @@ async function initAudioCapture(tabId) {
     targetTabId: tabId
   });
 
+  const settings = await getStoredSettingsForTab(tabId);
+
   // Send to offscreen document to create audio chain
   const response = await chrome.runtime.sendMessage({
     target: 'offscreen',
     action: 'init-audio',
     tabId,
-    mediaStreamId
+    mediaStreamId,
+    settings
   });
 
   if (!response.success) {
     throw new Error(response.error || 'Failed to initialize audio');
-  }
-
-  // Load saved settings for this tab if any
-  const stored = await chrome.storage.local.get([`tabSettings_${tabId}`]);
-  if (stored[`tabSettings_${tabId}`]) {
-    await chrome.runtime.sendMessage({
-      target: 'offscreen',
-      action: 'update-settings',
-      tabId,
-      settings: stored[`tabSettings_${tabId}`]
-    });
   }
 
   return response.settings;
@@ -529,7 +542,7 @@ async function autoActivateSimple(tabId) {
 // This is lightweight — the script does nothing if no media is found.
 async function earlyInjectContentScript(tabId) {
   const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
-  if (!stored.limitrGlobalEnabled) return;
+  if (!isGloballyEnabled(stored.limitrGlobalEnabled)) return;
   if (autoInjectedTabs.has(tabId)) return;
   if (await isContentScriptActive(tabId)) return;
 
@@ -545,7 +558,7 @@ async function earlyInjectContentScript(tabId) {
 async function tryAutoActivate(tabId) {
   try {
     const stored = await chrome.storage.local.get(['limitrGlobalEnabled', 'limitrMixerMode']);
-    if (!stored.limitrGlobalEnabled) return;
+    if (!isGloballyEnabled(stored.limitrGlobalEnabled)) return;
 
     // Get tab info to validate it's a real page (not chrome://, etc.)
     const tab = await chrome.tabs.get(tabId);
@@ -624,7 +637,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // On startup, restore badge state based on active processing tabs
 async function restoreBadgeState() {
   const stored = await chrome.storage.local.get(['limitrGlobalEnabled', 'limitrMixerMode']);
-  if (!stored.limitrGlobalEnabled) {
+  if (!isGloballyEnabled(stored.limitrGlobalEnabled)) {
     updateBadge(false);
     return;
   }

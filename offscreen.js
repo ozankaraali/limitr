@@ -119,7 +119,8 @@ const defaultSettings = {
 
   // === EFFECTS ===
   noiseLevel: 0,
-  noiseType: 'brown'
+  noiseType: 'brown',
+  effectsEnabled: false
 };
 
 // Generate noise data (raw samples) - cached globally
@@ -204,7 +205,7 @@ function createBandProcessor(audioContext, threshold, ratio, knee, attack, relea
 }
 
 // Create audio processing chain for a tab
-async function createAudioChain(tabId, mediaStreamId) {
+async function createAudioChain(tabId, mediaStreamId, initialSettings = {}) {
   if (tabAudioState.has(tabId)) {
     return tabAudioState.get(tabId);
   }
@@ -732,7 +733,7 @@ async function createAudioChain(tabId, mediaStreamId) {
     noiseSource.loop = true;
 
     const noiseGain = audioContext.createGain();
-    noiseGain.gain.value = defaultSettings.noiseLevel;
+    noiseGain.gain.value = defaultSettings.effectsEnabled ? defaultSettings.noiseLevel : 0;
 
     noiseSource.connect(noiseGain);
     noiseGain.connect(outputGain);
@@ -758,11 +759,6 @@ async function createAudioChain(tabId, mediaStreamId) {
     // avoids the clock-drift crackling/doppler that the <audio> element detour caused.
     // The offscreen document uses AUDIO_PLAYBACK reason to allow this.
     outputGain.connect(audioContext.destination);
-
-    // Default signal chain: source -> compressor -> makeupGain -> outputGain
-    source.connect(compressor);
-    compressor.connect(makeupGain);
-    makeupGain.connect(outputGain);
 
     const state = {
       tabId,
@@ -856,6 +852,13 @@ async function createAudioChain(tabId, mediaStreamId) {
     };
 
     tabAudioState.set(tabId, state);
+
+    if (Object.keys(initialSettings).length > 0) {
+      updateSettings(tabId, initialSettings, true);
+    } else {
+      rebuildSignalChain(state);
+    }
+
     startReductionMonitoring(tabId);
     return state;
   } catch (error) {
@@ -996,7 +999,7 @@ function rebuildSignalChain(state) {
   }
 
   // Treble cut filter (lowpass) - active when enabled + freq < 20kHz
-  if (settings.filtersEnabled && settings.trebleCutFreq < 20000) {
+  if (settings.filtersEnabled && settings.trebleCutFreq < 22050) {
     currentNode.connect(trebleCutFilter);
     currentNode = trebleCutFilter;
   }
@@ -1044,11 +1047,11 @@ function rebuildSignalChain(state) {
   lufsPreFilter.connect(lufsRlbFilter);
   lufsRlbFilter.connect(lufsAnalyserNode);
 
-  console.log(`[Limitr] Signal chain: Ducking=${settings.duckingEnabled ? settings.duckingAmount + 'dB' : 'off'} -> Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> PreLimiter=${noiseSuppressionActive ? '-1dB' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.filtersEnabled && settings.trebleCutFreq < 20000 ? settings.trebleCutFreq + 'Hz' : 'off'} -> Gate=${settings.gateEnabled ? settings.gateThreshold + 'dB' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'} -> LUFS`);
+  console.log(`[Limitr] Signal chain: Ducking=${settings.duckingEnabled ? settings.duckingAmount + 'dB' : 'off'} -> Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> PreLimiter=${noiseSuppressionActive ? '-1dB' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.filtersEnabled && settings.trebleCutFreq < 22050 ? settings.trebleCutFreq + 'Hz' : 'off'} -> Gate=${settings.gateEnabled ? settings.gateThreshold + 'dB' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'} -> LUFS`);
 }
 
 // Update settings for a tab
-function updateSettings(tabId, newSettings) {
+function updateSettings(tabId, newSettings, forceRebuild = false) {
   const state = tabAudioState.get(tabId);
   if (!state) return false;
 
@@ -1067,13 +1070,13 @@ function updateSettings(tabId, newSettings) {
   const nextTrebleCut = newSettings.trebleCutFreq !== undefined ? newSettings.trebleCutFreq : oldTrebleCut;
   const nextFiltersEnabled = newSettings.filtersEnabled !== undefined ? newSettings.filtersEnabled : oldFiltersEnabled;
   const oldBassCutActive = oldFiltersEnabled && oldBassCut > 20;
-  const oldTrebleCutActive = oldFiltersEnabled && oldTrebleCut < 20000;
+  const oldTrebleCutActive = oldFiltersEnabled && oldTrebleCut < 22050;
   const newBassCutActive = nextFiltersEnabled && nextBassCut > 20;
-  const newTrebleCutActive = nextFiltersEnabled && nextTrebleCut < 20000;
+  const newTrebleCutActive = nextFiltersEnabled && nextTrebleCut < 22050;
   const bassCutRoutingChanged = newBassCutActive !== oldBassCutActive;
   const trebleCutRoutingChanged = newTrebleCutActive !== oldTrebleCutActive;
 
-  const needsRebuild = (
+  const needsRebuild = forceRebuild || (
     newSettings.eqEnabled !== undefined && newSettings.eqEnabled !== state.settings.eqEnabled ||
     newSettings.multibandEnabled !== undefined && newSettings.multibandEnabled !== state.settings.multibandEnabled ||
     newSettings.compressorEnabled !== undefined && newSettings.compressorEnabled !== state.settings.compressorEnabled ||
@@ -1089,6 +1092,9 @@ function updateSettings(tabId, newSettings) {
   );
 
   Object.assign(state.settings, newSettings);
+  if (newSettings.enabled !== undefined) {
+    state.enabled = newSettings.enabled;
+  }
   const s = state.settings;
 
   // Rebuild signal chain if routing changed
@@ -1181,7 +1187,13 @@ function updateSettings(tabId, newSettings) {
   }
 
   // Noise
-  if (newSettings.noiseLevel !== undefined) noiseGain.gain.value = s.noiseLevel;
+  if (
+    newSettings.noiseLevel !== undefined ||
+    newSettings.effectsEnabled !== undefined ||
+    newSettings.enabled !== undefined
+  ) {
+    noiseGain.gain.value = (s.enabled && s.effectsEnabled) ? s.noiseLevel : 0;
+  }
   if (newSettings.noiseType !== undefined && newSettings.noiseType !== oldNoiseType) {
     state.changeNoiseType(newSettings.noiseType);
   }
@@ -1201,7 +1213,7 @@ function setEnabled(tabId, enabled) {
 
   if (enabled) {
     rebuildSignalChain(state);
-    noiseGain.gain.value = state.settings.noiseLevel;
+    noiseGain.gain.value = state.settings.effectsEnabled ? state.settings.noiseLevel : 0;
   } else {
     // Bypass: direct to output
     source.disconnect();
@@ -1312,7 +1324,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   switch (message.action) {
     case 'init-audio': {
-      createAudioChain(message.tabId, message.mediaStreamId)
+      createAudioChain(message.tabId, message.mediaStreamId, message.settings)
         .then(state => sendResponse({ success: true, settings: state.settings }))
         .catch(error => sendResponse({ success: false, error: error.message }));
       return true;

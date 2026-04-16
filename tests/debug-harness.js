@@ -66,7 +66,7 @@ const presets = {
     name: 'Stream Watch',
     compressorEnabled: true, multibandEnabled: false, eqEnabled: true, filtersEnabled: false,
     threshold: -28, ratio: 5, knee: 10, attack: 2, release: 150,
-    makeupGain: 0, gainEnabled: true,
+    makeupGain: -2, gainEnabled: true,
     bassCutFreq: 0, trebleCutFreq: 22050,
     limiterEnabled: true, limiterThreshold: -3, limiterAttack: 1, limiterRelease: 100,
     autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
@@ -498,7 +498,7 @@ function buildChain(preset) {
   }
 
   // Treble cut
-  if (preset.filtersEnabled && preset.trebleCutFreq < 20000) {
+  if (preset.filtersEnabled && preset.trebleCutFreq < 22050) {
     currentNode.connect(trebleCut);
     currentNode = trebleCut;
   }

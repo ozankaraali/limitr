@@ -159,7 +159,7 @@ const presets = {
     compressorEnabled: true,
     multibandEnabled: false,
     threshold: -28, ratio: 5, knee: 10, attack: 2, release: 150,
-    makeupGain: 0, gainEnabled: true,
+    makeupGain: -2, gainEnabled: true,
     // Light EQ: reduce harshness
     eqEnabled: true,
     eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
@@ -920,10 +920,12 @@ async function initFallbackCapture() {
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      const stored = await chrome.storage.local.get(['limitrFallbackSettings']);
-      if (stored.limitrFallbackSettings) {
-        currentSettings = { ...defaults, ...stored.limitrFallbackSettings };
-      }
+      const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings']);
+      currentSettings = {
+        ...defaults,
+        ...(stored.limitrFallbackSettings || {}),
+        ...(stored.limitrCurrentSettings || {})
+      };
 
       // Ensure the content script has the correct enabled state
       currentSettings.enabled = (await chrome.storage.local.get(['limitrGlobalEnabled'])).limitrGlobalEnabled !== false;
@@ -1149,7 +1151,7 @@ function updateUI() {
   if (elements.trebleCutFreq) {
     elements.trebleCutFreq.value = currentSettings.trebleCutFreq;
     const v = currentSettings.trebleCutFreq;
-    elements.trebleCutFreqValue.textContent = v >= 20000 ? 'Off' : v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v} Hz`;
+    elements.trebleCutFreqValue.textContent = v >= 22050 ? 'Off' : v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v} Hz`;
   }
 
   // AI Noise Suppression
@@ -1758,7 +1760,7 @@ function setupEventListeners() {
 
   // Bass/Treble Cut filter sliders
   const formatBassCut = v => v <= 20 ? 'Off' : `${v} Hz`;
-  const formatTrebleCut = v => v >= 20000 ? 'Off' : v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v} Hz`;
+  const formatTrebleCut = v => v >= 22050 ? 'Off' : v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v} Hz`;
   setupSlider('bassCutFreq', 'bassCutFreq', 'bassCutFreqValue', formatBassCut, true);
   setupSlider('trebleCutFreq', 'trebleCutFreq', 'trebleCutFreqValue', formatTrebleCut, true);
 
@@ -2532,7 +2534,7 @@ chrome.runtime.onMessage.addListener((message) => {
     appendTranscription(message.result.text);
   }
 
-  if (message.action === 'transcription-status') {
+  if (message.action === 'transcription-status' && message.tabId === currentTabId) {
     if (message.status === 'loading') {
       updateTranscriberUI('loading', message.message || 'Loading...');
     } else if (message.status === 'active') {

@@ -397,7 +397,7 @@
     try { monoMixer.disconnect(); } catch (e) {}
 
     const bassCutActive = settings.filtersEnabled && settings.bassCutFreq > 20;
-    const trebleCutActive = settings.filtersEnabled && settings.trebleCutFreq < 20000;
+    const trebleCutActive = settings.filtersEnabled && settings.trebleCutFreq < 22050;
 
     // Build tail of chain: [soft clipper] -> [limiter] -> outputGain
     let finalNode = outputGain;
@@ -652,7 +652,7 @@
 
       // Check if bass/treble cut routing needs to change (crossing the active threshold)
       const bassCutRoutingChanged = (settings.bassCutFreq > 20) !== (oldBassCut > 20);
-      const trebleCutRoutingChanged = (settings.trebleCutFreq < 20000) !== (oldTrebleCut < 20000);
+      const trebleCutRoutingChanged = (settings.trebleCutFreq < 22050) !== (oldTrebleCut < 22050);
 
       // Check if routing needs rebuild
       const needsRebuild = (
@@ -754,9 +754,11 @@
     if (initResolved) return;
     initResolved = true;
     try {
-      if (stored.limitrFallbackSettings) {
-        settings = { ...settings, ...stored.limitrFallbackSettings };
-      }
+      settings = {
+        ...settings,
+        ...(stored.limitrFallbackSettings || {}),
+        ...(stored.limitrCurrentSettings || {})
+      };
       if (stored.limitrGlobalEnabled !== undefined) {
         settings.enabled = stored.limitrGlobalEnabled;
       }
@@ -784,7 +786,7 @@
     // Try chrome.storage first (ISOLATED world)
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       try {
-        const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrGlobalEnabled']);
+        const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings', 'limitrGlobalEnabled']);
         applyStoredSettings(stored);
         return;
       } catch (e) {
