@@ -516,14 +516,13 @@ function getEffectivePreset(presetName) {
   const settings = { ...defaults, ...base };
   let outputGainOffset = 0;
 
-  // Regular mode (fallback) lacks AGC, noise suppression, gate, and ducking.
+  // Regular mode lacks AGC, gate, and ducking.
   if (!mixerMode) {
     if (base.autoGainEnabled) {
       const target = base.autoGainTarget ?? defaults.autoGainTarget;
       outputGainOffset = getFallbackAgcBoost(target);
     }
     settings.autoGainEnabled = false;
-    settings.noiseSuppressionEnabled = false;
     settings.gateEnabled = false;
     settings.duckingEnabled = false;
   }
@@ -1374,7 +1373,7 @@ function updateExclusiveFeatureVisibility() {
 
   if (elements.modeNote) {
     if (!exclusiveModeSupported) {
-      elements.modeNote.textContent = 'Firefox uses Regular mode';
+      elements.modeNote.textContent = 'Firefox uses Regular + RNNoise';
       elements.modeNote.classList.remove('exclusive');
     } else if (mixerMode) {
       elements.modeNote.textContent = 'AI Denoise • AGC • No fullscreen';
@@ -1387,12 +1386,12 @@ function updateExclusiveFeatureVisibility() {
 
   // Update exclusive features group
   if (elements.exclusiveFeaturesGroup) {
-    elements.exclusiveFeaturesGroup.classList.toggle('unavailable', !mixerMode || !exclusiveModeSupported);
+    elements.exclusiveFeaturesGroup.classList.toggle('unavailable', false);
   }
 
   // Update simple mode ANC row
   if (elements.simpleAncRow) {
-    elements.simpleAncRow.classList.toggle('unavailable', !mixerMode || !exclusiveModeSupported);
+    elements.simpleAncRow.classList.toggle('unavailable', false);
   }
 
   // Update simple mode transcriber row
@@ -1402,16 +1401,34 @@ function updateExclusiveFeatureVisibility() {
 
   if (elements.exclusiveBadge) {
     if (!exclusiveModeSupported) {
-      elements.exclusiveBadge.textContent = 'Unavailable in Firefox';
+      elements.exclusiveBadge.textContent = 'RNNoise Only';
       elements.exclusiveBadge.classList.remove('active');
     } else if (mixerMode) {
       elements.exclusiveBadge.textContent = 'Active';
       elements.exclusiveBadge.classList.add('active');
     } else {
-      elements.exclusiveBadge.textContent = 'Requires Exclusive Mode';
+      elements.exclusiveBadge.textContent = 'RNNoise Available';
       elements.exclusiveBadge.classList.remove('active');
     }
   }
+
+  const exclusiveOnlyDisabled = !mixerMode;
+  [
+    elements.autoGainToggle,
+    elements.autoGainTarget,
+    elements.autoGainSpeed,
+    elements.transcriberToggle,
+    elements.gateToggle,
+    elements.gateThreshold,
+    elements.gateHold,
+    elements.gateRelease,
+    elements.duckingToggle,
+    elements.duckingThreshold,
+    elements.duckingAmount,
+    elements.duckingRelease
+  ].forEach(element => {
+    if (element) element.disabled = exclusiveOnlyDisabled;
+  });
 }
 
 function updateMixerAvailability() {

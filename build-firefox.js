@@ -12,15 +12,18 @@ const skippedRootEntries = new Set([
   'dist',
   'node_modules'
 ]);
-const skippedFirefoxDirectories = new Set([
-  'lib',
-  'tests'
-]);
+const skippedFirefoxDirectories = new Set(['tests']);
 const skippedFirefoxFiles = new Set([
   'build-firefox.js',
   'content-transcribe.js',
   'icons/generate-icons.html',
   'icons/genicons.js',
+  'lib/ort-wasm-simd-threaded.jsep.mjs',
+  'lib/ort-wasm-simd-threaded.jsep.wasm',
+  'lib/ort.bundle.min.mjs',
+  'lib/transcriber-capture-worklet.js',
+  'lib/transcriber.js',
+  'lib/transformers.min.js',
   'offscreen.html',
   'offscreen.js'
 ]);
@@ -62,7 +65,15 @@ async function writeFirefoxManifest() {
     scripts: ['background.js'],
     preferred_environment: ['document']
   };
-  delete manifest.web_accessible_resources;
+  manifest.web_accessible_resources = [
+    {
+      resources: [
+        'lib/noise-suppressor-worklet.js',
+        'lib/rnnoise.wasm'
+      ],
+      matches: ['<all_urls>']
+    }
+  ];
 
   await fs.writeFile(
     path.join(outDir, 'manifest.json'),

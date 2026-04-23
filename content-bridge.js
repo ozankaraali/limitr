@@ -49,6 +49,11 @@
   }
 
   // Listen for storage write requests from MAIN world
+  const allowedResourcePaths = new Set([
+    'lib/noise-suppressor-worklet.js',
+    'lib/rnnoise.wasm'
+  ]);
+
   window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'limitr-bridge-storage-set') {
       try {
@@ -56,6 +61,54 @@
       } catch (e) {
         // Extension context invalidated (e.g. after update/reload)
       }
+    } else if (event.data && event.data.type === 'limitr-bridge-fetch-resource') {
+      const { id, path, responseType } = event.data;
+
+      (async () => {
+        try {
+          if (!allowedResourcePaths.has(path)) {
+            throw new Error(`Resource not allowed: ${path}`);
+          }
+
+          if (responseType === 'url') {
+            window.postMessage({
+              type: 'limitr-bridge-resource-response',
+              id,
+              success: true,
+              payload: chrome.runtime.getURL(path)
+            }, '*');
+            return;
+          }
+
+          const response = await fetch(chrome.runtime.getURL(path));
+          if (!response.ok) {
+            throw new Error(`Failed to load ${path}: ${response.status}`);
+          }
+
+          const payload = responseType === 'arrayBuffer'
+            ? await response.arrayBuffer()
+            : await response.text();
+          const message = {
+            type: 'limitr-bridge-resource-response',
+            id,
+            success: true,
+            payload
+          };
+
+          if (payload instanceof ArrayBuffer) {
+            window.postMessage(message, '*', [payload]);
+          } else {
+            window.postMessage(message, '*');
+          }
+        } catch (error) {
+          window.postMessage({
+            type: 'limitr-bridge-resource-response',
+            id,
+            success: false,
+            error: error.message
+          }, '*');
+        }
+      })();
     }
   });
 })();

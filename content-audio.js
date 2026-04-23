@@ -33,6 +33,12 @@
 
   // Limiter (brick wall)
   let limiter = null;
+  let preLimiter = null;
+
+  // RNNoise AI noise suppression
+  let noiseSuppressorNode = null;
+  let noiseSuppressorReady = false;
+  let noiseSuppressorInitStarted = false;
 
   // LUFS meter
   // Soft clipper (WaveShaperNode for smooth peak taming)
@@ -92,7 +98,7 @@
     trebleCutFreq: 22050,
     filtersEnabled: false,
 
-    // AI Noise Suppression (not supported in fallback mode - requires AudioWorklet)
+    // AI Noise Suppression
     noiseSuppressionEnabled: false,
 
     // Soft clipper (smooth peak taming)
@@ -283,6 +289,14 @@
       limiter.attack.value = (settings.limiterAttack || 1) / 1000;
       limiter.release.value = (settings.limiterRelease || 100) / 1000;
 
+      // Fixed safety limiter before RNNoise to avoid feeding it clipped transients.
+      preLimiter = audioContext.createDynamicsCompressor();
+      preLimiter.threshold.value = -1;
+      preLimiter.ratio.value = 20;
+      preLimiter.knee.value = 0;
+      preLimiter.attack.value = 0.001;
+      preLimiter.release.value = 0.1;
+
       // Soft clipper (smooth peak taming via tanh waveshaper)
       softClipper = audioContext.createWaveShaper();
       const clipCurve = new Float32Array(8192);
@@ -348,9 +362,110 @@
       makeupGain.connect(outputGain);
       outputGain.connect(audioContext.destination);
 
+      initNoiseSuppressor();
+
       console.log('[Limitr Fallback] Audio chain initialized with EQ + Multiband + Limiter support');
     } catch (e) {
       console.error('[Limitr Fallback] Init failed:', e);
+    }
+  }
+
+  function requestBridgeResource(path, responseType = 'text') {
+    return new Promise((resolve, reject) => {
+      const id = Math.random().toString(36).slice(2);
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', onResponse);
+        reject(new Error(`Timed out loading ${path}`));
+      }, 10000);
+
+      function onResponse(event) {
+        if (!event.data || event.data.type !== 'limitr-bridge-resource-response' || event.data.id !== id) {
+          return;
+        }
+
+        clearTimeout(timeout);
+        window.removeEventListener('message', onResponse);
+        if (event.data.success) {
+          resolve(event.data.payload);
+        } else {
+          reject(new Error(event.data.error || `Failed to load ${path}`));
+        }
+      }
+
+      window.addEventListener('message', onResponse);
+      window.postMessage({
+        type: 'limitr-bridge-fetch-resource',
+        id,
+        path,
+        responseType
+      }, '*');
+    });
+  }
+
+  async function loadExtensionResource(path, responseType = 'text') {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+      if (responseType === 'url') {
+        return chrome.runtime.getURL(path);
+      }
+
+      const response = await fetch(chrome.runtime.getURL(path));
+      if (!response.ok) {
+        throw new Error(`Failed to load ${path}: ${response.status}`);
+      }
+      return responseType === 'arrayBuffer' ? response.arrayBuffer() : response.text();
+    }
+
+    return requestBridgeResource(path, responseType);
+  }
+
+  async function loadNoiseSuppressorWorklet() {
+    const extensionUrl = await loadExtensionResource('lib/noise-suppressor-worklet.js', 'url');
+
+    try {
+      await audioContext.audioWorklet.addModule(extensionUrl);
+      return;
+    } catch (extensionUrlError) {
+      console.log('[Limitr Fallback] Extension worklet URL failed, trying blob URL:', extensionUrlError.message);
+    }
+
+    const workletSource = await loadExtensionResource('lib/noise-suppressor-worklet.js', 'text');
+    const workletUrl = URL.createObjectURL(new Blob([workletSource], { type: 'application/javascript' }));
+    try {
+      await audioContext.audioWorklet.addModule(workletUrl);
+    } finally {
+      URL.revokeObjectURL(workletUrl);
+    }
+  }
+
+  async function initNoiseSuppressor() {
+    if (noiseSuppressorInitStarted || !audioContext?.audioWorklet || typeof AudioWorkletNode === 'undefined') {
+      return;
+    }
+
+    noiseSuppressorInitStarted = true;
+
+    try {
+      await loadNoiseSuppressorWorklet();
+
+      noiseSuppressorNode = new AudioWorkletNode(audioContext, 'noise-suppressor-processor');
+      noiseSuppressorNode.port.onmessage = (event) => {
+        if (event.data.type === 'initialized') {
+          noiseSuppressorReady = true;
+          noiseSuppressorNode.port.postMessage({ type: 'enable', enabled: settings.noiseSuppressionEnabled });
+          rebuildSignalChain();
+          console.log('[Limitr Fallback] RNNoise noise suppressor ready');
+        } else if (event.data.type === 'error') {
+          console.error('[Limitr Fallback] RNNoise error:', event.data.error);
+        }
+      };
+
+      const wasmBinary = await loadExtensionResource('lib/rnnoise.wasm', 'arrayBuffer');
+      noiseSuppressorNode.port.postMessage({
+        type: 'wasm-binary',
+        binary: wasmBinary
+      }, [wasmBinary]);
+    } catch (error) {
+      console.error('[Limitr Fallback] Failed to initialize RNNoise:', error);
     }
   }
 
@@ -391,6 +506,8 @@
     try { bassCutFilter.disconnect(); } catch (e) {}
     try { eqBands[4].disconnect(); } catch (e) {}
     try { trebleCutFilter.disconnect(); } catch (e) {}
+    try { preLimiter.disconnect(); } catch (e) {}
+    try { noiseSuppressorNode?.disconnect(); } catch (e) {}
     try { softClipDriveGain.disconnect(); } catch (e) {}
     try { softClipCompGain.disconnect(); } catch (e) {}
     try { limiter.disconnect(); } catch (e) {}
@@ -420,20 +537,31 @@
       eqActive = false;
       multibandActive = false;
       noiseGain.gain.value = 0;
+      noiseSuppressorNode?.port.postMessage({ type: 'enable', enabled: false });
       return;
     }
+
+    const noiseSuppressionActive = settings.noiseSuppressionEnabled && noiseSuppressorReady && noiseSuppressorNode;
+    const firstPostNoiseNode = bassCutActive
+      ? bassCutFilter
+      : settings.eqEnabled
+        ? eqBands[0]
+        : trebleCutActive
+          ? trebleCutFilter
+          : finalNode;
+    const firstPostDynamicsNode = noiseSuppressionActive ? preLimiter : firstPostNoiseNode;
 
     // Build the chain from dynamics -> bass cut -> EQ -> treble cut -> [limiter] -> output
     // Step 1: Determine dynamics output (where dynamics connects to)
     let dynamicsOutput;
     if (bassCutActive) {
-      dynamicsOutput = bassCutFilter;
+      dynamicsOutput = firstPostDynamicsNode;
     } else if (settings.eqEnabled) {
-      dynamicsOutput = eqBands[0];
+      dynamicsOutput = firstPostDynamicsNode;
     } else if (trebleCutActive) {
-      dynamicsOutput = trebleCutFilter;
+      dynamicsOutput = firstPostDynamicsNode;
     } else {
-      dynamicsOutput = finalNode;
+      dynamicsOutput = firstPostDynamicsNode;
     }
 
     // Step 2: Connect dynamics stage
@@ -446,6 +574,14 @@
       multibandActive = false;
     } else {
       multibandActive = false;
+    }
+
+    if (noiseSuppressionActive) {
+      preLimiter.connect(noiseSuppressorNode);
+      noiseSuppressorNode.connect(firstPostNoiseNode);
+      noiseSuppressorNode.port.postMessage({ type: 'enable', enabled: true });
+    } else {
+      noiseSuppressorNode?.port.postMessage({ type: 'enable', enabled: false });
     }
 
     // Step 3: Connect bass cut -> next stage (EQ or treble cut or finalNode)
@@ -482,6 +618,8 @@
       entryNode = null; // Special: sources connect to crossovers
     } else if (settings.compressorEnabled) {
       entryNode = compressor;
+    } else if (noiseSuppressionActive) {
+      entryNode = preLimiter;
     } else if (bassCutActive) {
       entryNode = bassCutFilter;
     } else if (settings.eqEnabled) {
@@ -647,6 +785,7 @@
       const oldFilters = settings.filtersEnabled;
       const oldSoftClip = settings.softClipEnabled;
       const oldMonoMix = settings.monoMixEnabled;
+      const oldNoiseSuppression = settings.noiseSuppressionEnabled;
 
       settings = { ...settings, ...message.settings };
 
@@ -664,6 +803,7 @@
         oldFilters !== settings.filtersEnabled ||
         oldSoftClip !== settings.softClipEnabled ||
         oldMonoMix !== settings.monoMixEnabled ||
+        oldNoiseSuppression !== settings.noiseSuppressionEnabled ||
         bassCutRoutingChanged || trebleCutRoutingChanged
       );
 
