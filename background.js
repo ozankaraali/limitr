@@ -1,7 +1,23 @@
-// Limitr Background Service Worker
+// Limitr Background
 // Orchestrates audio capture and processing via offscreen document
 
+if (typeof browser !== 'undefined') {
+  globalThis.chrome = browser;
+}
+
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
+const EXCLUSIVE_UNSUPPORTED_ERROR = 'Exclusive mode requires Chrome offscreen/tabCapture APIs. Use Regular mode in this browser.';
+let creatingOffscreenDocument = null;
+
+function hasExclusiveModeSupport() {
+  const offscreenApi = chrome['offscreen'];
+  const tabCaptureApi = chrome['tabCapture'];
+
+  return Boolean(
+    offscreenApi?.['createDocument'] &&
+    tabCaptureApi?.['getMediaStreamId']
+  );
+}
 
 // Default settings
 const defaults = {
@@ -43,24 +59,48 @@ async function getStoredSettingsForTab(tabId) {
 
 // Check if offscreen document exists
 async function hasOffscreenDocument() {
-  const contexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT'],
-    documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)]
-  });
-  return contexts.length > 0;
+  if (!hasExclusiveModeSupport()) {
+    return false;
+  }
+
+  const offscreenUrl = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH);
+  if (chrome.runtime?.getContexts) {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'],
+      documentUrls: [offscreenUrl]
+    });
+    return contexts.length > 0;
+  }
+
+  if (typeof clients !== 'undefined') {
+    const matchedClients = await clients.matchAll();
+    return matchedClients.some(client => client.url === offscreenUrl);
+  }
+
+  return false;
 }
 
 // Create offscreen document if it doesn't exist
 async function ensureOffscreenDocument() {
+  if (!hasExclusiveModeSupport()) {
+    throw new Error(EXCLUSIVE_UNSUPPORTED_ERROR);
+  }
+
   if (await hasOffscreenDocument()) {
     return;
   }
 
-  await chrome.offscreen.createDocument({
-    url: OFFSCREEN_DOCUMENT_PATH,
-    reasons: ['USER_MEDIA', 'AUDIO_PLAYBACK'],
-    justification: 'Audio processing and playback for tab capture'
-  });
+  if (!creatingOffscreenDocument) {
+    creatingOffscreenDocument = chrome['offscreen']['createDocument']({
+      url: OFFSCREEN_DOCUMENT_PATH,
+      reasons: ['USER_MEDIA', 'AUDIO_PLAYBACK'],
+      justification: 'Audio processing and playback for tab capture'
+    }).finally(() => {
+      creatingOffscreenDocument = null;
+    });
+  }
+
+  await creatingOffscreenDocument;
 }
 
 // Initialize audio capture for a tab
@@ -88,7 +128,7 @@ async function initAudioCapture(tabId) {
   // Get media stream ID for the tab
   // tabCapture redirects the tab's audio to the captured stream,
   // so no muting is needed — the tab audio is already taken over.
-  const mediaStreamId = await chrome.tabCapture.getMediaStreamId({
+  const mediaStreamId = await chrome['tabCapture']['getMediaStreamId']({
     targetTabId: tabId
   });
 
@@ -234,6 +274,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   switch (message.action) {
+    case 'get-capabilities': {
+      sendResponse({ success: true, exclusiveMode: hasExclusiveModeSupport() });
+      return;
+    }
+
     case 'init-capture': {
       initAudioCapture(message.tabId)
         .then(async (settings) => {
@@ -393,13 +438,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Context menu: right-click extension icon -> Debug Harness
-function createContextMenus() {
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: 'limitr-debug-harness',
-      title: 'Debug Harness',
-      contexts: ['action']
-    });
+async function createContextMenus() {
+  if (typeof browser !== 'undefined') {
+    await chrome.contextMenus.removeAll();
+  } else {
+    await new Promise(resolve => chrome.contextMenus.removeAll(resolve));
+  }
+
+  chrome.contextMenus.create({
+    id: 'limitr-debug-harness',
+    title: 'Debug Harness',
+    contexts: ['action']
   });
 }
 
@@ -415,7 +464,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await chrome.storage.local.set({ limitrDefaults: defaults });
     console.log('[Limitr] Extension installed');
   }
-  createContextMenus();
+  await createContextMenus();
   // Set gray icon on install/update (inactive by default)
   updateBadge(false);
 });
@@ -457,7 +506,7 @@ async function updateBadge(active) {
     return;
   }
   const stored = await chrome.storage.local.get(['limitrMixerMode']);
-  const iconSet = stored.limitrMixerMode ? ICONS.exclusive : ICONS.regular;
+  const iconSet = stored.limitrMixerMode && hasExclusiveModeSupport() ? ICONS.exclusive : ICONS.regular;
   chrome.action.setIcon({ path: iconSet });
 }
 
@@ -567,7 +616,7 @@ async function tryAutoActivate(tabId) {
       return;
     }
 
-    if (stored.limitrMixerMode) {
+    if (stored.limitrMixerMode && hasExclusiveModeSupport()) {
       // Exclusive mode: tabCapture via offscreen document.
       // MV3's getMediaStreamId does NOT require a user gesture (unlike MV2's capture()).
       // Retry once after a short delay if first attempt fails (tab may not be fully ready).
@@ -600,6 +649,9 @@ async function tryAutoActivate(tabId) {
         await autoActivateSimple(tabId);
       }
     } else {
+      if (stored.limitrMixerMode) {
+        console.log('[Limitr] Exclusive mode is unavailable in this browser, using regular mode');
+      }
       await autoActivateSimple(tabId);
     }
   } catch (error) {
@@ -642,7 +694,7 @@ async function restoreBadgeState() {
     return;
   }
 
-  if (stored.limitrMixerMode) {
+  if (stored.limitrMixerMode && hasExclusiveModeSupport()) {
     const activeTabs = await getProcessingTabs();
     updateBadge(activeTabs.length > 0);
   } else {
@@ -654,4 +706,4 @@ async function restoreBadgeState() {
 
 restoreBadgeState();
 
-console.log('[Limitr] Service worker loaded');
+console.log('[Limitr] Background loaded');

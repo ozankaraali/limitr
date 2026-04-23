@@ -1,6 +1,10 @@
 // Limitr Popup - TabCapture Version
 // Communicates with service worker for per-tab audio processing
 
+if (typeof browser !== 'undefined') {
+  globalThis.chrome = browser;
+}
+
 // Default settings - matches offscreen.js and content-audio.js
 const defaults = {
   enabled: true,
@@ -571,6 +575,7 @@ let audibleTabs = [];
 let processingTabIds = [];
 let crtVisualEnabled = false;
 let mixerMode = false;
+let exclusiveModeSupported = true;
 let transcriberActive = false;
 let transcriberLoading = false;
 let collapseState = {
@@ -778,6 +783,13 @@ async function init() {
   advancedMode = stored.limitrAdvancedMode || false;
   mixerMode = stored.limitrMixerMode || false;
 
+  const capabilities = await getCapabilities();
+  exclusiveModeSupported = capabilities.exclusiveMode;
+  if (!exclusiveModeSupported && mixerMode) {
+    mixerMode = false;
+    await chrome.storage.local.set({ limitrMixerMode: false });
+  }
+
   // Restore global enabled state (default to true for first use)
   const globalEnabled = stored.limitrGlobalEnabled !== undefined ? stored.limitrGlobalEnabled : true;
   currentSettings.enabled = globalEnabled;
@@ -787,6 +799,10 @@ async function init() {
 
   if (elements.mixerModeToggle) {
     elements.mixerModeToggle.checked = mixerMode;
+    elements.mixerModeToggle.disabled = !exclusiveModeSupported;
+  }
+  if (elements.mixerModeLabel && !exclusiveModeSupported) {
+    elements.mixerModeLabel.title = 'Exclusive mode requires Chrome offscreen/tabCapture APIs. Regular mode works in Firefox.';
   }
 
   updateMixerAvailability();
@@ -867,6 +883,15 @@ async function init() {
 
 async function sendToBackground(message) {
   return chrome.runtime.sendMessage({ ...message, target: 'background' });
+}
+
+async function getCapabilities() {
+  try {
+    const response = await sendToBackground({ action: 'get-capabilities' });
+    return { exclusiveMode: response?.exclusiveMode !== false };
+  } catch (e) {
+    return { exclusiveMode: true };
+  }
 }
 
 async function initCapture() {
@@ -1348,7 +1373,10 @@ function updateExclusiveFeatureVisibility() {
   }
 
   if (elements.modeNote) {
-    if (mixerMode) {
+    if (!exclusiveModeSupported) {
+      elements.modeNote.textContent = 'Firefox uses Regular mode';
+      elements.modeNote.classList.remove('exclusive');
+    } else if (mixerMode) {
       elements.modeNote.textContent = 'AI Denoise • AGC • No fullscreen';
       elements.modeNote.classList.add('exclusive');
     } else {
@@ -1359,21 +1387,24 @@ function updateExclusiveFeatureVisibility() {
 
   // Update exclusive features group
   if (elements.exclusiveFeaturesGroup) {
-    elements.exclusiveFeaturesGroup.classList.toggle('unavailable', !mixerMode);
+    elements.exclusiveFeaturesGroup.classList.toggle('unavailable', !mixerMode || !exclusiveModeSupported);
   }
 
   // Update simple mode ANC row
   if (elements.simpleAncRow) {
-    elements.simpleAncRow.classList.toggle('unavailable', !mixerMode);
+    elements.simpleAncRow.classList.toggle('unavailable', !mixerMode || !exclusiveModeSupported);
   }
 
   // Update simple mode transcriber row
   if (elements.simpleTranscriberRow) {
-    elements.simpleTranscriberRow.classList.toggle('unavailable', !mixerMode);
+    elements.simpleTranscriberRow.classList.toggle('unavailable', !mixerMode || !exclusiveModeSupported);
   }
 
   if (elements.exclusiveBadge) {
-    if (mixerMode) {
+    if (!exclusiveModeSupported) {
+      elements.exclusiveBadge.textContent = 'Unavailable in Firefox';
+      elements.exclusiveBadge.classList.remove('active');
+    } else if (mixerMode) {
       elements.exclusiveBadge.textContent = 'Active';
       elements.exclusiveBadge.classList.add('active');
     } else {
@@ -1386,7 +1417,10 @@ function updateExclusiveFeatureVisibility() {
 function updateMixerAvailability() {
   const mixerSection = document.querySelector('.mixer-section');
   if (mixerSection) {
-    if (mixerMode) {
+    if (!exclusiveModeSupported) {
+      mixerSection.classList.add('disabled');
+      mixerSection.title = 'Exclusive mode requires Chrome offscreen/tabCapture APIs';
+    } else if (mixerMode) {
       mixerSection.classList.remove('disabled');
       mixerSection.title = '';
     } else {
@@ -1606,6 +1640,12 @@ function setupEventListeners() {
 
   if (elements.mixerModeToggle) {
     elements.mixerModeToggle.addEventListener('change', async (e) => {
+      if (!exclusiveModeSupported) {
+        e.target.checked = false;
+        mixerMode = false;
+        return;
+      }
+
       const newMixerMode = e.target.checked;
 
       if (mixerMode && !newMixerMode) {

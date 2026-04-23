@@ -5,6 +5,14 @@
   "version": "1.1.0",
   "author": "Ozan Karaali",
   "description": "Audio compressor, limiter, and normalizer for any browser tab",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "limitr@ozankaraali.dev",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
   "permissions": [
     "storage",
     "tabCapture",
@@ -32,6 +40,8 @@
     "128": "icons/icon128.png"
   },
   "background": {
+    "scripts": ["background.js"],
+    "preferred_environment": ["service_worker", "document"],
     "service_worker": "background.js"
   },
   "content_security_policy": {

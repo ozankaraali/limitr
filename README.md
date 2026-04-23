@@ -65,7 +65,12 @@ Coming soon
 
 1. Open `about:debugging#/runtime/this-firefox`
 2. Click "Load Temporary Add-on"
-3. Select any file in the `limitr` folder (e.g., `manifest.json`)
+3. Run `node build-firefox.js`
+4. Select `dist/firefox/manifest.json`
+
+Do not select the root `manifest.json` in Firefox. The root manifest is for Chrome and keeps Chrome-only `tabCapture`/`offscreen` permissions for Exclusive mode.
+
+Firefox runs the extension in Regular mode. The Firefox build removes Chrome-only `offscreen`/`tabCapture` permissions so it loads without manifest permission warnings. Exclusive mode is still available in Chrome from the root extension folder.
 
 Note: For permanent Firefox installation, the extension needs to be signed or installed via `about:config` with `xpinstall.signatures.required` set to `false`.
 
