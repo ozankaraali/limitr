@@ -30,7 +30,7 @@
         <span class="slider"></span>
       </label>
       <span class="mode-divider">|</span>
-      <span class="mode-label exclusive-mode" id="mixerModeLabel" title="Exclusive Mode: AI Noise Suppression, Limiter, AGC + Multi-tab mixing. No fullscreen support.">Exclusive</span>
+      <span class="mode-label exclusive-mode" id="mixerModeLabel" title="Exclusive Mode: tab-level capture and multi-tab mixing. No fullscreen support.">Exclusive</span>
       <label class="toggle small">
         <input type="checkbox" id="mixerModeToggle">
         <span class="slider"></span>
@@ -80,7 +80,7 @@
         <input type="range" id="outputGainSimple" min="-24" max="24" value="0" step="1">
       </div>
 
-      <!-- AI Noise Suppression (Exclusive mode only) -->
+      <!-- AI Noise Suppression -->
       <div class="simple-anc-row" id="simpleAncRow">
         <div class="control-header simple-toggle-row">
           <label>AI Noise Suppression</label>
@@ -90,10 +90,10 @@
             <span class="slider"></span>
           </label>
         </div>
-        <div class="control-note">RNNoise AI — Exclusive mode only</div>
+        <div class="control-note">RNNoise AI noise cleanup</div>
       </div>
 
-      <!-- Video Transcriber (Exclusive mode only) -->
+      <!-- Video Transcriber -->
       <div class="simple-anc-row" id="simpleTranscriberRow">
         <div class="control-header simple-toggle-row">
           <label>Video Transcriber</label>
@@ -103,7 +103,7 @@
             <span class="slider"></span>
           </label>
         </div>
-        <div class="control-note">Whisper AI captions — Exclusive mode only</div>
+        <div class="control-note">Moonshine AI captions</div>
         <div class="transcriber-output" id="transcriberOutputSimple" style="display: none;">
           <div class="transcriber-text" id="transcriberTextSimple"></div>
         </div>
@@ -124,11 +124,11 @@
 
     <!-- Advanced Mode Controls -->
     <div id="advancedControls" class="controls" style="display: none;">
-      <!-- Exclusive Mode Features (AI Noise Suppression, Auto-Gain) -->
+      <!-- AI Features -->
       <div class="exclusive-features-group collapsible-section" id="exclusiveFeaturesGroup">
         <div class="exclusive-features-header section-header">
           <span>Exclusive Features</span>
-          <span class="exclusive-badge" id="exclusiveBadge">Requires Exclusive Mode</span>
+          <span class="exclusive-badge" id="exclusiveBadge">Core Features Available</span>
         </div>
 
         <div class="section-body">

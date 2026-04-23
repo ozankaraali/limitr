@@ -51,6 +51,7 @@
     {
       "resources": [
         "lib/noise-suppressor-worklet.js",
+        "lib/peak-guard-worklet.js",
         "lib/rnnoise.wasm",
         "lib/transformers.min.js",
         "lib/transcriber.js",

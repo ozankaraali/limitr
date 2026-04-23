@@ -54,6 +54,12 @@ const defaults = {
   softClipEnabled: false,
   softClipDrive: 0,
 
+  // Lookahead peak guard (hidden safety stage for streamer scream presets)
+  peakGuardEnabled: false,
+  peakGuardThreshold: -6,
+  peakGuardLookahead: 8,
+  peakGuardRelease: 120,
+
   // Limiter (brick wall, prevents clipping)
   limiterEnabled: true,
   limiterThreshold: -1,
@@ -107,7 +113,9 @@ const presets = {
     autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -50,
     duckingEnabled: false, duckingThreshold: -35, duckingAmount: -12, duckingRelease: 300,
-    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
+    softClipEnabled: false, softClipDrive: 0,
+    peakGuardEnabled: false, peakGuardThreshold: -6, peakGuardLookahead: 8, peakGuardRelease: 120,
+    monoMixEnabled: false,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
   },
   music: {
@@ -159,26 +167,29 @@ const presets = {
   },
   streamWatch: {
     name: 'Stream Watch',
-    // Single-band compression for general leveling
+    // Downward-only stream guard: catch shouts/alerts without lifting quiet parts.
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -28, ratio: 5, knee: 10, attack: 2, release: 150,
-    makeupGain: -2, gainEnabled: true,
-    // Light EQ: reduce harshness
+    threshold: -20, ratio: 8, knee: 4, attack: 0.5, release: 180,
+    makeupGain: -4, gainEnabled: true,
+    // Reduce painful presence/sibilance where streamer screams usually live.
     eqEnabled: true,
     eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 6000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 10000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
+    eq3Freq: 3000, eq3Gain: -2, eq3Q: 1.2, eq3Type: 'peaking',
+    eq4Freq: 5500, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 9000, eq5Gain: -2, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
     gateEnabled: false, gateThreshold: -45, gateHold: 150, gateRelease: 250,
-    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -3,
-    limiterAttack: 1, limiterRelease: 100,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
+    softClipEnabled: true, softClipDrive: 5,
+    peakGuardEnabled: true, peakGuardThreshold: -6, peakGuardLookahead: 8, peakGuardRelease: 120,
+    monoMixEnabled: false,
+    limiterEnabled: true, limiterThreshold: -6,
+    limiterAttack: 0.3, limiterRelease: 90,
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false,
+    outputGain: -2
   },
   voiceFocus: {
     name: 'Voice Focus',
@@ -312,42 +323,52 @@ const presets = {
     // Fast attack catches jumpscares/screams, negative makeup keeps overall level calm.
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -28, ratio: 12, knee: 4, attack: 0.5, release: 220,
-    makeupGain: -6, gainEnabled: true,
+    threshold: -24, ratio: 16, knee: 2, attack: 0.2, release: 220,
+    makeupGain: -9, gainEnabled: true,
     eqEnabled: true,
     // Gentle top-end trim to reduce painful transients
     eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
     eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 2500, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 5000, eq4Gain: -2, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 9000, eq5Gain: -3, eq5Q: 0.7, eq5Type: 'highshelf',
+    eq3Freq: 2800, eq3Gain: -3, eq3Q: 1.3, eq3Type: 'peaking',
+    eq4Freq: 5200, eq4Gain: -4, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 9000, eq5Gain: -4, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'slow',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 3, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -9,
-    limiterAttack: 0.2, limiterRelease: 120,
+    softClipEnabled: true, softClipDrive: 8,
+    peakGuardEnabled: true, peakGuardThreshold: -8, peakGuardLookahead: 8, peakGuardRelease: 140,
+    monoMixEnabled: false,
+    limiterEnabled: true, limiterThreshold: -8,
+    limiterAttack: 0.2, limiterRelease: 100,
     noiseLevel: 0, noiseType: 'brown', effectsEnabled: false,
-    outputGain: -2
+    outputGain: -4
   },
   antiScream: {
     name: 'Anti-Scream',
-    // Single-band: hard knee, fast attack, very high ratio = brick wall.
-    // Anything above -15 dB gets smashed. Makeup gain pulls result down.
+    // Maximum comfort ceiling without darkening the whole stream.
+    // Peak guard catches instant mic hits; EQ mostly removes rumble/mud.
     compressorEnabled: true,
     multibandEnabled: false,
-    threshold: -15, ratio: 20, knee: 1, attack: 0.3, release: 100,
-    makeupGain: -8, gainEnabled: true,
-    eqEnabled: false,
+    threshold: -16, ratio: 12, knee: 2, attack: 0.3, release: 120,
+    makeupGain: -7, gainEnabled: true,
+    eqEnabled: true,
+    eq1Freq: 110, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
+    eq2Freq: 220, eq2Gain: -3, eq2Q: 0.8, eq2Type: 'peaking',
+    eq3Freq: 3000, eq3Gain: -2, eq3Q: 1.2, eq3Type: 'peaking',
+    eq4Freq: 5600, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
+    eq5Freq: 10000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
     bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
     noiseSuppressionEnabled: false,
     autoGainEnabled: false, autoGainTarget: -10, autoGainSpeed: 'fast',
     gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 8, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -8,
-    limiterAttack: 0.3, limiterRelease: 60,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
+    softClipEnabled: true, softClipDrive: 6,
+    peakGuardEnabled: true, peakGuardThreshold: -9, peakGuardLookahead: 10, peakGuardRelease: 140,
+    monoMixEnabled: false,
+    limiterEnabled: true, limiterThreshold: -9,
+    limiterAttack: 0.2, limiterRelease: 80,
+    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false,
+    outputGain: -4
   },
   sleep: {
     name: 'Sleep',
@@ -381,13 +402,13 @@ const presetUI = {
   off:          { desc: 'No processing' },
   music:        { desc: 'Preserve dynamics' },
   lofi:         { desc: 'Warm & mellow' },
-  streamWatch:  { desc: 'Level streams' },
+  streamWatch:  { desc: 'Daily stream guard' },
   voiceFocus:   { desc: 'Boost voice clarity', style: 'preset-featured' },
   movie:        { desc: 'Tame action scenes' },
   bassTamer:    { desc: 'Cut excess bass' },
   normalize:    { desc: 'Boost quiet audio' },
-  comfyGuard:   { desc: 'Tame sudden spikes', style: 'preset-safety' },
-  antiScream:   { desc: 'Clip screams & shouts', style: 'preset-safety' },
+  comfyGuard:   { desc: 'Safer loud spikes', style: 'preset-safety' },
+  antiScream:   { desc: 'Hard comfort ceiling', style: 'preset-safety' },
   nightMode:    { desc: 'Flatten & reduce' },
   sleep:        { desc: 'Maximum quiet' },
   tv90s:        { desc: 'Tap twice for TV+' }
@@ -515,19 +536,11 @@ function getEffectivePreset(presetName) {
 
   const settings = { ...defaults, ...base };
   let outputGainOffset = 0;
+  const outputGainOverride = Object.prototype.hasOwnProperty.call(base, 'outputGain')
+    ? base.outputGain
+    : null;
 
-  // Regular mode lacks AGC, gate, and ducking.
-  if (!mixerMode) {
-    if (base.autoGainEnabled) {
-      const target = base.autoGainTarget ?? defaults.autoGainTarget;
-      outputGainOffset = getFallbackAgcBoost(target);
-    }
-    settings.autoGainEnabled = false;
-    settings.gateEnabled = false;
-    settings.duckingEnabled = false;
-  }
-
-  return { settings, outputGainOffset };
+  return { settings, outputGainOffset, outputGainOverride };
 }
 
 // Keys used for preset comparison
@@ -541,6 +554,8 @@ const presetKeys = [
   'noiseSuppressionEnabled',
   // Soft Clipper
   'softClipEnabled', 'softClipDrive',
+  // Hidden lookahead peak guard
+  'peakGuardEnabled', 'peakGuardThreshold', 'peakGuardLookahead', 'peakGuardRelease',
   // Mono-to-Stereo fixer
   'monoMixEnabled',
   // Limiter & Auto-Gain
@@ -778,7 +793,14 @@ async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTabId = tab?.id;
 
-  const stored = await chrome.storage.local.get(['limitrAdvancedMode', 'limitrMixerMode', 'limitrCollapseState', 'limitrGlobalEnabled']);
+  const stored = await chrome.storage.local.get([
+    'limitrAdvancedMode',
+    'limitrMixerMode',
+    'limitrCollapseState',
+    'limitrGlobalEnabled',
+    'limitrFallbackSettings',
+    'limitrCurrentSettings'
+  ]);
   advancedMode = stored.limitrAdvancedMode || false;
   mixerMode = stored.limitrMixerMode || false;
 
@@ -791,7 +813,12 @@ async function init() {
 
   // Restore global enabled state (default to true for first use)
   const globalEnabled = stored.limitrGlobalEnabled !== undefined ? stored.limitrGlobalEnabled : true;
-  currentSettings.enabled = globalEnabled;
+  currentSettings = {
+    ...defaults,
+    ...(stored.limitrFallbackSettings || {}),
+    ...(stored.limitrCurrentSettings || {}),
+    enabled: globalEnabled
+  };
   if (stored.limitrCollapseState) {
     collapseState = { ...collapseState, ...stored.limitrCollapseState };
   }
@@ -806,7 +833,7 @@ async function init() {
 
   updateMixerAvailability();
 
-  if (mixerMode) {
+  if (mixerMode && currentSettings.enabled) {
     const stateResponse = await sendToBackground({ action: 'get-state', tabId: currentTabId });
     if (stateResponse.success && stateResponse.state) {
       currentSettings = { ...defaults, ...stateResponse.state.settings };
@@ -819,8 +846,10 @@ async function init() {
       } catch (e) { /* no content script running */ }
       await initCapture();
     }
-  } else {
+  } else if (!mixerMode && currentSettings.enabled) {
     await initFallbackCapture();
+  } else if (!mixerMode) {
+    await disableExistingFallbackCapture();
   }
 
   // Load custom presets and re-render grid (factory presets already rendered at load)
@@ -836,8 +865,10 @@ async function init() {
       const savedOutputGain = currentSettings.outputGain;
       const savedEnabled = currentSettings.enabled;
       Object.assign(currentSettings, effectivePreset.settings);
-      // Keep user's output gain as-is (no offset — avoid accumulation on repeated switches)
-      currentSettings.outputGain = savedOutputGain;
+      // Only safety presets that explicitly define outputGain override the user's level.
+      currentSettings.outputGain = effectivePreset.outputGainOverride !== null
+        ? effectivePreset.outputGainOverride
+        : savedOutputGain;
       currentSettings.enabled = savedEnabled;
       updateTabSettings();
     }
@@ -863,12 +894,17 @@ async function init() {
   startReductionPolling();
 
   // Restore transcriber state if active
-  if (mixerMode && currentTabId) {
+  if (currentTabId) {
     try {
-      const status = await sendToBackground({
-        action: 'get-transcription-status',
-        tabId: currentTabId
-      });
+      const status = mixerMode
+        ? await sendToBackground({
+            action: 'get-transcription-status',
+            tabId: currentTabId
+          })
+        : await chrome.tabs.sendMessage(currentTabId, {
+            action: 'fallback-get-transcription-status',
+            tabId: currentTabId
+          });
       if (status.active) {
         transcriberActive = true;
         updateTranscriberUI('active', 'On');
@@ -915,6 +951,7 @@ async function initCapture() {
 
 async function initFallbackCapture() {
   if (!currentTabId) return false;
+  if (!currentSettings.enabled) return disableExistingFallbackCapture();
 
   try {
     let alreadyInjected = false;
@@ -953,8 +990,10 @@ async function initFallbackCapture() {
 
       // Ensure the content script has the correct enabled state
       currentSettings.enabled = (await chrome.storage.local.get(['limitrGlobalEnabled'])).limitrGlobalEnabled !== false;
-      await updateFallbackSettings();
     }
+
+    currentSettings.duckingEnabled = false;
+    await updateFallbackSettings();
 
     updateUI();
     return true;
@@ -964,13 +1003,33 @@ async function initFallbackCapture() {
   }
 }
 
+async function disableExistingFallbackCapture() {
+  if (!currentTabId) return false;
+
+  try {
+    const response = await chrome.tabs.sendMessage(currentTabId, { action: 'fallback-ping' });
+    if (response && response.active) {
+      if (response.settings) {
+        currentSettings = { ...defaults, ...response.settings, enabled: false };
+      }
+      await chrome.tabs.sendMessage(currentTabId, {
+        action: 'fallback-update-settings',
+        settings: { enabled: false, duckingEnabled: false }
+      });
+    }
+  } catch (e) {}
+
+  isCapturing = false;
+  return false;
+}
+
 async function updateFallbackSettings() {
   if (!currentTabId) return;
 
   try {
     await chrome.tabs.sendMessage(currentTabId, {
       action: 'fallback-update-settings',
-      settings: currentSettings
+      settings: { ...currentSettings, duckingEnabled: false }
     });
   } catch (err) {
     console.error('Failed to update fallback settings:', err);
@@ -978,10 +1037,12 @@ async function updateFallbackSettings() {
 }
 
 async function updateTabSettings() {
-  if (!currentTabId || !isCapturing) return;
+  if (!currentTabId) return;
 
   // Persist current settings so autoinit can use them for new tabs
   chrome.storage.local.set({ limitrCurrentSettings: currentSettings });
+
+  if (!isCapturing) return;
 
   if (mixerMode) {
     await sendToBackground({
@@ -1373,7 +1434,7 @@ function updateExclusiveFeatureVisibility() {
 
   if (elements.modeNote) {
     if (!exclusiveModeSupported) {
-      elements.modeNote.textContent = 'Firefox uses Regular + RNNoise';
+      elements.modeNote.textContent = 'Regular + core AI features';
       elements.modeNote.classList.remove('exclusive');
     } else if (mixerMode) {
       elements.modeNote.textContent = 'AI Denoise • AGC • No fullscreen';
@@ -1396,39 +1457,24 @@ function updateExclusiveFeatureVisibility() {
 
   // Update simple mode transcriber row
   if (elements.simpleTranscriberRow) {
-    elements.simpleTranscriberRow.classList.toggle('unavailable', !mixerMode || !exclusiveModeSupported);
+    elements.simpleTranscriberRow.classList.toggle('unavailable', false);
   }
 
   if (elements.exclusiveBadge) {
     if (!exclusiveModeSupported) {
-      elements.exclusiveBadge.textContent = 'RNNoise Only';
+      elements.exclusiveBadge.textContent = 'Core Features Available';
       elements.exclusiveBadge.classList.remove('active');
     } else if (mixerMode) {
       elements.exclusiveBadge.textContent = 'Active';
       elements.exclusiveBadge.classList.add('active');
     } else {
-      elements.exclusiveBadge.textContent = 'RNNoise Available';
+      elements.exclusiveBadge.textContent = 'Core Features Available';
       elements.exclusiveBadge.classList.remove('active');
     }
   }
 
-  const exclusiveOnlyDisabled = !mixerMode;
-  [
-    elements.autoGainToggle,
-    elements.autoGainTarget,
-    elements.autoGainSpeed,
-    elements.transcriberToggle,
-    elements.gateToggle,
-    elements.gateThreshold,
-    elements.gateHold,
-    elements.gateRelease,
-    elements.duckingToggle,
-    elements.duckingThreshold,
-    elements.duckingAmount,
-    elements.duckingRelease
-  ].forEach(element => {
-    if (element) element.disabled = exclusiveOnlyDisabled;
-  });
+  if (elements.transcriberToggle) elements.transcriberToggle.disabled = false;
+  if (elements.transcriberToggleSimple) elements.transcriberToggleSimple.disabled = false;
 }
 
 function updateMixerAvailability() {
@@ -2007,7 +2053,7 @@ function syncControls(key, value) {
 function applyPreset(presetName) {
   const effectivePreset = getEffectivePreset(presetName);
   if (!effectivePreset) return;
-  const { settings: presetSettings, outputGainOffset } = effectivePreset;
+  const { settings: presetSettings, outputGainOffset, outputGainOverride } = effectivePreset;
 
   if (presetName === 'tv90s') {
     const isTvActive = presetKeys.every(key => {
@@ -2027,8 +2073,10 @@ function applyPreset(presetName) {
   const savedOutputGain = currentSettings.outputGain;
   const savedEnabled = currentSettings.enabled;
   Object.assign(currentSettings, presetSettings);
-  const boostedOutput = savedOutputGain + (outputGainOffset || 0);
-  currentSettings.outputGain = Math.max(-24, Math.min(24, boostedOutput));
+  const nextOutput = outputGainOverride !== null
+    ? outputGainOverride
+    : savedOutputGain + (outputGainOffset || 0);
+  currentSettings.outputGain = Math.max(-24, Math.min(24, nextOutput));
   currentSettings.enabled = savedEnabled;
 
   updateUI();
@@ -2474,7 +2522,6 @@ function setupEqCanvasInteraction() {
 // ============ VIDEO TRANSCRIBER ============
 
 async function toggleTranscriber(enabled) {
-  if (!mixerMode) return;
   if (enabled === transcriberActive && !transcriberLoading) return;
 
   if (enabled) {
@@ -2492,10 +2539,15 @@ async function toggleTranscriber(enabled) {
         console.log('[Limitr] Subtitle overlay injection:', e.message);
       }
 
-      const response = await sendToBackground({
-        action: 'start-transcription',
-        tabId: currentTabId
-      });
+      const response = mixerMode
+        ? await sendToBackground({
+            action: 'start-transcription',
+            tabId: currentTabId
+          })
+        : await chrome.tabs.sendMessage(currentTabId, {
+            action: 'fallback-start-transcription',
+            tabId: currentTabId
+          });
 
       if (response.success) {
         transcriberActive = true;
@@ -2513,10 +2565,17 @@ async function toggleTranscriber(enabled) {
       console.error('[Limitr] Transcriber error:', error);
     }
   } else {
-    await sendToBackground({
-      action: 'stop-transcription',
-      tabId: currentTabId
-    });
+    if (mixerMode) {
+      await sendToBackground({
+        action: 'stop-transcription',
+        tabId: currentTabId
+      });
+    } else {
+      await chrome.tabs.sendMessage(currentTabId, {
+        action: 'fallback-stop-transcription',
+        tabId: currentTabId
+      });
+    }
     transcriberActive = false;
     transcriberLoading = false;
     updateTranscriberUI('off', 'Off');

@@ -39,13 +39,13 @@
 - **3-band multiband compressor** with independent per-band threshold, ratio, and gain
 - **5-band parametric EQ** with selectable filter types per band and live curve visualization
 - **Brick-wall limiter** with adjustable threshold and timing for peak protection
-- **Noise gate** with configurable threshold, hold, and release (Exclusive mode)
+- **Noise gate** with configurable threshold, hold, and release
 - **Bass & Treble Cut** filters for additional frequency shaping
 - **Background noise** (white/pink/brown) for vintage audio effect
 - **Gain reduction meter** showing real-time compression activity
 - **Collapsible sections** with independent on/off toggles per processing block
 - **Two processing modes**: Regular (fullscreen-friendly) or Exclusive (multi-tab with AI features)
-- **Exclusive mode extras**: AI noise suppression (RNNoise), auto-gain (AGC), noise gate
+- **AI extras**: AI noise suppression (RNNoise), auto-gain (AGC), noise gate, audio ducking, and live captions
 - **No external dependencies** (except RNNoise WASM for AI noise suppression)
 
 ## Installation
@@ -70,7 +70,7 @@ Coming soon
 
 Do not select the root `manifest.json` in Firefox. The root manifest is for Chrome and keeps Chrome-only `tabCapture`/`offscreen` permissions for Exclusive mode.
 
-Firefox runs the extension in Regular mode. The Firefox build removes Chrome-only `offscreen`/`tabCapture` permissions so it loads without manifest permission warnings. Exclusive mode is still available in Chrome from the root extension folder.
+Firefox runs the extension in Regular mode. The Firefox build removes Chrome-only `offscreen`/`tabCapture` permissions so it loads without manifest permission warnings. RNNoise, AGC, noise gate, audio ducking, and live captions work in Regular mode. Exclusive tab mixing is still available in Chrome from the root extension folder.
 
 Note: For permanent Firefox installation, the extension needs to be signed or installed via `about:config` with `xpinstall.signatures.required` set to `false`.
 
@@ -142,7 +142,7 @@ Note: For permanent Firefox installation, the extension needs to be signed or in
 | Noise Level | 0 to 30% | Background noise amount |
 | Noise Type | White/Pink/Brown | Noise character (harsh to cozy) |
 
-### Exclusive Mode Only
+### AI Features
 
 | Parameter | Range | Description |
 |-----------|-------|-------------|
@@ -170,12 +170,12 @@ Each block in brackets is optional — only wired into the chain when its toggle
 - Injects a content script that uses `MediaElementSource` to process audio
 - Scans for all `<video>` and `<audio>` elements
 - Works in fullscreen video playback
-- Supports: Compressor, Multiband, EQ, Limiter, Filters, Gain, Effects
+- Supports: Compressor, Multiband, EQ, Limiter, Filters, Gain, Effects, RNNoise, AGC, Noise Gate, Audio Ducking, and live captions
 
 **Exclusive Mode** (multi-tab with AI features):
 - Uses Chrome's `tabCapture` API to capture tab audio
 - Processes audio in an offscreen document
-- All Regular mode features plus: AI Noise Suppression (RNNoise), Auto-Gain (AGC), and Noise Gate
+- All Regular mode features plus tab-level capture and multi-tab mixing
 - Note: Fullscreen may be restricted in this mode
 
 ## Privacy

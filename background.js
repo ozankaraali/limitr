@@ -19,6 +19,39 @@ function hasExclusiveModeSupport() {
   );
 }
 
+// Firefox MV3 runs background as a document (preferred_environment: "document"),
+// which means we can host the transcriber here — same realm as its deps, no
+// cross-realm instanceof issues that plague content-script dynamic imports.
+// Chrome's background is a service worker, so it uses the offscreen document
+// instead. Feature-detect rather than browser-sniff.
+const hostsTranscriberInBackground =
+  !chrome.offscreen?.createDocument && typeof window !== 'undefined';
+
+let backgroundTranscriberPromise = null;
+
+async function ensureBackgroundTranscriber() {
+  if (!hostsTranscriberInBackground) return null;
+  if (!backgroundTranscriberPromise) {
+    backgroundTranscriberPromise = (async () => {
+      // Let transcriber.js broadcast to both the popup (via runtime) and the
+      // active tab (via tabs) — background's own sendMessage doesn't loopback,
+      // so we relay explicitly.
+      window.LimitrExtensionRuntime = {
+        getURL: path => chrome.runtime.getURL(path),
+        sendMessage: payload => {
+          chrome.runtime.sendMessage(payload).catch(() => {});
+          if (payload?.tabId != null) {
+            chrome.tabs.sendMessage(payload.tabId, payload).catch(() => {});
+          }
+        }
+      };
+      await import(chrome.runtime.getURL('lib/transcriber.js'));
+      return window.LimitrTranscriber;
+    })();
+  }
+  return backgroundTranscriberPromise;
+}
+
 // Default settings
 const defaults = {
   enabled: true,
@@ -29,6 +62,10 @@ const defaults = {
   release: 100,
   makeupGain: 0,
   outputGain: 0,
+  peakGuardEnabled: false,
+  peakGuardThreshold: -6,
+  peakGuardLookahead: 8,
+  peakGuardRelease: 120,
   bassCutFreq: 0,
   trebleCutFreq: 22050,
   monoMixEnabled: false,
@@ -122,7 +159,18 @@ async function initAudioCapture(tabId) {
       action: 'get-state',
       tabId
     });
-    return stateResponse.state?.settings || defaults;
+    const settings = stateResponse.state?.settings || defaults;
+    const storedSettings = await getStoredSettingsForTab(tabId);
+    if (settings.enabled !== storedSettings.enabled) {
+      await chrome.runtime.sendMessage({
+        target: 'offscreen',
+        action: 'set-enabled',
+        tabId,
+        enabled: storedSettings.enabled
+      });
+      settings.enabled = storedSettings.enabled;
+    }
+    return settings;
   }
 
   // Get media stream ID for the tab
@@ -246,11 +294,40 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if (changes.limitrGlobalEnabled) {
     if (!changes.limitrGlobalEnabled.newValue) {
-      // User disabled — clear badge
+      disableActiveProcessing().catch(error => {
+        console.log('[Limitr] Failed to disable active processing:', error.message);
+      });
       updateBadge(false);
     }
   }
 });
+
+async function disableActiveProcessing() {
+  const tabs = await chrome.tabs.query({});
+  const tabIds = new Set([
+    ...autoInjectedTabs,
+    ...tabs.map(tab => tab.id).filter(tabId => tabId !== undefined)
+  ]);
+
+  await Promise.allSettled(Array.from(tabIds, tabId =>
+    chrome.tabs.sendMessage(tabId, {
+      action: 'fallback-update-settings',
+      settings: { enabled: false }
+    })
+  ));
+
+  if (await hasOffscreenDocument()) {
+    const tabIds = await getProcessingTabs();
+    await Promise.allSettled(tabIds.map(tabId =>
+      chrome.runtime.sendMessage({
+        target: 'offscreen',
+        action: 'set-enabled',
+        tabId,
+        enabled: false
+      })
+    ));
+  }
+}
 
 // Handle messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -267,6 +344,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     // No response needed — fire-and-forget broadcast
     return;
+  }
+
+  // Firefox-hosted transcriber: content-bridge forwards regular-mode transcriber
+  // actions here because the content-script sandbox can't safely run the module.
+  if (hostsTranscriberInBackground && message.action?.startsWith('bg-transcriber-')) {
+    const { action, tabId, audio } = message;
+    if (action === 'bg-transcriber-audio') {
+      ensureBackgroundTranscriber().then(t => t?.pushAudio(tabId, audio)).catch(() => {});
+      return;
+    }
+    (async () => {
+      try {
+        const transcriber = await ensureBackgroundTranscriber();
+        if (!transcriber) throw new Error('Background transcriber unavailable');
+        if (action === 'bg-transcriber-start') {
+          await transcriber.startExternal(tabId);
+          sendResponse({ success: true });
+        } else if (action === 'bg-transcriber-stop') {
+          transcriber.stop(tabId);
+          sendResponse({ success: true });
+        } else if (action === 'bg-transcriber-status') {
+          sendResponse({
+            active: transcriber.isActive(tabId),
+            ready: transcriber.isReady(),
+            loading: transcriber.isModelLoading()
+          });
+        }
+      } catch (error) {
+        sendResponse({ success: false, error: error.message });
+      }
+    })();
+    return true;
   }
 
   if (message.target !== 'background') {
@@ -513,6 +622,16 @@ async function updateBadge(active) {
 // Inject content scripts (bridge + audio) and send settings.
 // Shared by autoActivateSimple and earlyInjectContentScript.
 async function injectContentScripts(tabId) {
+  // Read storage before injecting so global Off never creates page audio hooks.
+  const stored = await chrome.storage.local.get([
+    'limitrFallbackSettings',
+    'limitrCurrentSettings',
+    'limitrGlobalEnabled'
+  ]);
+  if (!isGloballyEnabled(stored.limitrGlobalEnabled)) {
+    return false;
+  }
+
   // Inject bridge in ISOLATED world (for chrome.runtime messaging)
   // and content-audio.js in MAIN world (for reliable Web Audio API access)
   await chrome.scripting.executeScript({
@@ -527,7 +646,6 @@ async function injectContentScripts(tabId) {
   autoInjectedTabs.add(tabId);
 
   // Use the user's actual settings from storage, with exclusive-only features disabled
-  const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings']);
   let settings;
   if (stored.limitrCurrentSettings) {
     settings = { ...defaults, ...stored.limitrCurrentSettings, enabled: true };
@@ -548,6 +666,8 @@ async function injectContentScripts(tabId) {
   } catch (e) {
     // Content script may not be ready yet — it will use stored settings
   }
+
+  return true;
 }
 
 // Check if content script is already running in a tab
@@ -566,6 +686,12 @@ async function isContentScriptActive(tabId) {
 
 // Auto-activate on a tab (simple mode: inject content script)
 async function autoActivateSimple(tabId) {
+  const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
+  if (!isGloballyEnabled(stored.limitrGlobalEnabled)) {
+    chrome.action.setIcon({ path: ICONS.inactive, tabId });
+    return;
+  }
+
   if (autoInjectedTabs.has(tabId)) {
     // Already injected — just ensure icon is correct
     chrome.action.setIcon({ path: ICONS.regular, tabId });
@@ -578,9 +704,11 @@ async function autoActivateSimple(tabId) {
   }
 
   try {
-    await injectContentScripts(tabId);
-    chrome.action.setIcon({ path: ICONS.regular, tabId });
-    console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
+    const injected = await injectContentScripts(tabId);
+    if (injected) {
+      chrome.action.setIcon({ path: ICONS.regular, tabId });
+      console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
+    }
   } catch (error) {
     console.log(`[Limitr] Could not auto-inject on tab ${tabId}:`, error.message);
   }

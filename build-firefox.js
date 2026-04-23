@@ -15,15 +15,8 @@ const skippedRootEntries = new Set([
 const skippedFirefoxDirectories = new Set(['tests']);
 const skippedFirefoxFiles = new Set([
   'build-firefox.js',
-  'content-transcribe.js',
   'icons/generate-icons.html',
   'icons/genicons.js',
-  'lib/ort-wasm-simd-threaded.jsep.mjs',
-  'lib/ort-wasm-simd-threaded.jsep.wasm',
-  'lib/ort.bundle.min.mjs',
-  'lib/transcriber-capture-worklet.js',
-  'lib/transcriber.js',
-  'lib/transformers.min.js',
   'offscreen.html',
   'offscreen.js'
 ]);
@@ -69,7 +62,14 @@ async function writeFirefoxManifest() {
     {
       resources: [
         'lib/noise-suppressor-worklet.js',
-        'lib/rnnoise.wasm'
+        'lib/peak-guard-worklet.js',
+        'lib/rnnoise.wasm',
+        'lib/transformers.min.js',
+        'lib/transcriber.js',
+        'lib/ort.bundle.min.mjs',
+        'lib/ort-wasm-simd-threaded.jsep.wasm',
+        'lib/ort-wasm-simd-threaded.jsep.mjs',
+        'lib/transcriber-capture-worklet.js'
       ],
       matches: ['<all_urls>']
     }

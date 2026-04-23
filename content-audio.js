@@ -35,6 +35,42 @@
   let limiter = null;
   let preLimiter = null;
 
+  // Auto-gain (AGC)
+  let autoGainInput = null;
+  let autoGainNode = null;
+  let analyser = null;
+  let analyserBuffer = null;
+  let agcEnabled = false;
+  let agcTarget = -16;
+  let agcSpeed = 'normal';
+  let agcCurrentGain = 1;
+  let agcIntervalId = null;
+
+  // Noise gate
+  let gateInput = null;
+  let gateNode = null;
+  let gateAnalyser = null;
+  let gateAnalyserBuffer = null;
+  let gateIsOpen = true;
+  let gateHoldCounter = 0;
+  let gateIntervalId = null;
+
+  // Audio ducking
+  let duckingSidechainBP = null;
+  let duckingAnalyser = null;
+  let duckingAnalyserBuffer = null;
+  let duckLowShelf = null;
+  let duckHighShelf = null;
+  let duckingIntervalId = null;
+  let duckingActive = false;
+
+  // Regular-mode transcriber capture
+  let transcriberInput = null;
+  let transcriberCaptureNode = null;
+  let transcriberCaptureWorkletLoaded = false;
+  let transcriberActive = false;
+  let transcriberTabId = null;
+
   // RNNoise AI noise suppression
   let noiseSuppressorNode = null;
   let noiseSuppressorReady = false;
@@ -46,6 +82,11 @@
   let softClipDriveGain = null;
   let softClipCompGain = null;
 
+  // Lookahead peak guard (hidden safety stage for streamer scream presets)
+  let peakGuardNode = null;
+  let peakGuardReady = false;
+  let peakGuardInitStarted = false;
+
   // Mono-to-stereo fixer (forces mono downmix, upmixed to both channels by default)
   let monoMixer = null;
 
@@ -55,6 +96,9 @@
   let lufsAnalyserBuffer = null;
 
   const connectedMedia = new Map();
+  let scanObserver = null;
+  let scanIntervalId = null;
+  let scanStarted = false;
   let currentNoiseType = 'brown';
 
   let settings = {
@@ -105,6 +149,12 @@
     softClipEnabled: false,
     softClipDrive: 0,
 
+    // Lookahead peak guard
+    peakGuardEnabled: false,
+    peakGuardThreshold: -6,
+    peakGuardLookahead: 8,
+    peakGuardRelease: 120,
+
     // Mono-to-stereo fixer
     monoMixEnabled: false,
 
@@ -112,7 +162,7 @@
     limiterEnabled: true,
     limiterThreshold: -1,
 
-    // Auto-Gain (not supported in fallback mode - requires AudioWorklet)
+    // Auto-Gain (AGC - automatic level control)
     autoGainEnabled: false,
     autoGainTarget: -16,
     autoGainSpeed: 'normal',
@@ -121,13 +171,13 @@
     limiterAttack: 1,
     limiterRelease: 100,
 
-    // Noise Gate (not supported in fallback mode — Exclusive only)
+    // Noise Gate
     gateEnabled: false,
     gateThreshold: -50,
     gateHold: 100,
     gateRelease: 200,
 
-    // Audio Ducking (not supported in fallback mode — Exclusive only)
+    // Audio Ducking (speech-aware dynamic range)
     duckingEnabled: false,
     duckingThreshold: -35,
     duckingAmount: -12,
@@ -171,6 +221,148 @@
   }
 
   // Noise generation
+  const AGC_PROFILES = {
+    slow:   { interval: 100, attack: 0.02, release: 0.05, maxGain: 6 },
+    normal: { interval: 50,  attack: 0.05, release: 0.10, maxGain: 6 },
+    fast:   { interval: 20,  attack: 0.15, release: 0.25, maxGain: 4  }
+  };
+
+  function calculateAnalyserDb(analyserNode, buffer) {
+    analyserNode.getFloatTimeDomainData(buffer);
+
+    let sumSquares = 0;
+    for (let i = 0; i < buffer.length; i++) {
+      sumSquares += buffer[i] * buffer[i];
+    }
+
+    const rms = Math.sqrt(sumSquares / buffer.length);
+    return rms > 0 ? 20 * Math.log10(rms) : -100;
+  }
+
+  function updateAutoGain() {
+    if (!agcEnabled || !analyser || !analyserBuffer) return;
+
+    const profile = AGC_PROFILES[agcSpeed] || AGC_PROFILES.normal;
+    const currentDb = calculateAnalyserDb(analyser, analyserBuffer);
+    if (currentDb <= -60) return;
+
+    const diffDb = agcTarget - currentDb;
+    const targetGain = Math.pow(10, diffDb / 20);
+    const smoothing = targetGain > agcCurrentGain ? profile.attack : profile.release;
+    agcCurrentGain += (targetGain - agcCurrentGain) * smoothing;
+    agcCurrentGain = Math.max(0.1, Math.min(profile.maxGain, agcCurrentGain));
+    autoGainNode.gain.setTargetAtTime(agcCurrentGain, audioContext.currentTime, 0.02);
+  }
+
+  function startAgc() {
+    if (agcIntervalId) return;
+    agcEnabled = true;
+    const profile = AGC_PROFILES[agcSpeed] || AGC_PROFILES.normal;
+    agcIntervalId = setInterval(updateAutoGain, profile.interval);
+  }
+
+  function stopAgc() {
+    agcEnabled = false;
+    if (agcIntervalId) {
+      clearInterval(agcIntervalId);
+      agcIntervalId = null;
+    }
+    agcCurrentGain = 1;
+    if (autoGainNode) {
+      autoGainNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.1);
+    }
+  }
+
+  function setAgcSpeed(speed) {
+    agcSpeed = speed || 'normal';
+    if (agcIntervalId) {
+      clearInterval(agcIntervalId);
+      agcIntervalId = null;
+      startAgc();
+    }
+  }
+
+  function updateGate() {
+    if (!gateAnalyser || !gateAnalyserBuffer || !gateNode) return;
+
+    const currentDb = calculateAnalyserDb(gateAnalyser, gateAnalyserBuffer);
+    const threshold = settings.gateThreshold;
+    const holdTicks = Math.max(1, Math.round(settings.gateHold / 20));
+    const releaseTime = settings.gateRelease / 1000;
+
+    if (currentDb >= threshold) {
+      if (!gateIsOpen) {
+        gateNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.006);
+        gateIsOpen = true;
+      }
+      gateHoldCounter = holdTicks;
+    } else if (gateHoldCounter > 0) {
+      gateHoldCounter--;
+    } else if (gateIsOpen) {
+      gateNode.gain.setTargetAtTime(0, audioContext.currentTime, releaseTime / 3);
+      gateIsOpen = false;
+    }
+  }
+
+  function startGate() {
+    if (gateIntervalId) return;
+    gateIsOpen = true;
+    gateHoldCounter = 0;
+    gateNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.006);
+    gateIntervalId = setInterval(updateGate, 20);
+  }
+
+  function stopGate() {
+    if (gateIntervalId) {
+      clearInterval(gateIntervalId);
+      gateIntervalId = null;
+    }
+    gateIsOpen = true;
+    gateHoldCounter = 0;
+    if (gateNode) {
+      gateNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.006);
+    }
+  }
+
+  function updateDucking() {
+    if (!duckingAnalyser || !duckingAnalyserBuffer || !duckLowShelf || !duckHighShelf) return;
+
+    const currentDb = calculateAnalyserDb(duckingAnalyser, duckingAnalyserBuffer);
+    const threshold = settings.duckingThreshold;
+    const amount = settings.duckingAmount;
+    const releaseTime = settings.duckingRelease / 1000;
+
+    if (currentDb >= threshold) {
+      duckingActive = true;
+      duckLowShelf.gain.setTargetAtTime(amount, audioContext.currentTime, 0.02);
+      duckHighShelf.gain.setTargetAtTime(amount, audioContext.currentTime, 0.02);
+    } else if (duckingActive) {
+      duckLowShelf.gain.setTargetAtTime(0, audioContext.currentTime, releaseTime / 3);
+      duckHighShelf.gain.setTargetAtTime(0, audioContext.currentTime, releaseTime / 3);
+      duckingActive = false;
+    }
+  }
+
+  function startDucking() {
+    if (duckingIntervalId) return;
+    duckingActive = false;
+    duckLowShelf.gain.setTargetAtTime(0, audioContext.currentTime, 0.01);
+    duckHighShelf.gain.setTargetAtTime(0, audioContext.currentTime, 0.01);
+    duckingIntervalId = setInterval(updateDucking, 20);
+  }
+
+  function stopDucking() {
+    if (duckingIntervalId) {
+      clearInterval(duckingIntervalId);
+      duckingIntervalId = null;
+    }
+    duckingActive = false;
+    if (duckLowShelf && duckHighShelf) {
+      duckLowShelf.gain.setTargetAtTime(0, audioContext.currentTime, 0.05);
+      duckHighShelf.gain.setTargetAtTime(0, audioContext.currentTime, 0.05);
+    }
+  }
+
   function generateNoiseBuffer(sampleRate, type) {
     const bufferSize = sampleRate * 2;
     const data = new Float32Array(bufferSize);
@@ -289,6 +481,45 @@
       limiter.attack.value = (settings.limiterAttack || 1) / 1000;
       limiter.release.value = (settings.limiterRelease || 100) / 1000;
 
+      // Auto-gain
+      autoGainInput = audioContext.createGain();
+      autoGainNode = audioContext.createGain();
+      autoGainNode.gain.value = 1;
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      analyserBuffer = new Float32Array(analyser.fftSize);
+      agcTarget = settings.autoGainTarget;
+      agcSpeed = settings.autoGainSpeed || 'normal';
+
+      // Noise gate
+      gateInput = audioContext.createGain();
+      gateNode = audioContext.createGain();
+      gateNode.gain.value = 1;
+      gateAnalyser = audioContext.createAnalyser();
+      gateAnalyser.fftSize = 2048;
+      gateAnalyserBuffer = new Float32Array(gateAnalyser.fftSize);
+
+      // Audio ducking
+      duckingSidechainBP = audioContext.createBiquadFilter();
+      duckingSidechainBP.type = 'bandpass';
+      duckingSidechainBP.frequency.value = 1000;
+      duckingSidechainBP.Q.value = 0.5;
+      duckingAnalyser = audioContext.createAnalyser();
+      duckingAnalyser.fftSize = 2048;
+      duckingAnalyserBuffer = new Float32Array(duckingAnalyser.fftSize);
+      duckLowShelf = audioContext.createBiquadFilter();
+      duckLowShelf.type = 'lowshelf';
+      duckLowShelf.frequency.value = 300;
+      duckLowShelf.gain.value = 0;
+      duckHighShelf = audioContext.createBiquadFilter();
+      duckHighShelf.type = 'highshelf';
+      duckHighShelf.frequency.value = 3000;
+      duckHighShelf.gain.value = 0;
+
+      // Transcriber capture input; connected to media sources only while active.
+      transcriberInput = audioContext.createGain();
+      transcriberInput.gain.value = 1;
+
       // Fixed safety limiter before RNNoise to avoid feeding it clipped transients.
       preLimiter = audioContext.createDynamicsCompressor();
       preLimiter.threshold.value = -1;
@@ -362,6 +593,7 @@
       makeupGain.connect(outputGain);
       outputGain.connect(audioContext.destination);
 
+      initPeakGuard();
       initNoiseSuppressor();
 
       console.log('[Limitr Fallback] Audio chain initialized with EQ + Multiband + Limiter support');
@@ -402,6 +634,29 @@
     });
   }
 
+  function requestBridgeAction(type, payload = {}, timeoutMs = 10000) {
+    return new Promise((resolve, reject) => {
+      const id = Math.random().toString(36).slice(2);
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', onResponse);
+        reject(new Error(`Timed out waiting for ${type}`));
+      }, timeoutMs);
+
+      function onResponse(event) {
+        if (!event.data || event.data.type !== 'limitr-bridge-response' || event.data.id !== id) {
+          return;
+        }
+
+        clearTimeout(timeout);
+        window.removeEventListener('message', onResponse);
+        resolve(event.data.payload);
+      }
+
+      window.addEventListener('message', onResponse);
+      window.postMessage({ type, id, ...payload }, '*');
+    });
+  }
+
   async function loadExtensionResource(path, responseType = 'text') {
     if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
       if (responseType === 'url') {
@@ -437,6 +692,75 @@
     }
   }
 
+  async function loadPeakGuardWorklet() {
+    const extensionUrl = await loadExtensionResource('lib/peak-guard-worklet.js', 'url');
+
+    try {
+      await audioContext.audioWorklet.addModule(extensionUrl);
+      return;
+    } catch (extensionUrlError) {
+      console.log('[Limitr Fallback] Extension peak guard worklet URL failed, trying blob URL:', extensionUrlError.message);
+    }
+
+    const workletSource = await loadExtensionResource('lib/peak-guard-worklet.js', 'text');
+    const workletUrl = URL.createObjectURL(new Blob([workletSource], { type: 'application/javascript' }));
+    try {
+      await audioContext.audioWorklet.addModule(workletUrl);
+    } finally {
+      URL.revokeObjectURL(workletUrl);
+    }
+  }
+
+  function configurePeakGuard(enabled = settings.enabled && settings.peakGuardEnabled) {
+    if (!peakGuardNode) return;
+    peakGuardNode.port.postMessage({
+      type: 'config',
+      enabled,
+      thresholdDb: settings.peakGuardThreshold,
+      lookaheadMs: settings.peakGuardLookahead,
+      releaseMs: settings.peakGuardRelease
+    });
+  }
+
+  async function initPeakGuard() {
+    if (peakGuardInitStarted || !audioContext?.audioWorklet || typeof AudioWorkletNode === 'undefined') {
+      return;
+    }
+
+    peakGuardInitStarted = true;
+
+    try {
+      await loadPeakGuardWorklet();
+      peakGuardNode = new AudioWorkletNode(audioContext, 'peak-guard-processor');
+      peakGuardReady = true;
+      configurePeakGuard();
+      rebuildSignalChain();
+      console.log('[Limitr Fallback] Peak guard ready');
+    } catch (error) {
+      console.error('[Limitr Fallback] Failed to initialize peak guard:', error);
+    }
+  }
+
+  async function loadTranscriberCaptureWorklet() {
+    if (transcriberCaptureWorkletLoaded) return;
+
+    const extensionUrl = await loadExtensionResource('lib/transcriber-capture-worklet.js', 'url');
+    try {
+      await audioContext.audioWorklet.addModule(extensionUrl);
+    } catch (extensionUrlError) {
+      console.log('[Limitr Fallback] Extension transcriber worklet URL failed, trying blob URL:', extensionUrlError.message);
+      const workletSource = await loadExtensionResource('lib/transcriber-capture-worklet.js', 'text');
+      const workletUrl = URL.createObjectURL(new Blob([workletSource], { type: 'application/javascript' }));
+      try {
+        await audioContext.audioWorklet.addModule(workletUrl);
+      } finally {
+        URL.revokeObjectURL(workletUrl);
+      }
+    }
+
+    transcriberCaptureWorkletLoaded = true;
+  }
+
   async function initNoiseSuppressor() {
     if (noiseSuppressorInitStarted || !audioContext?.audioWorklet || typeof AudioWorkletNode === 'undefined') {
       return;
@@ -469,6 +793,73 @@
     }
   }
 
+  async function ensureTranscriberCapture() {
+    if (!audioContext?.audioWorklet || typeof AudioWorkletNode === 'undefined') {
+      throw new Error('AudioWorklet is not available in this browser');
+    }
+
+    await loadTranscriberCaptureWorklet();
+
+    if (!transcriberCaptureNode) {
+      transcriberCaptureNode = new AudioWorkletNode(audioContext, 'transcriber-capture-processor');
+      transcriberCaptureNode.port.onmessage = (event) => {
+        if (event.data.type !== 'audio-chunk' || !transcriberActive || !transcriberTabId) return;
+
+        const audio = event.data.audio;
+        window.postMessage({
+          type: 'limitr-bridge-transcriber-audio',
+          tabId: transcriberTabId,
+          audio
+        }, '*', [audio.buffer]);
+      };
+    }
+
+    try { transcriberInput.disconnect(); } catch (e) {}
+    transcriberInput.connect(transcriberCaptureNode);
+    transcriberCaptureNode.port.postMessage({ type: 'enable', enabled: true });
+  }
+
+  function connectSourcesToTranscriber() {
+    if (!transcriberActive || !transcriberInput) return;
+
+    connectedMedia.forEach(({ source }) => {
+      try { source.connect(transcriberInput); } catch (e) {}
+    });
+  }
+
+  async function startRegularTranscription(tabId) {
+    initAudio();
+    if (!audioContext) throw new Error('Audio processing is not initialized');
+    if (audioContext.state === 'suspended') await audioContext.resume();
+
+    const response = await requestBridgeAction(
+      'limitr-bridge-transcriber-start',
+      { tabId },
+      300000
+    );
+    if (!response?.success) {
+      throw new Error(response?.error || 'Failed to start transcriber');
+    }
+
+    transcriberTabId = tabId;
+    transcriberActive = true;
+    await ensureTranscriberCapture();
+    rebuildSignalChain();
+    return { success: true };
+  }
+
+  async function stopRegularTranscription(tabId) {
+    transcriberActive = false;
+    transcriberTabId = null;
+    if (transcriberCaptureNode) {
+      transcriberCaptureNode.port.postMessage({ type: 'enable', enabled: false });
+    }
+    try { transcriberInput?.disconnect(); } catch (e) {}
+
+    const response = await requestBridgeAction('limitr-bridge-transcriber-stop', { tabId });
+    return response || { success: true };
+  }
+
   function changeNoiseType(newType) {
     if (!audioContext || !noiseSource) return;
 
@@ -489,7 +880,7 @@
   }
 
   // Rebuild signal chain based on settings
-  // Chain: Source → [MonoMix] → [Dynamics] → [Bass Cut] → [EQ] → [Treble Cut] → [SoftClip] → [Limiter] → Output
+  // Chain: Source → [MonoMix] → [Dynamics] → [RNNoise] → [Bass Cut] → [EQ] → [Treble Cut] → [Gate] → [AGC] → [SoftClip] → [Limiter] → Output
   // Dynamics FIRST so loud sounds get tamed before hitting any frequency shaping
   function rebuildSignalChain() {
     if (!audioContext) return;
@@ -508,18 +899,37 @@
     try { trebleCutFilter.disconnect(); } catch (e) {}
     try { preLimiter.disconnect(); } catch (e) {}
     try { noiseSuppressorNode?.disconnect(); } catch (e) {}
+    try { gateInput.disconnect(); } catch (e) {}
+    try { gateNode.disconnect(); } catch (e) {}
+    try { gateAnalyser.disconnect(); } catch (e) {}
+    try { autoGainInput.disconnect(); } catch (e) {}
+    try { autoGainNode.disconnect(); } catch (e) {}
+    try { analyser.disconnect(); } catch (e) {}
+    try { duckingSidechainBP.disconnect(); } catch (e) {}
+    try { duckingAnalyser.disconnect(); } catch (e) {}
+    try { duckLowShelf.disconnect(); } catch (e) {}
+    try { duckHighShelf.disconnect(); } catch (e) {}
     try { softClipDriveGain.disconnect(); } catch (e) {}
     try { softClipCompGain.disconnect(); } catch (e) {}
+    try { peakGuardNode?.disconnect(); } catch (e) {}
     try { limiter.disconnect(); } catch (e) {}
     try { monoMixer.disconnect(); } catch (e) {}
 
     const bassCutActive = settings.filtersEnabled && settings.bassCutFreq > 20;
     const trebleCutActive = settings.filtersEnabled && settings.trebleCutFreq < 22050;
 
-    // Build tail of chain: [soft clipper] -> [limiter] -> outputGain
+    // Build tail of chain: [soft clipper] -> [limiter] -> [peak guard] -> outputGain
     let finalNode = outputGain;
+    const peakGuardActive = settings.peakGuardEnabled && peakGuardReady && peakGuardNode;
+    if (peakGuardActive) {
+      configurePeakGuard(true);
+      peakGuardNode.connect(outputGain);
+      finalNode = peakGuardNode;
+    } else {
+      configurePeakGuard(false);
+    }
     if (settings.limiterEnabled) {
-      limiter.connect(outputGain);
+      limiter.connect(finalNode);
       finalNode = limiter;
     }
     if (settings.softClipEnabled) {
@@ -530,15 +940,41 @@
     }
 
     if (!settings.enabled) {
-      // Bypass: sources connect directly to output
+      // Bypass must be unity gain; do not route through outputGain while disabled.
       connectedMedia.forEach(({ source }) => {
-        source.connect(outputGain);
+        source.connect(audioContext.destination);
       });
       eqActive = false;
       multibandActive = false;
       noiseGain.gain.value = 0;
       noiseSuppressorNode?.port.postMessage({ type: 'enable', enabled: false });
+      configurePeakGuard(false);
+      stopDucking();
+      stopGate();
+      stopAgc();
       return;
+    }
+
+    // Build tail of chain: [gate] -> [AGC] -> [soft clipper] -> [limiter] -> outputGain.
+    const gateActive = settings.gateEnabled;
+    const autoGainActive = settings.autoGainEnabled;
+    if (autoGainActive) {
+      autoGainInput.connect(analyser);
+      autoGainInput.connect(autoGainNode);
+      autoGainNode.connect(finalNode);
+      finalNode = autoGainInput;
+      startAgc();
+    } else {
+      stopAgc();
+    }
+    if (gateActive) {
+      gateInput.connect(gateAnalyser);
+      gateInput.connect(gateNode);
+      gateNode.connect(finalNode);
+      finalNode = gateInput;
+      startGate();
+    } else {
+      stopGate();
     }
 
     const noiseSuppressionActive = settings.noiseSuppressionEnabled && noiseSuppressorReady && noiseSuppressorNode;
@@ -584,35 +1020,7 @@
       noiseSuppressorNode?.port.postMessage({ type: 'enable', enabled: false });
     }
 
-    // Step 3: Connect bass cut -> next stage (EQ or treble cut or finalNode)
-    if (bassCutActive) {
-      if (settings.eqEnabled) {
-        bassCutFilter.connect(eqBands[0]);
-      } else if (trebleCutActive) {
-        bassCutFilter.connect(trebleCutFilter);
-      } else {
-        bassCutFilter.connect(finalNode);
-      }
-    }
-
-    // Step 4: Connect EQ -> next stage (treble cut or finalNode)
-    if (settings.eqEnabled) {
-      eqActive = true;
-      if (trebleCutActive) {
-        eqBands[4].connect(trebleCutFilter);
-      } else {
-        eqBands[4].connect(finalNode);
-      }
-    } else {
-      eqActive = false;
-    }
-
-    // Step 5: Connect treble cut -> finalNode
-    if (trebleCutActive) {
-      trebleCutFilter.connect(finalNode);
-    }
-
-    // Step 6: Determine entry point for sources (dynamics stage)
+    // Step 3: Determine entry point for sources before optional ducking.
     let entryNode;
     if (settings.multibandEnabled) {
       entryNode = null; // Special: sources connect to crossovers
@@ -630,24 +1038,74 @@
       entryNode = finalNode;
     }
 
-    // Connect all sources to the entry point (optionally through mono mixer)
-    connectedMedia.forEach(({ source }) => {
-      if (settings.monoMixEnabled) {
-        source.connect(monoMixer);
-        if (entryNode === null) {
-          monoMixer.connect(crossover1.lowpass);
-          monoMixer.connect(crossover1.highpass);
-        } else {
-          monoMixer.connect(entryNode);
-        }
-      } else if (entryNode === null) {
-        // Multiband: sources connect to crossovers
-        source.connect(crossover1.lowpass);
-        source.connect(crossover1.highpass);
+    const connectToEntry = (node) => {
+      if (entryNode === null) {
+        node.connect(crossover1.lowpass);
+        node.connect(crossover1.highpass);
       } else {
-        source.connect(entryNode);
+        node.connect(entryNode);
       }
-    });
+    };
+
+    const duckingEnabled = settings.duckingEnabled;
+    if (duckingEnabled) {
+      duckingSidechainBP.connect(duckingAnalyser);
+      duckLowShelf.connect(duckHighShelf);
+      connectToEntry(duckHighShelf);
+      startDucking();
+    } else {
+      stopDucking();
+    }
+
+    // Step 4: Connect bass cut -> next stage (EQ or treble cut or finalNode)
+    if (bassCutActive) {
+      if (settings.eqEnabled) {
+        bassCutFilter.connect(eqBands[0]);
+      } else if (trebleCutActive) {
+        bassCutFilter.connect(trebleCutFilter);
+      } else {
+        bassCutFilter.connect(finalNode);
+      }
+    }
+
+    // Step 5: Connect EQ -> next stage (treble cut or finalNode)
+    if (settings.eqEnabled) {
+      eqActive = true;
+      if (trebleCutActive) {
+        eqBands[4].connect(trebleCutFilter);
+      } else {
+        eqBands[4].connect(finalNode);
+      }
+    } else {
+      eqActive = false;
+    }
+
+    // Step 6: Connect treble cut -> finalNode
+    if (trebleCutActive) {
+      trebleCutFilter.connect(finalNode);
+    }
+
+    // Connect all sources to the entry point (optionally through mono mixer and ducking).
+    if (settings.monoMixEnabled) {
+      connectedMedia.forEach(({ source }) => source.connect(monoMixer));
+      if (duckingEnabled) {
+        monoMixer.connect(duckingSidechainBP);
+        monoMixer.connect(duckLowShelf);
+      } else {
+        connectToEntry(monoMixer);
+      }
+    } else {
+      connectedMedia.forEach(({ source }) => {
+        if (duckingEnabled) {
+          source.connect(duckingSidechainBP);
+          source.connect(duckLowShelf);
+        } else {
+          connectToEntry(source);
+        }
+      });
+    }
+
+    connectSourcesToTranscriber();
 
     // Handle noise
     noiseGain.gain.value = settings.effectsEnabled ? settings.noiseLevel : 0;
@@ -725,6 +1183,12 @@
       limiter.release.value = (settings.limiterRelease || 100) / 1000;
     }
 
+    configurePeakGuard();
+
+    // Auto-gain
+    agcTarget = settings.autoGainTarget;
+    setAgcSpeed(settings.autoGainSpeed || 'normal');
+
     // Noise
     noiseGain.gain.value = (settings.enabled && settings.effectsEnabled) ? settings.noiseLevel : 0;
     if (settings.noiseType !== currentNoiseType) {
@@ -733,6 +1197,7 @@
   }
 
   function connectMedia(element) {
+    if (!settings.enabled) return;
     if (!element || connectedMedia.has(element)) return;
 
     initAudio();
@@ -760,15 +1225,29 @@
   }
 
   function scanMedia() {
+    if (!settings.enabled) return;
     document.querySelectorAll('video, audio').forEach(connectMedia);
   }
 
   function observeDOM() {
-    const observer = new MutationObserver(() => scanMedia());
-    observer.observe(document.body || document.documentElement, {
+    if (scanObserver) return;
+    scanObserver = new MutationObserver(() => scanMedia());
+    scanObserver.observe(document.body || document.documentElement, {
       childList: true,
       subtree: true
     });
+  }
+
+  function stopScan() {
+    if (scanObserver) {
+      scanObserver.disconnect();
+      scanObserver = null;
+    }
+    if (scanIntervalId) {
+      clearInterval(scanIntervalId);
+      scanIntervalId = null;
+    }
+    scanStarted = false;
   }
 
   // Message handler — works via bridge (window.postMessage) in MAIN world
@@ -784,10 +1263,20 @@
       const oldLimiter = settings.limiterEnabled;
       const oldFilters = settings.filtersEnabled;
       const oldSoftClip = settings.softClipEnabled;
+      const oldPeakGuard = settings.peakGuardEnabled;
       const oldMonoMix = settings.monoMixEnabled;
       const oldNoiseSuppression = settings.noiseSuppressionEnabled;
+      const oldAutoGain = settings.autoGainEnabled;
+      const oldGate = settings.gateEnabled;
+      const oldDucking = settings.duckingEnabled;
 
       settings = { ...settings, ...message.settings };
+
+      if (settings.enabled) {
+        startScan();
+      } else {
+        stopScan();
+      }
 
       // Check if bass/treble cut routing needs to change (crossing the active threshold)
       const bassCutRoutingChanged = (settings.bassCutFreq > 20) !== (oldBassCut > 20);
@@ -802,8 +1291,12 @@
         oldLimiter !== settings.limiterEnabled ||
         oldFilters !== settings.filtersEnabled ||
         oldSoftClip !== settings.softClipEnabled ||
+        oldPeakGuard !== settings.peakGuardEnabled ||
         oldMonoMix !== settings.monoMixEnabled ||
         oldNoiseSuppression !== settings.noiseSuppressionEnabled ||
+        oldAutoGain !== settings.autoGainEnabled ||
+        oldGate !== settings.gateEnabled ||
+        oldDucking !== settings.duckingEnabled ||
         bassCutRoutingChanged || trebleCutRoutingChanged
       );
 
@@ -852,6 +1345,21 @@
         }
       }
       sendResponse({ lufs });
+    } else if (message.action === 'fallback-start-transcription') {
+      startRegularTranscription(message.tabId)
+        .then(response => sendResponse(response))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+    } else if (message.action === 'fallback-stop-transcription') {
+      stopRegularTranscription(message.tabId)
+        .then(response => sendResponse(response))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+    } else if (message.action === 'fallback-get-transcription-status') {
+      requestBridgeAction('limitr-bridge-transcriber-status', { tabId: message.tabId })
+        .then(response => sendResponse(response))
+        .catch(() => sendResponse({ active: false, ready: false, loading: false }));
+      return true;
     } else if (message.action === 'fallback-ping') {
       sendResponse({ active: true, mediaCount: connectedMedia.size, settings });
     }
@@ -905,21 +1413,35 @@
     } catch (e) {
       console.log('[Limitr Fallback] Could not load saved settings');
     }
-    startScan();
+    if (settings.enabled) {
+      startScan();
+    } else {
+      console.log('[Limitr Fallback] Content script loaded inactive (extension disabled)');
+    }
   }
 
   function startScan() {
-    if (document.body) {
+    if (scanStarted) return;
+    scanStarted = true;
+
+    const beginScan = () => {
+      if (!settings.enabled) {
+        scanStarted = false;
+        return;
+      }
       scanMedia();
       observeDOM();
+      if (!scanIntervalId) {
+        scanIntervalId = setInterval(scanMedia, 2000);
+      }
+      console.log('[Limitr Fallback] Content script loaded (MAIN world) - EQ + Multiband + Limiter + fullscreen compatible');
+    };
+
+    if (document.body) {
+      beginScan();
     } else {
-      document.addEventListener('DOMContentLoaded', () => {
-        scanMedia();
-        observeDOM();
-      });
+      document.addEventListener('DOMContentLoaded', beginScan, { once: true });
     }
-    setInterval(scanMedia, 2000);
-    console.log('[Limitr Fallback] Content script loaded (MAIN world) - EQ + Multiband + Limiter + fullscreen compatible');
   }
 
   async function init() {

@@ -89,6 +89,12 @@ const defaultSettings = {
   softClipEnabled: false,
   softClipDrive: 0,      // dB (0-12), drives signal into tanh curve
 
+  // === LOOKAHEAD PEAK GUARD (hidden streamer safety stage) ===
+  peakGuardEnabled: false,
+  peakGuardThreshold: -6,
+  peakGuardLookahead: 8,
+  peakGuardRelease: 120,
+
   // === MONO-TO-STEREO FIXER ===
   monoMixEnabled: false,  // Forces mono downmix → auto upmix to both channels
 
@@ -684,6 +690,40 @@ async function createAudioChain(tabId, mediaStreamId, initialSettings = {}) {
     console.log('[Limitr] Scheduling noise suppressor init...');
     initNoiseSuppressor();
 
+    // === LOOKAHEAD PEAK GUARD ===
+    // Hidden safety limiter for streamer scream presets. Initializes asynchronously.
+    let peakGuardNode = null;
+    let peakGuardReady = false;
+
+    const configurePeakGuard = (enabled = state?.settings.enabled && state?.settings.peakGuardEnabled) => {
+      if (!peakGuardNode) return;
+      const currentSettings = state?.settings || defaultSettings;
+      peakGuardNode.port.postMessage({
+        type: 'config',
+        enabled,
+        thresholdDb: currentSettings.peakGuardThreshold,
+        lookaheadMs: currentSettings.peakGuardLookahead,
+        releaseMs: currentSettings.peakGuardRelease
+      });
+    };
+
+    const initPeakGuard = async () => {
+      try {
+        const workletUrl = chrome.runtime.getURL('lib/peak-guard-worklet.js');
+        await audioContext.audioWorklet.addModule(workletUrl);
+        peakGuardNode = new AudioWorkletNode(audioContext, 'peak-guard-processor');
+        peakGuardReady = true;
+        configurePeakGuard();
+        const currentState = tabAudioState.get(tabId);
+        if (currentState && currentState.settings.peakGuardEnabled) {
+          rebuildSignalChain(currentState);
+        }
+        console.log('[Limitr] Peak guard ready');
+      } catch (error) {
+        console.error('[Limitr] Failed to initialize peak guard:', error);
+      }
+    };
+
     // === LUFS METER (K-weighted loudness measurement) ===
     // Stage 1: High-shelf pre-filter (~+4dB at high frequencies, models head acoustics)
     const lufsPreFilter = audioContext.createBiquadFilter();
@@ -787,6 +827,9 @@ async function createAudioChain(tabId, mediaStreamId, initialSettings = {}) {
       softClipper,
       softClipDriveGain,
       softClipCompGain,
+      // Lookahead peak guard
+      getPeakGuard: () => ({ node: peakGuardNode, ready: peakGuardReady }),
+      configurePeakGuard,
       // Mono-to-stereo fixer
       monoMixer,
       // Limiter
@@ -852,6 +895,7 @@ async function createAudioChain(tabId, mediaStreamId, initialSettings = {}) {
     };
 
     tabAudioState.set(tabId, state);
+    initPeakGuard();
 
     if (Object.keys(initialSettings).length > 0) {
       updateSettings(tabId, initialSettings, true);
@@ -869,17 +913,19 @@ async function createAudioChain(tabId, mediaStreamId, initialSettings = {}) {
 
 // Rebuild the signal chain based on current settings
 function rebuildSignalChain(state) {
-  const { source, compressor, makeupGain, outputGain,
+  const { audioContext, source, compressor, makeupGain, outputGain,
           crossover1, multibandSum, eqBands, bassCutFilter, trebleCutFilter,
           softClipper, softClipDriveGain, softClipCompGain, monoMixer,
           limiter, preLimiter, autoGainNode, analyser, setAgcEnabled,
           gateNode, gateAnalyser, setGateEnabled,
           duckingSidechainBP, duckLowShelf, duckHighShelf, setDuckingEnabled,
           lufsPreFilter, lufsRlbFilter, lufsAnalyser: lufsAnalyserNode,
-          getNoiseSuppressor, setNoiseSuppressorEnabled, settings } = state;
+          getNoiseSuppressor, setNoiseSuppressorEnabled,
+          getPeakGuard, configurePeakGuard, settings } = state;
 
   // Get noise suppressor state
   const { node: noiseSuppressorNode, ready: noiseSuppressorReady } = getNoiseSuppressor();
+  const { node: peakGuardNode, ready: peakGuardReady } = getPeakGuard();
 
   // Disconnect everything
   source.disconnect();
@@ -899,6 +945,7 @@ function rebuildSignalChain(state) {
   softClipDriveGain.disconnect();
   try { softClipper.disconnect(); } catch (e) {}
   try { softClipCompGain.disconnect(); } catch (e) {}
+  try { peakGuardNode?.disconnect(); } catch (e) {}
   try { monoMixer.disconnect(); } catch (e) {}
   limiter.disconnect();
   preLimiter.disconnect();
@@ -911,14 +958,11 @@ function rebuildSignalChain(state) {
 
   // If disabled, bypass all processing
   if (!settings.enabled) {
-    source.connect(outputGain);
-    // LUFS meter still active when bypassed
-    outputGain.connect(lufsPreFilter);
-    lufsPreFilter.connect(lufsRlbFilter);
-    lufsRlbFilter.connect(lufsAnalyserNode);
+    source.connect(audioContext.destination);
     state.eqActive = false;
     state.multibandActive = false;
     if (noiseSuppressorNode) setNoiseSuppressorEnabled(false);
+    configurePeakGuard(false);
     setAgcEnabled(false);
     setGateEnabled(false);
     setDuckingEnabled(false);
@@ -1038,6 +1082,16 @@ function rebuildSignalChain(state) {
     currentNode = limiter;
   }
 
+  // Lookahead peak guard catches first transients before final volume.
+  const peakGuardActive = settings.peakGuardEnabled && peakGuardReady && peakGuardNode;
+  if (peakGuardActive) {
+    configurePeakGuard(true);
+    currentNode.connect(peakGuardNode);
+    currentNode = peakGuardNode;
+  } else {
+    configurePeakGuard(false);
+  }
+
   // Final output
   currentNode.connect(outputGain);
 
@@ -1047,7 +1101,7 @@ function rebuildSignalChain(state) {
   lufsPreFilter.connect(lufsRlbFilter);
   lufsRlbFilter.connect(lufsAnalyserNode);
 
-  console.log(`[Limitr] Signal chain: Ducking=${settings.duckingEnabled ? settings.duckingAmount + 'dB' : 'off'} -> Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> PreLimiter=${noiseSuppressionActive ? '-1dB' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.filtersEnabled && settings.trebleCutFreq < 22050 ? settings.trebleCutFreq + 'Hz' : 'off'} -> Gate=${settings.gateEnabled ? settings.gateThreshold + 'dB' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'} -> LUFS`);
+  console.log(`[Limitr] Signal chain: Ducking=${settings.duckingEnabled ? settings.duckingAmount + 'dB' : 'off'} -> Dynamics=${settings.multibandEnabled ? 'multiband' : settings.compressorEnabled ? 'compressor' : 'off'} -> PreLimiter=${noiseSuppressionActive ? '-1dB' : 'off'} -> NoiseSuppression=${noiseSuppressionActive ? 'on' : 'off'} -> BassCut=${bassCutActive ? settings.bassCutFreq + 'Hz' : 'off'} -> EQ=${settings.eqEnabled} -> TrebleCut=${settings.filtersEnabled && settings.trebleCutFreq < 22050 ? settings.trebleCutFreq + 'Hz' : 'off'} -> Gate=${settings.gateEnabled ? settings.gateThreshold + 'dB' : 'off'} -> AutoGain=${settings.autoGainEnabled ? settings.autoGainTarget + 'dB' : 'off'} -> Limiter=${settings.limiterEnabled ? settings.limiterThreshold + 'dB' : 'off'} -> PeakGuard=${peakGuardActive ? settings.peakGuardThreshold + 'dB' : 'off'} -> LUFS`);
 }
 
 // Update settings for a tab
@@ -1058,7 +1112,7 @@ function updateSettings(tabId, newSettings, forceRebuild = false) {
   const { compressor, makeupGain, outputGain, noiseGain,
           crossover1, crossover2, subBand, midBand, highBand, eqBands,
           bassCutFilter, trebleCutFilter, softClipDriveGain, softClipCompGain,
-          limiter, setAgcTarget, setAgcSpeed } = state;
+          limiter, setAgcTarget, setAgcSpeed, configurePeakGuard } = state;
 
   const oldNoiseType = state.settings.noiseType;
   const oldBassCut = state.settings.bassCutFreq;
@@ -1086,6 +1140,7 @@ function updateSettings(tabId, newSettings, forceRebuild = false) {
     newSettings.gateEnabled !== undefined && newSettings.gateEnabled !== state.settings.gateEnabled ||
     newSettings.duckingEnabled !== undefined && newSettings.duckingEnabled !== state.settings.duckingEnabled ||
     newSettings.softClipEnabled !== undefined && newSettings.softClipEnabled !== state.settings.softClipEnabled ||
+    newSettings.peakGuardEnabled !== undefined && newSettings.peakGuardEnabled !== state.settings.peakGuardEnabled ||
     newSettings.monoMixEnabled !== undefined && newSettings.monoMixEnabled !== state.settings.monoMixEnabled ||
     newSettings.filtersEnabled !== undefined && newSettings.filtersEnabled !== state.settings.filtersEnabled ||
     bassCutRoutingChanged || trebleCutRoutingChanged
@@ -1178,6 +1233,16 @@ function updateSettings(tabId, newSettings, forceRebuild = false) {
     limiter.release.value = s.limiterRelease / 1000;
   }
 
+  if (
+    newSettings.peakGuardEnabled !== undefined ||
+    newSettings.peakGuardThreshold !== undefined ||
+    newSettings.peakGuardLookahead !== undefined ||
+    newSettings.peakGuardRelease !== undefined ||
+    newSettings.enabled !== undefined
+  ) {
+    configurePeakGuard(s.enabled && s.peakGuardEnabled);
+  }
+
   // Auto-Gain
   if (newSettings.autoGainTarget !== undefined) {
     setAgcTarget(s.autoGainTarget);
@@ -1209,16 +1274,17 @@ function setEnabled(tabId, enabled) {
   state.enabled = enabled;
   state.settings.enabled = enabled;
 
-  const { source, outputGain, noiseGain } = state;
+  const { audioContext, source, noiseGain } = state;
 
   if (enabled) {
     rebuildSignalChain(state);
     noiseGain.gain.value = state.settings.effectsEnabled ? state.settings.noiseLevel : 0;
   } else {
-    // Bypass: direct to output
+    // Bypass at unity gain; disabled must not apply outputGain or processing.
     source.disconnect();
-    source.connect(outputGain);
+    source.connect(audioContext.destination);
     noiseGain.gain.value = 0;
+    state.configurePeakGuard(false);
   }
 
   return true;
