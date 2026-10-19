@@ -87,6 +87,16 @@ async function runIn(browserType, port) {
     }
   }
 
+  console.log('\nPage script (content-audio.js)');
+  const pageScript = await browser.newPage();
+  await pageScript.goto(`http://127.0.0.1:${port}/tests/page-script-bench.html`);
+  await pageScript.waitForFunction(() => window.benchReady === true);
+  await pageScript.click('#play');
+  await pageScript.waitForTimeout(1500);
+  const status = await pageScript.evaluate(() => window.pageStatus);
+  check('player attaches once a slow-starting AudioContext runs, with no second click',
+    status && status.attached === 1 && status.waitingForGesture === 0, JSON.stringify(status));
+
   await browser.close();
   return rows;
 }

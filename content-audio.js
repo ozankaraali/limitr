@@ -44,6 +44,7 @@
   const skippedElements = new WeakSet();
   const sources = [];
   let gestureListening = false;
+  let gestureListener = null;
   let transcriber = null;
   let transcriberPending = null;
   const GESTURES = ['pointerdown', 'keydown', 'touchend', 'click'];
@@ -124,6 +125,11 @@
     });
     engine.update(state.settings, isActive());
     engine.output.connect(ctx.destination);
+    // The context can start after resume() stopped waiting for it (a slow start, or a gesture we
+    // didn't see); players parked until then must attach without needing another click.
+    ctx.addEventListener('statechange', () => {
+      if (ctx.state === 'running') attachWaiting();
+    });
     enginePromise = engine.init().then(() => engine);
     return enginePromise;
   }
@@ -185,15 +191,21 @@
     const onGesture = () => {
       if (!ctx) return;
       ctx.resume().then(() => {
-        if (ctx.state !== 'running') return;
-        gestureListening = false;
-        for (const type of GESTURES) window.removeEventListener(type, onGesture, true);
-        const pending = [...waiting];
-        waiting.clear();
-        pending.forEach(el => considerElement(el));
+        if (ctx.state === 'running') attachWaiting();
       }).catch(() => {});
     };
+    gestureListener = onGesture;
     for (const type of GESTURES) window.addEventListener(type, onGesture, true);
+  }
+
+  function attachWaiting() {
+    if (gestureListening) {
+      gestureListening = false;
+      for (const type of GESTURES) window.removeEventListener(type, gestureListener, true);
+    }
+    const pending = [...waiting];
+    waiting.clear();
+    pending.forEach(el => considerElement(el));
   }
 
   async function considerElement(el) {
