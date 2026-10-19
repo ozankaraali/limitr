@@ -1245,9 +1245,14 @@ async function init() {
       .catch(() => {});
   }
   refreshCaptions();
-  pollMeters();
   setInterval(refreshTabStatus, STATUS_INTERVAL_MS);
-  await refreshTabStatus();
+  // Meters come from the frame (or capture) the status finds, so the first poll waits for it
+  // instead of polling empty-handed and trying again a timer tick later
+  try {
+    await refreshTabStatus();
+  } finally {
+    pollMeters();
+  }
   if (state.mode === 'capture' && state.enabled && !state.restricted && !state.captured) captureCurrentTab();
 }
 
