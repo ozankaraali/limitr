@@ -1,25 +1,29 @@
 #!/usr/bin/env node
+// Builds dist/firefox: same code, Firefox manifest (no Chrome-only tab capture / offscreen).
 
 const fs = require('fs/promises');
 const path = require('path');
 
 const rootDir = __dirname;
-const outDir = path.join(rootDir, 'dist', 'firefox');
-const skippedRootEntries = new Set([
-  '.claude',
-  '.git',
-  '.playwright-mcp',
-  'dist',
-  'node_modules'
-]);
-const skippedFirefoxDirectories = new Set(['tests']);
-const skippedFirefoxFiles = new Set([
+// --test adds a small agent the Firefox E2E test drives (never ship that build)
+const testBuild = process.argv.includes('--test');
+const outDir = path.join(rootDir, 'dist', testBuild ? 'firefox-test' : 'firefox');
+const skippedRootEntries = new Set(['.claude', '.git', '.playwright-mcp', 'dist', 'node_modules', 'docs']);
+const skippedFiles = new Set([
   'build-firefox.js',
+  'package.json',
+  'package-lock.json',
   'icons/generate-icons.html',
   'icons/genicons.js',
   'offscreen.html',
   'offscreen.js'
 ]);
+// Only the debug harness ships from tests/
+const keptTestFiles = new Set(['tests/debug-harness.html', 'tests/debug-harness.js']);
+if (testBuild) {
+  keptTestFiles.add('tests/firefox-test-agent.js');
+  keptTestFiles.add('tests/firefox-test-hook.js');
+}
 
 function toRelativePath(filePath) {
   return path.relative(rootDir, filePath).split(path.sep).join('/');
@@ -31,15 +35,16 @@ async function copyDirectory(sourceDir, targetDir, isRoot = false) {
 
   for (const entry of entries) {
     if (isRoot && skippedRootEntries.has(entry.name)) continue;
-    if (entry.name === '.DS_Store' || entry.name.endsWith('.csv')) continue;
+    if (entry.name.startsWith('.') || entry.name.endsWith('.csv')) continue;
 
     const sourcePath = path.join(sourceDir, entry.name);
     const targetPath = path.join(targetDir, entry.name);
     const relativePath = toRelativePath(sourcePath);
-    if (skippedFirefoxFiles.has(relativePath)) continue;
+    if (skippedFiles.has(relativePath)) continue;
+    if (relativePath.startsWith('tests/') && entry.isFile() && !keptTestFiles.has(relativePath)) continue;
+    if (relativePath.startsWith('tests/') && entry.isDirectory()) continue;
 
     if (entry.isDirectory()) {
-      if (skippedFirefoxDirectories.has(relativePath)) continue;
       await copyDirectory(sourcePath, targetPath);
     } else if (entry.isFile()) {
       await fs.copyFile(sourcePath, targetPath);
@@ -48,37 +53,21 @@ async function copyDirectory(sourceDir, targetDir, isRoot = false) {
 }
 
 async function writeFirefoxManifest() {
-  const manifestPath = path.join(rootDir, 'manifest.json');
-  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-
-  manifest.permissions = manifest.permissions.filter(
-    permission => permission !== 'tabCapture' && permission !== 'offscreen'
-  );
+  const manifest = JSON.parse(await fs.readFile(path.join(rootDir, 'manifest.json'), 'utf8'));
+  manifest.permissions = manifest.permissions.filter(p => p !== 'tabCapture' && p !== 'offscreen');
   manifest.background = {
-    scripts: ['background.js'],
+    scripts: manifest.background.scripts,
     preferred_environment: ['document']
   };
-  manifest.web_accessible_resources = [
-    {
-      resources: [
-        'lib/noise-suppressor-worklet.js',
-        'lib/peak-guard-worklet.js',
-        'lib/rnnoise.wasm',
-        'lib/transformers.min.js',
-        'lib/transcriber.js',
-        'lib/ort.bundle.min.mjs',
-        'lib/ort-wasm-simd-threaded.jsep.wasm',
-        'lib/ort-wasm-simd-threaded.jsep.mjs',
-        'lib/transcriber-capture-worklet.js'
-      ],
-      matches: ['<all_urls>']
-    }
-  ];
-
-  await fs.writeFile(
-    path.join(outDir, 'manifest.json'),
-    `${JSON.stringify(manifest, null, 2)}\n`
-  );
+  if (testBuild) {
+    manifest.background.scripts.push('tests/firefox-test-hook.js');
+    manifest.content_scripts.push({
+      matches: ['http://127.0.0.1/*'],
+      js: ['tests/firefox-test-agent.js'],
+      run_at: 'document_start'
+    });
+  }
+  await fs.writeFile(path.join(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 async function main() {

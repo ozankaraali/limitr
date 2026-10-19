@@ -2,3 +2,5 @@ node_modules/
 .playwright-mcp/
 dist/
 *.csv
+.superpowers/
+.DS_Store

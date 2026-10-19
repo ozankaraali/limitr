@@ -1,46 +1,58 @@
 # Privacy Policy for Limitr
 
-**Last updated:** February 2, 2026
+**Last updated:** October 19, 2026
 
 ## Overview
 
-Limitr is a browser extension that processes audio in real-time to provide compression, limiting, and normalization features for streaming sites.
+Limitr is a browser extension that processes audio in real time to tame sudden loud spikes on streaming
+and video sites.
 
-## Data Collection
+## Data collection
 
-**Limitr does not collect, store, or transmit any personal data.**
+**Limitr does not collect, store or transmit any personal data.**
 
-### What we store locally:
-- Your audio processing preferences (threshold, ratio, presets, etc.)
-- Extension enabled/disabled state
+### What is stored locally
 
-This data is stored locally in your browser using Chrome's storage API and never leaves your device.
+- Your audio settings and saved presets
+- Whether Limitr is on, and how it listens (inside the page or the whole tab)
 
-### What we don't do:
-- We don't collect browsing history
-- We don't collect personal information
-- We don't track your activity
-- We don't send any data to external servers
-- We don't use analytics or tracking tools
+This data is stored with the browser's extension storage API and never leaves your device.
 
-## Permissions Explained
+### What Limitr doesn't do
 
-- **storage**: Required to save your preferences locally
-- **tabCapture**: Required to capture and process audio from browser tabs (Mixer mode)
-- **offscreen**: Required to run audio processing in an offscreen document
-- **tabs**: Required to identify which tabs are playing audio
-- **scripting**: Required to inject audio processing code into pages (Default mode)
-- **host_permissions (`<all_urls>`)**: Required to access audio elements on any website
+- It doesn't collect browsing history or personal information
+- It doesn't track your activity or use analytics
+- It doesn't send audio or any other data to a server
 
-## Open Source
+### Live captions
 
-Limitr is open source. You can review the complete source code at:
+The first time you turn on live captions, Limitr downloads open speech-recognition models from
+Hugging Face: Moonshine for English, and Whisper (77 MB) the first time you pick another language or
+automatic detection. On Chrome or Edge with a capable graphics card, Whisper uses a larger 410 MB model
+instead. Recognition then runs entirely on your computer. No audio is uploaded.
+
+Translated captions use your browser's built-in on-device translator (Chrome and Edge). The first
+time you translate between two languages, the browser downloads that language pack itself. Text is
+translated on your computer and is not sent anywhere by Limitr.
+
+## Permissions explained
+
+- **storage**: saves your settings locally
+- **tabs**: shows which tabs are playing audio and updates the toolbar icon per tab
+- **scripting** and **host access to all sites**: routes video and audio players through Limitr's audio
+  engine on the sites you visit, and draws captions or the CRT look over videos when you turn them on
+- **contextMenus**: adds the Debug Harness entry to the toolbar icon's menu
+- **tabCapture** and **offscreen** (Chrome only): the Whole tab listening mode
+
+## Open source
+
+Limitr is open source. You can review the complete source code at
 https://github.com/ozankaraali/limitr
 
 ## Contact
 
-For questions about this privacy policy, please open an issue on GitHub or contact the developer.
+For questions about this policy, open an issue on GitHub.
 
 ## Changes
 
-Any changes to this privacy policy will be reflected in this document with an updated date.
+Changes to this policy will be reflected in this document with an updated date.

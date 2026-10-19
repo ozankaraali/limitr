@@ -2,15 +2,19 @@
   "manifest_version": 3,
   "name": "Limitr",
   "short_name": "Limitr",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "author": "Ozan Karaali",
-  "description": "Audio compressor, limiter, and normalizer for any browser tab",
+  "description": "Tames sudden loud spikes — alerts, yelling, explosions — so you can watch and sleep in peace",
   "browser_specific_settings": {
     "gecko": {
       "id": "limitr@ozankaraali.dev",
+      "strict_min_version": "140.0",
       "data_collection_permissions": {
         "required": ["none"]
       }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
     }
   },
   "permissions": [
@@ -40,24 +44,36 @@
     "128": "icons/icon128.png"
   },
   "background": {
-    "scripts": ["background.js"],
+    "scripts": ["lib/settings.js", "background.js"],
     "preferred_environment": ["service_worker", "document"],
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["lib/settings.js", "content-bridge.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["lib/engine.js", "content-audio.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true,
+      "world": "MAIN"
+    }
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "web_accessible_resources": [
     {
       "resources": [
+        "lib/dsp-worklet.js",
         "lib/noise-suppressor-worklet.js",
-        "lib/peak-guard-worklet.js",
         "lib/rnnoise.wasm",
-        "lib/transformers.min.js",
-        "lib/transcriber.js",
-        "lib/ort.bundle.min.mjs",
-        "lib/ort-wasm-simd-threaded.jsep.wasm",
-        "lib/ort-wasm-simd-threaded.jsep.mjs",
         "lib/transcriber-capture-worklet.js"
       ],
       "matches": ["<all_urls>"]
