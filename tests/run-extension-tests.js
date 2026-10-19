@@ -7,6 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const { chromium } = require('playwright');
 const { startStaticServer } = require('./static-server');
+const { streamWav } = require('./stream-audio');
 
 const EXTENSION = path.join(__dirname, '..');
 // Unpacked extension IDs derive from the path; allowlisting it lets tabCapture run without
@@ -85,6 +86,16 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(page(`http://localhost:${port}`));
     },
+    '/stream.wav': (req, res) => {
+      const wav = streamWav();
+      res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': wav.length });
+      res.end(wav);
+    },
+    '/stream.html': (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<!DOCTYPE html><html><body><button id="play">Play</button><audio id="a" src="/stream.wav" loop></audio>' +
+        '<script>document.getElementById("play").onclick = () => document.getElementById("a").play();</script></body></html>');
+    },
     '/remote-only.html': (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(`<!DOCTYPE html><html><body><button id="play">Play</button>
@@ -128,29 +139,40 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     // Every screen in both themes, cropped to the popup's real height (README + store artwork)
     async function takeScreenshots() {
       await worker.evaluate(() => chrome.storage.local.set({ limitrCaptions: { language: 'tr', translateTo: 'en' } }));
+      // A realistic stream (talking, an alert at 7 s, a yell at 14.5 s) instead of the test tones
+      const streamTab = await context.newPage();
+      await streamTab.goto(`http://127.0.0.1:${port}/stream.html`);
+      const streamId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'http://127.0.0.1/stream.html' }))[0].id);
+      await streamTab.click('#play');
       const shot = await context.newPage();
       await shot.setViewportSize({ width: 360, height: 600 });
-      await shot.goto(`chrome-extension://${extensionId}/popup.html?tabId=${tabId}`);
-      await sleep(3000);
+      await shot.goto(`chrome-extension://${extensionId}/popup.html?tabId=${streamId}`);
       const save = async name => {
         const height = await shot.evaluate(() => Math.ceil(document.querySelector('.popup').getBoundingClientRect().height));
         await shot.screenshot({ path: path.join(screenshotDir, `${name}.png`), clip: { x: 0, y: 0, width: 360, height } });
       };
       const say = (text, translation) => worker.evaluate(m => chrome.runtime.sendMessage(m),
-        { action: 'transcription-result', tabId, result: { text, translation } });
-      for (const [scheme, tag] of [['dark', 'night'], ['light', 'day']]) {
+        { action: 'transcription-result', tabId: streamId, result: { text, translation } });
+      const themes = [['dark', 'night'], ['light', 'day']];
+
+      // Main screen right after the yell, while the alert and the yell are both in the trace
+      await sleep(17000);
+      for (const [scheme, tag] of themes) {
         await shot.emulateMedia({ colorScheme: scheme });
-        await sleep(600);
+        await sleep(300);
         await save(`popup-main-${tag}`);
+      }
+      for (const [scheme, tag] of themes) {
+        await shot.emulateMedia({ colorScheme: scheme });
         await shot.click('.nav-row[data-open="finetune"]');
-        await sleep(600);
+        await sleep(400);
         await save(`popup-finetune-${tag}`);
         await shot.click('[data-screen="finetune"] .back');
         await shot.click('.nav-row[data-open="listening"]');
         await sleep(300);
         await save(`popup-listening-${tag}`);
         await shot.click('[data-screen="listening"] .back');
-        await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'active' }), tabId);
+        await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'active' }), streamId);
         await sleep(200);
         await shot.click('#captionsChip');
         await shot.evaluate(() => { document.getElementById('transcript').replaceChildren(); });
@@ -159,13 +181,17 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
         await sleep(300);
         await save(`popup-captions-${tag}`);
         await shot.click('[data-screen="captions"] .back');
-        await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'stopped' }), tabId);
+        await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'stopped' }), streamId);
       }
+      // Sleep preset at night, after the stream loops back round to its alert and yell
       await shot.emulateMedia({ colorScheme: 'dark' });
       await shot.click('[role="radio"]:has-text("Sleep")');
-      await sleep(1500);
+      const loopedAt = 24000 + 16500;
+      await sleep(Math.max(0, loopedAt - 17000 - 12000));
       await save('popup-sleep-night');
+      await shot.click('[role="radio"]:has-text("Stream")');
       await shot.close();
+      await streamTab.close();
       await worker.evaluate(() => chrome.storage.local.remove('limitrCaptions'));
     }
 

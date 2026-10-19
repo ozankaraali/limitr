@@ -12,7 +12,7 @@ const outArg = (process.argv.find(a => a.startsWith('--out=')) || '').slice('--o
 const outDir = outArg
   ? path.resolve(rootDir, outArg)
   : path.join(rootDir, 'dist', testBuild ? 'firefox-test' : 'firefox');
-const skippedRootEntries = new Set(['.claude', '.git', '.playwright-mcp', 'dist', 'node_modules', 'docs']);
+const skippedRootEntries = new Set(['.claude', '.git', '.playwright-mcp', '.superpowers', 'dist', 'node_modules', 'docs', 'tools']);
 const skippedFiles = new Set([
   'build-firefox.js',
   'package.json',

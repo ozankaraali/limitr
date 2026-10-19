@@ -786,11 +786,16 @@ function drawTrace(canvas, history, options = {}) {
     g.stroke();
     g.setLineDash([]);
     if (options.label) {
-      g.globalAlpha = 0.85;
-      g.fillStyle = colors.spike;
+      // Label on a backing in the page colour so the curve never runs through the text
+      const text = 'Taming starts here';
       g.font = "600 20px 'IBM Plex Sans', sans-serif";
       g.textBaseline = 'bottom';
-      g.fillText('Taming starts here', 0, y(last.limit) - 4);
+      const labelY = y(last.limit) - 4;
+      g.globalAlpha = 0.85;
+      g.fillStyle = colors.bg;
+      g.fillRect(0, labelY - 24, g.measureText(text).width + 8, 24);
+      g.fillStyle = colors.spike;
+      g.fillText(text, 0, labelY);
     }
     g.globalAlpha = 1;
   }

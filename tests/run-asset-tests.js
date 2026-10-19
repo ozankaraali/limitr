@@ -95,6 +95,25 @@ function backgroundIconPaths() {
     for (const rel of refs) check(`${page} → ${rel}`, exists(rel));
   }
 
+  console.log('\nStore artwork');
+  const STORE = [
+    ['docs/store/icon-128.png', 128, 128],
+    ['docs/store/logo-edge-300.png', 300, 300],
+    ['docs/store/promo-small-440x280.png', 440, 280],
+    ['docs/store/promo-marquee-1400x560.png', 1400, 560],
+    ...[1, 2, 3, 4].map(n => [`docs/store/screenshot-${n}-1280x800.png`, 1280, 800])
+  ];
+  for (const [rel, w, h] of STORE) {
+    const meta = exists(rel) ? await sharp(path.join(ROOT, rel)).metadata() : null;
+    check(`${rel} is ${w}×${h}`, meta && meta.width === w && meta.height === h, meta ? `${meta.width}×${meta.height}` : 'missing');
+  }
+
+  console.log('\nImages the README shows');
+  const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const images = [...readme.matchAll(/<img[^>]+src="([^"]+)"/g), ...readme.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map(m => m[1]);
+  check('README shows the new popup screenshots', images.some(src => /popup-main-(night|day)\.png$/.test(src)), images.join(', '));
+  for (const src of images) check(`README → ${src}`, exists(src));
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);
 })().catch(err => {

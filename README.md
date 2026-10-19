@@ -11,8 +11,9 @@
 
 <table align="center">
   <tr>
-    <td valign="top"><img src="docs/assets/popup-main.png" alt="Limitr popup" width="270"></td>
-    <td valign="top"><img src="docs/assets/popup-finetune.png" alt="Fine-tune settings" width="270"></td>
+    <td valign="top"><img src="docs/assets/popup-main-night.png" alt="Limitr at night, catching an alert and a yell" width="260"></td>
+    <td valign="top"><img src="docs/assets/popup-main-day.png" alt="The same popup in the day theme" width="260"></td>
+    <td valign="top"><img src="docs/assets/popup-finetune-night.png" alt="Fine-tune with the live loudness strip" width="260"></td>
   </tr>
 </table>
 
@@ -22,8 +23,11 @@ Limitr learns how loud the stream normally is, from the last ~20 seconds of talk
 that jumps more than a few dB above that back down within milliseconds. A short lookahead lets it act
 before the loud part reaches your ears. Normal audio passes through untouched, so quality stays intact.
 
-The popup shows a live loudness trace. Purple is what you hear, amber is what Limitr shaved off, and the
-dashed line is where taming starts. It also counts the spikes it has caught.
+The popup shows a live loudness trace. Purple is what you hear, gold is what Limitr shaved off, and the
+dashed line is where taming starts. It also counts the spikes it has caught. The toolbar icon is gray when
+Limitr is off, purple when it's on, gold while it's working on the tab, and red when sound is playing
+unprotected and Limitr needs you (the popup says what to do). The popup follows your system's light or
+dark setting.
 
 ### Presets
 
@@ -97,6 +101,8 @@ npm test                 # engine checks in Chromium + Firefox, and Chromium end
 npm run test:firefox     # end-to-end in your installed Firefox
 npm run build:firefox
 npm run lint:firefox
+npm run icons            # toolbar and app icons from icons/mark.svg
+npm run store-art        # README screenshots and store artwork in docs/store/
 ```
 
 - `tests/run-engine-tests.js` renders a synthetic stream (talking, a sudden yell, an alert chime, a clap)

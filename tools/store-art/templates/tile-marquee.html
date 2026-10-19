@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="base.css">
+  <style>
+    body { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 64px; padding: 0 96px; }
+    .mark { width: 120px; height: 120px; margin-bottom: 24px; }
+    .name { font-size: 76px; }
+    .line { margin-top: 10px; font-size: 32px; color: var(--text); }
+    .more { margin-top: 18px; max-width: 34ch; font-size: 22px; line-height: 1.45; color: var(--muted); }
+    .popup { width: 330px; margin-top: 70px; }
+  </style>
+</head>
+<body>
+  <div>
+    <svg class="mark" viewBox="0 0 100 100"><use href="#wave"/></svg>
+    <h1 class="name">Limitr</h1>
+    <p class="line">Tames sudden loud spikes</p>
+    <p class="more">Alerts, blerps and sudden yelling are pulled back the moment they jump. Normal talking stays untouched.</p>
+  </div>
+  <img class="popup" src="../../../docs/assets/popup-main-night.png" alt="">
+</body>
+</html>
