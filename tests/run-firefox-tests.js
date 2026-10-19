@@ -96,7 +96,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     executablePath: FIREFOX,
     headless: true,
     extraPrefsFirefox: {
-      // Audio is still processed, just never sent to the speakers
+      // Audio is still processed, just scaled to silence at the output. (A null audio device,
+      // media.cubeb.force_null_context, would stop real-time Web Audio from running at all.)
       'media.volume_scale': '0.0',
       // No WebGPU: speech-model GPU runs have crashed Firefox's GPU process
       'dom.webgpu.enabled': false,

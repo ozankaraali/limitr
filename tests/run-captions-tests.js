@@ -80,7 +80,7 @@ function wordRecall(lang, captions) {
   const context = await chromium.launchPersistentContext(profile, {
     channel: 'chromium',
     headless: true,
-    args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`, '--disable-gpu']
+    args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`, '--disable-gpu', '--disable-audio-output']
   });
 
   try {

@@ -33,7 +33,11 @@ function check(label, ok, detail) {
 
 async function runIn(browserType, port) {
   // Offline rendering needs neither the GPU nor the speakers
-  const browser = await browserType.launch(browserType.name() === 'chromium' ? { args: ['--disable-gpu'] } : {});
+  // Off the GPU and silent. Chromium: fake audio output device, so the speakers are never opened.
+  // Firefox: volume scaled to zero (a null audio device would stop real-time Web Audio running).
+  const browser = await browserType.launch(browserType.name() === 'chromium'
+    ? { args: ['--disable-gpu', '--disable-audio-output'] }
+    : { firefoxUserPrefs: { 'media.volume_scale': '0.0' } });
   const page = await browser.newPage();
   page.on('pageerror', e => console.log('  page error:', e.message));
   page.on('console', m => { if (m.type() === 'error') console.log('  console:', m.text()); });
