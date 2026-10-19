@@ -54,7 +54,9 @@ function names(events) {
   return { threads, processes };
 }
 
-// Busy milliseconds per thread: top-level scheduler tasks (nested ones are skipped)
+// Busy milliseconds per thread from top-level scheduler tasks (nested ones are skipped).
+// ms is CPU time where the trace has it (tdur), which doesn't count time the thread was
+// descheduled on a busy machine; wallMs is the tasks' wall time.
 function busyByThread(events) {
   const { threads, processes } = names(events);
   const byThread = new Map();
@@ -65,12 +67,15 @@ function busyByThread(events) {
     const key = `${e.pid}:${e.tid}`;
     if ((openUntil.get(key) || 0) > e.ts) continue;
     openUntil.set(key, e.ts + (e.dur || 0));
-    byThread.set(key, (byThread.get(key) || 0) + (e.dur || 0) / 1000);
+    const sums = byThread.get(key) || { wall: 0, cpu: 0 };
+    sums.wall += (e.dur || 0) / 1000;
+    sums.cpu += (e.tdur !== undefined ? e.tdur : e.dur || 0) / 1000;
+    byThread.set(key, sums);
   }
-  return [...byThread.entries()].map(([key, ms]) => {
+  return [...byThread.entries()].map(([key, sums]) => {
     const pid = Number(key.split(':')[0]);
     const proc = processes.get(pid) || {};
-    return { key, pid, thread: threads.get(key) || '?', process: proc.name || '?', labels: proc.labels || '', ms };
+    return { key, pid, thread: threads.get(key) || '?', process: proc.name || '?', labels: proc.labels || '', ms: sums.cpu, wallMs: sums.wall };
   }).sort((a, b) => b.ms - a.ms);
 }
 
