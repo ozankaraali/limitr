@@ -64,7 +64,7 @@ function wordRecall(lang, captions) {
       res.end('<button id="en">English</button><button id="tr">Türkçe</button>' +
         '<audio id="a-en" src="/en.wav" loop></audio><audio id="a-tr" src="/tr.wav" loop></audio>' +
         '<script>for (const l of ["en", "tr"]) document.getElementById(l).onclick = () => {' +
-        'document.querySelectorAll("audio").forEach(a => a.pause()); document.getElementById("a-" + l).play(); };</script>');
+        'document.querySelectorAll("audio").forEach(a => a.pause()); const a = document.getElementById("a-" + l); a.currentTime = 0; a.play(); };</script>');
     }
   });
 
@@ -120,12 +120,29 @@ function wordRecall(lang, captions) {
     });
     console.log(`\nThis browser: ${translator}`);
 
+    // Each run starts in silence, once captions still being worked on from the last run are out
+    // (a Whisper call can't be cut short), and plays its recording from the start
+    async function settle() {
+      await tab.evaluate(() => document.querySelectorAll('audio').forEach(a => a.pause()));
+      for (let quietMs = 0, waitedMs = 0; quietMs < 3000 && waitedMs < 30000; waitedMs += 500) {
+        await sleep(500);
+        quietMs = (await take()).length ? 0 : quietMs + 500;
+      }
+    }
+
     async function play(lang, seconds) {
-      await take();
+      await settle();
       const clicked = Date.now();
       await tab.click(`#${lang}`);
       await sleep(seconds * 1000);
-      const results = (await take()).filter(r => r.at > clicked);
+      // Auto runs Whisper twice on the first sentence (detect, then transcribe), which can take
+      // longer than the window on a busy machine: wait up to 20 s more for a finished caption
+      const results = [];
+      for (let waitedMs = 0; ; waitedMs += 1000) {
+        results.push(...(await take()).filter(r => r.at > clicked));
+        if (finals(results).length || waitedMs >= 20000) break;
+        await sleep(1000);
+      }
       const first = finals(results)[0];
       return { results, firstFinalMs: first ? first.at - clicked : null, latencies: finals(results).map(r => r.latencyMs) };
     }

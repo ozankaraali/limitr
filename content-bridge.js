@@ -67,8 +67,7 @@
     return {
       attached: status.attached || 0,
       waitingForGesture: status.waitingForGesture || 0,
-      playingSkipped: status.playingSkipped || 0,
-      enabled: current.enabled
+      playingSkipped: status.playingSkipped || 0
     };
   }
 
@@ -89,7 +88,7 @@
   window.addEventListener('pagehide', () => {
     clearTimeout(reportTimer);
     reportTimer = null;
-    if (lastReported) sendReport({ attached: 0, waitingForGesture: 0, playingSkipped: 0, enabled: current.enabled });
+    if (lastReported) sendReport({ attached: 0, waitingForGesture: 0, playingSkipped: 0 });
   });
   // Back/forward cache: the same page comes back with its players, so report them again
   window.addEventListener('pageshow', (event) => {

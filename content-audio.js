@@ -44,7 +44,7 @@
   const skippedElements = new WeakSet();
   // Skipped players Whole tab could reach; while one plays, the toolbar asks for attention
   const ATTENTION_REASONS = new Set(['cross-origin', 'drm', 'page-audio']);
-  const unreachable = new Set();
+  const unreachable = new Set();  // WeakRefs, so a player the page drops can still be collected
   const sources = [];
   let gestureListening = false;
   let gestureListener = null;
@@ -290,7 +290,7 @@
 
   // Listen on the element itself: detached and shadow-DOM players don't reach window listeners
   function trackUnreachable(el) {
-    unreachable.add(el);
+    unreachable.add(new WeakRef(el));
     for (const type of ['play', 'playing', 'pause', 'ended', 'volumechange', 'emptied']) {
       el.addEventListener(type, reportStatus);
     }
@@ -298,7 +298,11 @@
 
   function playingUnreachable() {
     let count = 0;
-    for (const el of unreachable) if (isAudible(el)) count++;
+    for (const ref of unreachable) {
+      const el = ref.deref();
+      if (!el) unreachable.delete(ref);
+      else if (isAudible(el)) count++;
+    }
     return count;
   }
 

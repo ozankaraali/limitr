@@ -82,6 +82,14 @@
           <span>Translate to</span>
           <select id="captionsTranslate"></select>
         </label>
+        <label class="toggle-row" hidden>
+          <span class="toggle-text">
+            <span>Larger model for other languages</span>
+            <small>More accurate. A 410 MB download that runs on the graphics card.</small>
+          </span>
+          <input type="checkbox" id="captionsLargeModel" role="switch">
+          <span class="switch" aria-hidden="true"></span>
+        </label>
         <p class="group-note" id="captionsHint" hidden></p>
         <button type="button" class="button quiet" id="translationDownload" hidden></button>
         <ol class="transcript" id="transcript" aria-live="polite" hidden></ol>

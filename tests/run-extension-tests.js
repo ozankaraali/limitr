@@ -293,6 +293,19 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await remoteTab.evaluate(() => document.getElementById('remote').pause());
     await sleep(800);
     check('pausing it clears the red state', (await iconState(remoteId)) === 'on', await iconState(remoteId));
+    const pausedPopup = await context.newPage();
+    await pausedPopup.goto(`chrome-extension://${extensionId}/popup.html?tabId=${remoteId}`);
+    await sleep(2000);
+    const pausedStatus = await pausedPopup.textContent('#status');
+    check('once it is paused the popup stops asking to switch', !/can\u2019t be reached/.test(pausedStatus), pausedStatus);
+    await pausedPopup.close();
+    // One frame's report must not switch the icon off for every tab
+    await worker.evaluate(id => chrome.scripting.executeScript({
+      target: { tabId: id },
+      func: () => { chrome.runtime.sendMessage({ action: 'limitr-status', attached: 1, waitingForGesture: 0, playingSkipped: 0, enabled: false }).catch(() => {}); }
+    }), remoteId);
+    await sleep(400);
+    check('a frame reporting itself off does not turn Limitr off', (await iconState(remoteId)) === 'working', await iconState(remoteId));
     await worker.evaluate(() => chrome.storage.local.set({ limitrEnabled: false }));
     await sleep(800);
     check('turning Limitr off: off (gray)', (await iconState(tabId)) === 'off', await iconState(tabId));
@@ -316,14 +329,36 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await adTab.close();
 
     const newTab = await context.newPage();
-    await newTab.goto('chrome://newtab/').catch(() => {});
+    await newTab.goto('chrome://settings/').catch(() => {});
     await sleep(800);
     const newTabId = await worker.evaluate(async () => {
       const tabs = await chrome.tabs.query({});
-      const t = tabs.find(x => (x.url || x.pendingUrl || '').startsWith('chrome://new'));
+      const t = tabs.find(x => (x.url || x.pendingUrl || '').startsWith('chrome://settings'));
       return t && t.id;
     });
-    check('browser pages never show red', (await iconState(newTabId)) !== 'attention', await iconState(newTabId));
+    // Whole tab can't capture browser pages in real Chrome (the test flags allow it). Simulate that
+    // failure: a normal page turns red so the user can act; a browser page, where nothing helps, never does.
+    const helper = await context.newPage();
+    await helper.goto(`chrome-extension://${extensionId}/popup.html?tabId=${newTabId}`);
+    const plainTab = await context.newPage();
+    await plainTab.goto(`http://127.0.0.1:${port}/ad-host.html`);
+    await sleep(500);
+    const plainId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'http://127.0.0.1/ad-host.html' }))[0].id);
+    await worker.evaluate(() => {
+      self.realGetMediaStreamId = chrome.tabCapture.getMediaStreamId;
+      chrome.tabCapture.getMediaStreamId = () => Promise.reject(new Error('Chrome pages cannot be captured'));
+    });
+    const tryCapture = id => helper.evaluate(t => chrome.runtime.sendMessage({ target: 'background', action: 'capture-tab', tabId: t })
+      .then(r => (r && r.error) || 'captured', e => e.message), id);
+    const plainError = await tryCapture(plainId);
+    const browserError = await tryCapture(newTabId);
+    await worker.evaluate(() => { chrome.tabCapture.getMediaStreamId = self.realGetMediaStreamId; });
+    await sleep(400);
+    check('a failed capture on a normal page: red', (await iconState(plainId)) === 'attention', `${await iconState(plainId)}: ${plainError}`);
+    check('browser pages never show red, even after a failed capture', (await iconState(newTabId)) !== 'attention',
+      `${await iconState(newTabId)}: ${browserError}`);
+    await helper.close();
+    await plainTab.close();
     await newTab.close();
     await remoteTab.close();
 
@@ -357,7 +392,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       return {
         mainHeight: main ? main.scrollHeight : null,
         rowsVisible: rows.length === 2 && rows.every(r => { const b = r.getBoundingClientRect(); return b.top >= 0 && b.bottom <= 600; }),
-        presetIcons: document.querySelectorAll('#presetGrid .preset svg').length,
+        presetIcons: [...document.querySelectorAll('#presetGrid .preset svg')].filter(svg => svg.querySelector('path, rect, circle')).length,
         levelOnMain: Boolean(main && main.querySelector('#levelEnabled')),
         chipOverflow: chipRow ? chipRow.scrollWidth - chipRow.clientWidth : null,
         more: Boolean(document.querySelector('.chip.more')),
@@ -419,7 +454,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await sleep(400);
     check('Fine-tune opens as its own screen', (await visible('[data-screen="finetune"]')) && !(await visible('[data-screen="main"]')));
     check('Fine-tune shows the live loudness strip', await visible('#miniTrace'));
-    check('Fine-tune sections have icons', (await popup.$$eval('[data-screen="finetune"] .gi svg', els => els.length)) === 6);
+    check('Fine-tune sections have icons', (await popup.$$eval('[data-screen="finetune"] .gi svg',
+      els => els.filter(svg => svg.querySelector('path, rect, circle')).length)) === 6);
     const guardSliders = ['guardHeadroom', 'guardCeiling', 'guardRatio', 'guardAttack', 'guardHold', 'guardRelease'];
     const presentSliders = await popup.evaluate(ids => ids.filter(id => document.getElementById(`ctl-${id}`)), guardSliders);
     check('all six Spike guard sliders are there', presentSliders.length === 6, presentSliders.join(', '));
@@ -490,6 +526,13 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await sleep(300);
     check('the chip opens the captions screen', await visible('[data-screen="captions"]'));
     check('Language and Translate to are on it', (await visible('#captionsLanguage')) && (await visible('#captionsTranslate')));
+    check('the larger model is offered, off by default',
+      (await visible('#captionsLargeModel + .switch')) && !(await popup.isChecked('#captionsLargeModel')));
+    await popup.click('label:has(#captionsLargeModel)');
+    await sleep(200);
+    const largeModel = await worker.evaluate(async () => (await chrome.storage.local.get('limitrCaptions')).limitrCaptions);
+    check('switching it on is saved', largeModel && largeModel.largeModel === true, JSON.stringify(largeModel));
+    await popup.click('label:has(#captionsLargeModel)');
     await popup.selectOption('#captionsLanguage', 'auto');
     await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'language', language: 'tr' }), tabId);
     await sleep(300);

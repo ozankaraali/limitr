@@ -12,15 +12,15 @@ const outArg = (process.argv.find(a => a.startsWith('--out=')) || '').slice('--o
 const outDir = outArg
   ? path.resolve(rootDir, outArg)
   : path.join(rootDir, 'dist', testBuild ? 'firefox-test' : 'firefox');
-const skippedRootEntries = new Set(['.claude', '.git', '.playwright-mcp', '.superpowers', 'dist', 'node_modules', 'docs', 'tools']);
+// Only these root entries ship, so whatever else is lying around in the checkout never gets packaged
+const shippedRootEntries = new Set([
+  'background.js', 'content-audio.js', 'content-bridge.js', 'content-transcribe.js', 'content.js',
+  'popup.html', 'popup.js', 'styles.css', 'manifest.json', 'LICENSE', 'NOTICE', 'README.md',
+  'fonts', 'icons', 'lib', 'tests'
+]);
 const skippedFiles = new Set([
-  'build-firefox.js',
-  'package.json',
-  'package-lock.json',
   'icons/build-icons.js',
-  'icons/mark.svg',
-  'offscreen.html',
-  'offscreen.js'
+  'icons/mark.svg'
 ]);
 // Only the debug harness ships from tests/
 const keptTestFiles = new Set(['tests/debug-harness.html', 'tests/debug-harness.js']);
@@ -38,7 +38,7 @@ async function copyDirectory(sourceDir, targetDir, isRoot = false) {
   const entries = await fs.readdir(sourceDir, { withFileTypes: true });
 
   for (const entry of entries) {
-    if (isRoot && skippedRootEntries.has(entry.name)) continue;
+    if (isRoot && !shippedRootEntries.has(entry.name)) continue;
     if (entry.name.startsWith('.') || entry.name.endsWith('.csv')) continue;
 
     const sourcePath = path.join(sourceDir, entry.name);
@@ -75,6 +75,9 @@ async function writeFirefoxManifest() {
 }
 
 async function main() {
+  // The output folder is emptied first, so it must be a folder of its own under dist/
+  const distDir = path.join(rootDir, 'dist');
+  if (path.dirname(outDir) !== distDir) throw new Error(`--out must be a folder directly inside dist/, not ${outDir}`);
   await fs.rm(outDir, { recursive: true, force: true });
   await copyDirectory(rootDir, outDir, true);
   await writeFirefoxManifest();

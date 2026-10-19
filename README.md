@@ -47,8 +47,8 @@ You can save your own presets from the Fine-tune drawer.
 - **Remove background noise:** RNNoise, running locally
 - **Even out levels:** slowly brings every stream to the same normal loudness
 - **Live captions, running locally:** Moonshine for live English, Whisper for Turkish and 15 other
-  languages (or detect the language automatically). Translated captions use Chrome and Edge's
-  on-device translator; Firefox, and any browser without one, can translate into English only
+  languages (or detect the language automatically), with an optional larger model for graphics
+  cards. Translated captions use Chrome and Edge's on-device translator; Firefox doesn't translate
 - **Fine-tune:** spike guard, peak limiter, tone (low/high cut and a 5-band EQ), a classic compressor, tape hiss, a mono fix and a CRT video look
 
 ## Installation

@@ -171,6 +171,13 @@ async function autoCapture(tabId) {
     }
   }
   // Only turns the icon red if page mode isn't protecting anything here either
+  noteCaptureFailure(tabId);
+}
+
+// Red asks the user to act, so browser pages (where nothing can be done) never turn red
+async function noteCaptureFailure(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab || isRestrictedUrl(tab.url)) return;
   captureFailures.add(tabId);
   updateTabIcon(tabId);
 }
@@ -320,7 +327,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         waitingForGesture: message.waitingForGesture || 0,
         playingSkipped: message.playingSkipped || 0
       });
-      globalEnabled = message.enabled !== false;
       updateTabIcon(tabId);
       return false;
     }
@@ -347,9 +353,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ capture: captureSupported() });
       return false;
     case 'capture-tab':
-      return respond(captureTab(message.tabId).then(() => ({ success: true }), error => {
-        captureFailures.add(message.tabId);
-        updateTabIcon(message.tabId);
+      return respond(captureTab(message.tabId).then(() => ({ success: true }), async error => {
+        await noteCaptureFailure(message.tabId);
         throw error;
       }), sendResponse);
     case 'release-tab':

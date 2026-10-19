@@ -4,6 +4,7 @@
 
 const { chromium, firefox } = require('playwright');
 const { startStaticServer } = require('./static-server');
+const { streamWav } = require('./stream-audio');
 
 const MAKEUP_CASES = [
   { threshold: -18, ratio: 6, knee: 10 },
@@ -31,12 +32,24 @@ function check(label, ok, detail) {
   if (!ok) failures++;
 }
 
+// Pure settings logic, no browser needed
+function checkCaptionPrefs() {
+  require('../lib/settings.js');
+  const S = globalThis.LimitrSettings;
+  console.log('\nCaption preferences');
+  check('English browser starts on English captions', S.defaultCaptions('en-GB').language === 'en');
+  check('other browsers start on automatic detection', S.defaultCaptions('tr-TR').language === 'auto');
+  check('the larger 410 MB model is off until chosen', S.normalizeCaptions(null, 'en').largeModel === false);
+  check('choosing the larger model is kept', S.normalizeCaptions({ largeModel: true }, 'en').largeModel === true);
+  check('anything else is not a yes', S.normalizeCaptions({ largeModel: 'yes' }, 'en').largeModel === false);
+}
+
 async function runIn(browserType, port) {
   // Offline rendering needs neither the GPU nor the speakers
   // Off the GPU and silent. Chromium: fake audio output device, so the speakers are never opened.
   // Firefox: volume scaled to zero (a null audio device would stop real-time Web Audio running).
   const browser = await browserType.launch(browserType.name() === 'chromium'
-    ? { args: ['--disable-gpu', '--disable-audio-output'] }
+    ? { args: ['--disable-gpu', '--disable-audio-output', '--js-flags=--expose-gc'] }
     : { firefoxUserPrefs: { 'media.volume_scale': '0.0' } });
   const page = await browser.newPage();
   page.on('pageerror', e => console.log('  page error:', e.message));
@@ -101,12 +114,59 @@ async function runIn(browserType, port) {
   check('player attaches once a slow-starting AudioContext runs, with no second click',
     status && status.attached === 1 && status.waitingForGesture === 0, JSON.stringify(status));
 
+  if (browserType.name() === 'chromium') {
+    // A player the page routes through its own Web Audio graph can't be reached. Once the page
+    // lets go of it, Limitr must not keep it alive.
+    await pageScript.evaluate(async () => {
+      const el = new Audio(document.getElementById('player').src);
+      el.loop = true;
+      const own = new NativeAudioContext();
+      own.createMediaElementSource(el).connect(own.destination);
+      await el.play();
+      await new Promise(resolve => setTimeout(resolve, 400));
+      window.unreachableRef = new WeakRef(el);
+      el.pause();
+      el.removeAttribute('src');
+      el.load();
+      await own.close();
+    });
+    await pageScript.waitForTimeout(300);
+    const skipped = await pageScript.evaluate(() => window.pageStatus.skipped);
+    for (let i = 0; i < 3; i++) {
+      await pageScript.evaluate(() => gc());
+      await pageScript.waitForTimeout(100);
+    }
+    const released = await pageScript.evaluate(() => window.unreachableRef.deref() === undefined);
+    check('an unreachable player the page dropped is not kept in memory',
+      skipped['page-audio'] === 1 && released, JSON.stringify({ skipped, released }));
+
+    console.log('\nDebug harness');
+    const harness = await browser.newPage();
+    const harnessErrors = [];
+    harness.on('pageerror', e => harnessErrors.push(e.message));
+    await harness.goto(`http://127.0.0.1:${port}/tests/debug-harness.html`);
+    await harness.setInputFiles('#file', { name: 'stream.wav', mimeType: 'audio/wav', buffer: streamWav(4) });
+    await harness.waitForFunction(() => !document.getElementById('play').disabled);
+    await harness.click('#play');
+    await harness.waitForTimeout(2500);
+    const canvasState = await harness.evaluate(() => {
+      const g = document.getElementById('trace').getContext('2d');
+      return { alpha: g.globalAlpha, dash: g.getLineDash().length };
+    });
+    await harness.click('#stop');
+    check('live trace draws without errors', harnessErrors.length === 0, harnessErrors.join(' | '));
+    check('drawing leaves the canvas state as it found it', canvasState.alpha === 1 && canvasState.dash === 0,
+      JSON.stringify(canvasState));
+    await harness.close();
+  }
+
   await browser.close();
   return rows;
 }
 
 (async () => {
   const only = (process.argv.find(a => a.startsWith('--browser=')) || '').split('=')[1];
+  checkCaptionPrefs();
   const { server, port } = await startStaticServer();
   try {
     for (const type of [chromium, firefox]) {

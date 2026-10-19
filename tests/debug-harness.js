@@ -243,6 +243,7 @@
     const css = getComputedStyle(document.documentElement);
     const accent = css.getPropertyValue('--accent').trim();
     const spike = css.getPropertyValue('--spike').trim();
+    g.save();
     g.fillStyle = accent;
     g.globalAlpha = 0.28;
     g.beginPath();
@@ -275,8 +276,8 @@
       g.moveTo(0, y(limit));
       g.lineTo(width, y(limit));
       g.stroke();
-      g.setLineDash([]);
     }
+    g.restore();
   }
 
   loadPresets();

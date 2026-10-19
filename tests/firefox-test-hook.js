@@ -74,7 +74,9 @@ browser.runtime.onMessage.addListener((message, sender) => {
         const result = view ? {
           status: view.document.getElementById('status').textContent,
           caption: view.document.getElementById('traceCaption').textContent,
-          captureDisabled: view.document.querySelector('input[name="mode"][value="capture"]').disabled
+          captureDisabled: view.document.querySelector('input[name="mode"][value="capture"]').disabled,
+          translateShown: !view.document.getElementById('captionsTranslate').closest('label').hidden,
+          largeModelShown: !view.document.getElementById('captionsLargeModel')?.closest('label').hidden
         } : null;
         await browser.tabs.remove(popupTab.id);
         return result;

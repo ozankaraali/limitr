@@ -182,6 +182,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('popup reports the player is being tamed', popup && /Taming/.test(popup.status), popup && popup.status);
     check('popup shows caught spikes', popup && /CAUGHT \d+ spikes?\./.test(popup.caption), popup && popup.caption);
     check('whole-tab capture is offered as unavailable', popup && popup.captureDisabled);
+    check('captions: no translation offered (Firefox has no on-device translator)', popup && popup.translateShown === false);
+    check('captions: no larger graphics-card model offered', popup && popup.largeModelShown === false);
     const metrics = await ask({ op: 'popup-metrics' });
     const noOverflow = m => m.docScrollW <= m.docClientW && m.innerScrollW <= m.innerClientW;
     check('popup has no horizontal scrollbar', metrics && noOverflow(metrics.closed), metrics && JSON.stringify(metrics.closed));
@@ -225,10 +227,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
         await ask({ op: 'storage-set', values: { limitrCaptions: { language: 'tr', translateTo: 'en' } } });
         await sleep(500);
         finals = await play('tr', 26);
-        const english = new Set(words(finals.filter(r => r.translatedFrom).map(r => r.text).join(' ')));
-        const hits = ['good', 'evening', 'everyone', 'thank', 'watching', 'water', 'sleep'].filter(w => english.has(w));
-        check('Whisper translates Turkish into English', hits.length >= 3,
-          `${hits.join(', ')}: ${JSON.stringify(finals.map(r => (r.translatedFrom ? 'EN ' : 'TR ') + r.text + (r.translation ? ' => ' + r.translation : '')))}`);
+        // A translation setting saved in another browser profile must not switch Firefox to English
+        check('a stored translation setting is ignored: captions stay Turkish',
+          finals.length > 0 && finals.every(r => !r.translatedFrom && !r.translation) && wordRecall('tr', finals.map(r => r.text)) >= 0.6,
+          JSON.stringify(finals.map(r => r.text)));
       }
     }
   } finally {

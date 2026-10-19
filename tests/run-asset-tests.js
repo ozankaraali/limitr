@@ -114,6 +114,41 @@ function backgroundIconPaths() {
   check('README shows the new popup screenshots', images.some(src => /popup-main-(night|day)\.png$/.test(src)), images.join(', '));
   for (const src of images) check(`README → ${src}`, exists(src));
 
+  // addons.mozilla.org reviewers flag HTML strings written into the page; vendored libraries aside
+  console.log('\nNo HTML injection in Limitr\'s own scripts');
+  const VENDORED = /^lib\/(transformers|ort)/;
+  const scripts = fs.readdirSync(ROOT).filter(f => f.endsWith('.js'))
+    .concat(fs.readdirSync(path.join(ROOT, 'lib')).filter(f => /\.m?js$/.test(f)).map(f => `lib/${f}`))
+    .filter(rel => !VENDORED.test(rel));
+  for (const rel of scripts) {
+    const source = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    const lines = source.split('\n').map((line, i) => [i + 1, line]).filter(([, line]) => /\.(innerHTML|outerHTML)\s*=|insertAdjacentHTML|document\.write\(/.test(line));
+    check(rel, lines.length === 0, lines.map(([n]) => `line ${n}`).join(', ') || undefined);
+  }
+
+  console.log('\nFirefox package contents');
+  // Anything lying around in the checkout (a PDF, a download) must never be packaged
+  const STRAY = path.join(ROOT, 'stray-file-from-asset-test.pdf');
+  fs.writeFileSync(STRAY, 'not part of Limitr');
+  let built = [];
+  try {
+    require('child_process').execFileSync('node', ['build-firefox.js', '--out=dist/firefox-check'], { cwd: ROOT, stdio: 'pipe' });
+    const list = dir => fs.readdirSync(dir, { withFileTypes: true })
+      .flatMap(e => (e.isDirectory() ? list(path.join(dir, e.name)) : [path.relative(path.join(ROOT, 'dist/firefox-check'), path.join(dir, e.name))]));
+    built = list(path.join(ROOT, 'dist/firefox-check'));
+  } finally {
+    fs.unlinkSync(STRAY);
+  }
+  check('a stray file in the checkout is not packaged', !built.includes('stray-file-from-asset-test.pdf'));
+  const ffManifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'dist/firefox-check/manifest.json'), 'utf8'));
+  const needed = [...ffManifest.background.scripts, ...ffManifest.content_scripts.flatMap(c => c.js),
+    ...ffManifest.web_accessible_resources.flatMap(w => w.resources), ffManifest.action.default_popup,
+    ...Object.values(ffManifest.icons), 'popup.js', 'styles.css', 'content.js', 'content-transcribe.js', 'lib/transcriber.js'];
+  const missing = needed.filter(f => !built.includes(f));
+  check('everything the add-on loads is packaged', missing.length === 0, missing.join(', ') || undefined);
+  check('no tests or build tools are packaged', !built.some(f => /^tests\/run-|build-|package/.test(f)),
+    built.filter(f => /^tests\/run-|build-|package/.test(f)).join(', ') || undefined);
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);
 })().catch(err => {

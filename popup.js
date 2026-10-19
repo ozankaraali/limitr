@@ -28,13 +28,18 @@ const PRESET_ICONS = {
   tv90s: '<rect x="3.5" y="7" width="17" height="13" rx="2.5"/><path d="M8.5 3.5L12 7l3.5-3.5"/>'
 };
 
+// Builds the icon from the constants above: flat, self-closing shapes with quoted attributes
 function lineIcon(markup, className) {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('class', className);
-  // Static markup from the constants above, never user input
-  svg.innerHTML = markup;
+  for (const [, tag, attrs] of markup.matchAll(/<(\w+)([^>]*?)\/>/g)) {
+    const shape = document.createElementNS(NS, tag);
+    for (const [, name, value] of attrs.matchAll(/([\w-]+)="([^"]*)"/g)) shape.setAttribute(name, value);
+    svg.append(shape);
+  }
   return svg;
 }
 
@@ -668,7 +673,8 @@ function renderStatus() {
     parts = [[`Taming ${fs.attached === 1 ? 'the player' : `${fs.attached} players`} on this tab.`, 'strong']];
   } else if (fs.waitingForGesture > 0) {
     parts = [['Click anywhere on the page once', 'warn'], [' so the browser lets Limitr start.']];
-  } else if (fs.skipped && (fs.skipped['cross-origin'] || fs.skipped.drm || fs.skipped['page-audio'])) {
+  } else if (fs.playingSkipped > 0) {
+    // Only while an unreachable player is actually playing
     parts = state.canCapture
       ? [['This player can\u2019t be reached from inside the page.', 'warn'], [' Switch to Whole tab under How Limitr listens.']]
       : [['This player can\u2019t be reached from inside the page', 'warn'], [' in this browser, so it plays untouched.']];
@@ -830,16 +836,14 @@ async function refreshTabStatus() {
       func: () => globalThis.__limitrBridgeStatus || null
     });
     let best = null;
-    const total = { attached: 0, waitingForGesture: 0, skipped: {} };
+    const total = { attached: 0, waitingForGesture: 0, playingSkipped: 0 };
     let anyBridge = false;
     for (const { frameId, result } of results) {
       if (!result) continue;
       anyBridge = true;
       total.attached += result.attached || 0;
       total.waitingForGesture += result.waitingForGesture || 0;
-      for (const [reason, count] of Object.entries(result.skipped || {})) {
-        total.skipped[reason] = (total.skipped[reason] || 0) + count;
-      }
+      total.playingSkipped += result.playingSkipped || 0;
       if (!best || (result.attached || 0) > (best.result.attached || 0)) best = { frameId, result };
     }
     state.frameStatus = anyBridge ? total : null;
@@ -924,8 +928,10 @@ function renderMixer(tabs) {
 // ---------- captions ----------
 const LANGUAGE_NAMES = Object.fromEntries(S.CAPTION_LANGUAGES);
 const IDLE_CAPTIONS_NOTE = 'Runs on your computer. The first time downloads a speech model.';
-// Chrome and Edge translate on-device into any language; elsewhere Whisper can only produce English
+// Chrome and Edge translate on-device; browsers without that (Firefox) don't offer translation
 const translatorApi = () => (typeof self !== 'undefined' && self.Translator) || null;
+// The larger Whisper model runs on WebGPU, which the transcriber only uses outside Firefox
+const largeModelSupported = () => Boolean(navigator.gpu) && !/Firefox\//.test(navigator.userAgent);
 
 function renderCaptions(note) {
   const toggle = $('captions');
@@ -957,12 +963,14 @@ function buildCaptionOptions() {
     return el;
   };
   language.replaceChildren(option('auto', 'Detect automatically'), ...S.CAPTION_LANGUAGES.map(([c, n]) => option(c, n)));
-  const targets = translatorApi() ? S.CAPTION_LANGUAGES : S.CAPTION_LANGUAGES.filter(([c]) => c === 'en');
-  translate.replaceChildren(option('', 'Off'), ...targets.map(([c, n]) => option(c, n)));
-  if (!translatorApi()) setCaptionsHint('This browser can only translate captions into English.');
+  translate.replaceChildren(option('', 'Off'), ...S.CAPTION_LANGUAGES.map(([c, n]) => option(c, n)));
+  translate.closest('label').hidden = !translatorApi();
+  const largeModel = $('captionsLargeModel');
+  largeModel.closest('label').hidden = !largeModelSupported();
 
   language.value = state.captionPrefs.language;
-  translate.value = targets.some(([c]) => c === state.captionPrefs.translateTo) ? state.captionPrefs.translateTo : '';
+  translate.value = state.captionPrefs.translateTo;
+  largeModel.checked = state.captionPrefs.largeModel;
 
   language.addEventListener('change', () => {
     saveCaptionPrefs({ language: language.value });
@@ -974,6 +982,7 @@ function buildCaptionOptions() {
     const source = state.captionPrefs.language;
     if (translate.value && source !== 'auto') prepareTranslation(source, translate.value);
   });
+  largeModel.addEventListener('change', () => saveCaptionPrefs({ largeModel: largeModel.checked }));
   $('translationDownload').addEventListener('click', () => {
     const { source, target } = $('translationDownload').dataset;
     prepareTranslation(source, target);
