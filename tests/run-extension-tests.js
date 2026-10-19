@@ -200,12 +200,14 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('popup shows caught spikes', /CAUGHT \d+ spikes?\./.test(caption), caption);
     if (screenshotDir) {
       await popup.screenshot({ path: path.join(screenshotDir, 'popup-main.png'), fullPage: true });
-      await popup.click('#fineTune > summary');
+      await popup.click('.nav-row[data-open="finetune"]');
       await sleep(300);
       await popup.screenshot({ path: path.join(screenshotDir, 'popup-finetune.png'), fullPage: true });
-      await popup.click('#processing > summary');
+      await popup.click('[data-screen="finetune"] .back');
+      await popup.click('.nav-row[data-open="listening"]');
       await sleep(300);
       await popup.screenshot({ path: path.join(screenshotDir, 'popup-processing.png'), fullPage: true });
+      await popup.click('[data-screen="listening"] .back');
     }
     await popup.click('[role="radio"]:has-text("Sleep")');
     await sleep(400);
@@ -251,6 +253,81 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('no horizontal overflow with long preset names', layout.docWidth <= 360, layout.docWidth);
     await worker.evaluate(() => chrome.storage.local.remove('limitrUserPresets'));
 
+    console.log('\nSecondary screens');
+    const visible = sel => popup.evaluate(q => {
+      const el = document.querySelector(q);
+      return Boolean(el && !el.closest('[hidden]') && el.getClientRects().length);
+    }, sel);
+    const overflow = () => popup.evaluate(() => {
+      const scroller = document.querySelector('.popup');
+      return { doc: document.documentElement.scrollWidth, inner: scroller.scrollWidth - scroller.clientWidth };
+    });
+    await popup.click('.nav-row[data-open="finetune"]');
+    await sleep(400);
+    check('Fine-tune opens as its own screen', (await visible('[data-screen="finetune"]')) && !(await visible('[data-screen="main"]')));
+    check('Fine-tune shows the live loudness strip', await visible('#miniTrace'));
+    check('Fine-tune sections have icons', (await popup.$$eval('[data-screen="finetune"] .gi svg', els => els.length)) === 6);
+    const guardSliders = ['guardHeadroom', 'guardCeiling', 'guardRatio', 'guardAttack', 'guardHold', 'guardRelease'];
+    const presentSliders = await popup.evaluate(ids => ids.filter(id => document.getElementById(`ctl-${id}`)), guardSliders);
+    check('all six Spike guard sliders are there', presentSliders.length === 6, presentSliders.join(', '));
+    await popup.evaluate(() => {
+      const slider = document.getElementById('ctl-guardHeadroom');
+      slider.value = 8;
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await sleep(300);
+    const tuned = await worker.evaluate(() => chrome.storage.local.get('limitrSettings'));
+    check('a Fine-tune slider change is saved', tuned.limitrSettings && tuned.limitrSettings.guardHeadroom === 8,
+      tuned.limitrSettings && tuned.limitrSettings.guardHeadroom);
+    let o = await overflow();
+    check('Fine-tune: no horizontal overflow', o.doc <= 360 && o.inner <= 0, JSON.stringify(o));
+    const mini = () => popup.evaluate(() => {
+      const c = document.getElementById('miniTrace');
+      if (!c) return null;
+      const px = c.getContext('2d').getImageData(c.width - 4, c.height - 3, 1, 1).data;
+      return Array.from(px).join(',');
+    });
+    await popup.emulateMedia({ colorScheme: 'dark' });
+    await sleep(300);
+    const darkPixel = await mini();
+    await popup.emulateMedia({ colorScheme: 'light' });
+    await sleep(300);
+    const lightPixel = await mini();
+    check('live strip redraws in the new theme', darkPixel !== lightPixel && darkPixel !== '0,0,0,0', `${darkPixel} vs ${lightPixel}`);
+    await popup.click('[data-screen="finetune"] .back');
+    check('back returns to the main screen', await visible('[data-screen="main"]'));
+    await popup.click('.nav-row[data-open="finetune"]');
+    await popup.keyboard.press('Escape');
+    await sleep(200);
+    check('Esc returns to the main screen', await visible('[data-screen="main"]'));
+    await popup.click('.nav-row[data-open="listening"]');
+    await sleep(300);
+    check('listening screen shows both modes', (await popup.$$eval('[data-screen="listening"] .mode-option', els => els.filter(e => e.getClientRects().length).length)) === 2);
+    o = await overflow();
+    check('listening: no horizontal overflow', o.doc <= 360 && o.inner <= 0, JSON.stringify(o));
+    await popup.click('.nav-row[data-open="finetune"]').catch(() => {});
+    await popup.reload();
+    await sleep(800);
+    check('popup reopens on the main screen', await visible('[data-screen="main"]'));
+
+    const restricted = await context.newPage();
+    await restricted.goto('chrome://newtab/').catch(() => {});
+    const restrictedId = await worker.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      const t = tabs.find(x => (x.url || x.pendingUrl || '').startsWith('chrome://new'));
+      return t && t.id;
+    });
+    const rPopup = await context.newPage();
+    await rPopup.setViewportSize({ width: 360, height: 600 });
+    await rPopup.goto(`chrome-extension://${extensionId}/popup.html?tabId=${restrictedId}`);
+    await sleep(1200);
+    const rStatus = await rPopup.textContent('#status');
+    check('restricted tab: main screen explains it can’t be processed', /can\u2019t be processed/.test(rStatus), rStatus);
+    await rPopup.click('.nav-row[data-open="finetune"]');
+    check('restricted tab: Fine-tune still opens', await rPopup.evaluate(() => !document.querySelector('[data-screen="finetune"]').hidden));
+    await rPopup.close();
+    await restricted.close();
+
     console.log('\nTheme');
     const bodyBackground = () => popup.evaluate(() => getComputedStyle(document.body).backgroundColor);
     await popup.emulateMedia({ colorScheme: 'dark' });
@@ -270,7 +347,6 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('popup makes no network requests', remote.length === 0, remote.join(' | '));
 
     console.log('\nWhole-tab capture mode');
-    await popup.click('#processing > summary').catch(() => {});
     await worker.evaluate(() => chrome.storage.local.set({ limitrMode: 'capture' }));
     const captureResult = await worker.evaluate(id => captureTab(id).then(() => 'ok', e => e.message), tabId);
     check('tab capture starts', captureResult === 'ok', captureResult);

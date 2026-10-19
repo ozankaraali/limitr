@@ -32,11 +32,16 @@ browser.runtime.onMessage.addListener((message, sender) => {
           };
         };
         const closed = measure();
-        view.document.getElementById('fineTune').open = true;
-        await new Promise(resolve => setTimeout(resolve, 300));
-        const open = measure();
+        const screens = {};
+        for (const name of ['finetune', 'listening']) {
+          view.document.querySelector(`.nav-row[data-open="${name}"]`).click();
+          await new Promise(resolve => setTimeout(resolve, 300));
+          screens[name] = measure();
+          view.document.querySelector(`[data-screen="${name}"] .back`).click();
+        }
+        const result = { closed, ...screens };
         await browser.windows.remove(win.id);
-        return { closed, open };
+        return result;
       })();
     case 'diag':
       return (async () => {

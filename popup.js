@@ -51,7 +51,8 @@ const state = {
   mode: 'page',
   preset: null,
   custom: {},
-  ui: { basePreset: S.DEFAULT_PRESET, fineTune: false, processing: false },
+  ui: { basePreset: S.DEFAULT_PRESET },
+  screen: 'main',
   canCapture: false,
   captured: false,
   frameId: 0,
@@ -158,6 +159,8 @@ function renderPresets() {
     grid.append(button);
   }
   renderPresetChips();
+  renderMiniPreset();
+  renderSavedPresets();
 
   const explainer = $('presetExplainer');
   explainer.replaceChildren();
@@ -221,6 +224,56 @@ function renderPresetChips() {
       more.setAttribute('aria-label', `${hiddenCount} more saved presets`);
     }
   });
+}
+
+// Which preset Fine-tune is adjusting, shown in its live strip
+function renderMiniPreset() {
+  const el = $('miniPreset');
+  el.replaceChildren();
+  const current = S.PRESETS[state.preset] || state.custom[state.preset];
+  if (current) {
+    el.textContent = `${current.name} preset`;
+    return;
+  }
+  const base = S.PRESETS[state.ui.basePreset] || state.custom[state.ui.basePreset];
+  el.append(base ? `Adjusted from ${base.name} \u00b7 ` : 'Custom settings');
+  if (base) {
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.textContent = 'Reset';
+    reset.addEventListener('click', () => applyPreset(state.ui.basePreset));
+    el.append(reset);
+  }
+}
+
+function renderSavedPresets() {
+  const list = $('savedPresetList');
+  list.replaceChildren();
+  const entries = Object.entries(state.custom);
+  if (!entries.length) {
+    const empty = document.createElement('li');
+    empty.className = 'empty';
+    empty.textContent = 'Nothing saved yet.';
+    list.append(empty);
+    return;
+  }
+  for (const [id, preset] of entries) {
+    const item = document.createElement('li');
+    const apply = document.createElement('button');
+    apply.type = 'button';
+    apply.className = 'saved-apply';
+    apply.textContent = preset.name;
+    apply.setAttribute('aria-pressed', String(state.preset === id));
+    apply.addEventListener('click', () => applyPreset(id));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'chip-remove';
+    remove.textContent = '\u00d7';
+    remove.setAttribute('aria-label', `Delete preset ${preset.name}`);
+    remove.addEventListener('click', () => deletePreset(id));
+    item.append(apply, remove);
+    list.append(item);
+  }
 }
 
 function deletePreset(id) {
@@ -340,6 +393,16 @@ function selectRow(key, label, options) {
 }
 
 // ---------- fine-tune drawer ----------
+// Line icons for the Fine-tune sections, keyed by section title
+const SECTION_ICONS = {
+  'Spike guard': '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M8.5 12.5c1-1.6 2-1.6 3 0s2 1.6 3 0"/>',
+  'Even out levels': '<path d="M4 8h16M4 16h16"/><circle cx="9" cy="8" r="2.2"/><circle cx="15" cy="16" r="2.2"/>',
+  'Peak limiter': '<path d="M4 6h16"/><path d="M4 18c3 0 3-8 6-8s3 8 6 8"/>',
+  'Tone': '<path d="M5 20V4M12 20V4M19 20V4"/><circle cx="5" cy="14" r="2"/><circle cx="12" cy="8" r="2"/><circle cx="19" cy="16" r="2"/>',
+  'Compressor': '<path d="M4 12h4l2-5 4 10 2-5h4"/>',
+  'Extras': '<path d="M12 4v4M12 16v4M4 12h4M16 12h4"/><circle cx="12" cy="12" r="2"/>'
+};
+
 const GROUPS = [
   {
     title: 'Spike guard',
@@ -413,9 +476,12 @@ function buildFineTune() {
     section.open = openGroups[group.title] ?? group.title === 'Spike guard';
     const head = document.createElement('summary');
     head.className = 'group-head';
+    const icon = document.createElement('span');
+    icon.className = 'gi';
+    icon.append(lineIcon(SECTION_ICONS[group.title] || '', 'gi-svg'));
     const title = document.createElement('h3');
     title.textContent = group.title;
-    head.append(title);
+    head.append(icon, title);
     section.append(head);
 
     if (group.toggle) {
@@ -617,7 +683,10 @@ function setRichText(el, parts) {
 }
 
 function renderCaption() {
-  const el = $('traceCaption');
+  for (const el of [$('traceCaption'), $('miniCaught')]) renderCaughtLine(el);
+}
+
+function renderCaughtLine(el) {
   const m = state.meters;
   const live = state.enabled && m && typeof m.spikes === 'number';
   if (!live) {
@@ -639,21 +708,23 @@ function renderAll() {
   renderMode();
   renderStatus();
   renderCaption();
-  drawTrace();
-  $('fineTune').open = Boolean(state.ui.fineTune);
-  $('processing').open = Boolean(state.ui.processing);
+  drawTraces();
 }
 
 // ---------- loudness trace ----------
-function drawTrace() {
-  const canvas = $('trace');
+function drawTraces() {
+  drawTrace($('trace'), state.history, { label: true });
+  if (state.screen === 'finetune') drawTrace($('miniTrace'), state.history);
+}
+
+function drawTrace(canvas, history, options = {}) {
   const g = canvas.getContext('2d');
   const { width, height } = canvas;
   g.clearRect(0, 0, width, height);
   const [lo, hi] = TRACE_RANGE;
   const y = db => height - ((Math.max(lo, Math.min(hi, db)) - lo) / (hi - lo)) * height;
   const step = width / (HISTORY_POINTS - 1);
-  const h = state.history;
+  const h = history;
   const x = i => width - (h.length - 1 - i) * step;
 
   const colors = themeColors();
@@ -714,11 +785,13 @@ function drawTrace() {
     g.lineTo(width, y(last.limit));
     g.stroke();
     g.setLineDash([]);
-    g.globalAlpha = 0.85;
-    g.fillStyle = colors.spike;
-    g.font = "600 20px 'IBM Plex Sans', sans-serif";
-    g.textBaseline = 'bottom';
-    g.fillText('Taming starts here', 0, y(last.limit) - 4);
+    if (options.label) {
+      g.globalAlpha = 0.85;
+      g.fillStyle = colors.spike;
+      g.font = "600 20px 'IBM Plex Sans', sans-serif";
+      g.textBaseline = 'bottom';
+      g.fillText('Taming starts here', 0, y(last.limit) - 4);
+    }
     g.globalAlpha = 1;
   }
 }
@@ -781,7 +854,7 @@ async function pollMeters() {
     state.history.push({ out: meters.outDb, cut, limit: meters.thresholdDb });
     if (state.history.length > HISTORY_POINTS) state.history.shift();
   }
-  drawTrace();
+  drawTraces();
   renderCaption();
   setTimeout(pollMeters, METER_INTERVAL_MS);
 }
@@ -1007,21 +1080,30 @@ async function setCrt(enabled) {
   }
 }
 
-// ---------- events ----------
-// Opens a secondary screen. Until the screens exist, Fine-tune and listening are drawers below.
-function openScreen(name, focusId) {
-  if (typeof showScreen === 'function') {
-    showScreen(name);
-  } else {
-    const drawer = { finetune: 'fineTune', listening: 'processing' }[name];
-    if (drawer) {
-      $(drawer).open = true;
-      $(drawer).scrollIntoView({ block: 'start' });
-    }
+// ---------- screens ----------
+// The popup is one main screen plus secondary screens that replace it (back arrow or Esc returns).
+function showScreen(name) {
+  for (const screen of document.querySelectorAll('.screen')) {
+    screen.hidden = screen.dataset.screen !== name;
   }
+  state.screen = name;
+  const current = document.querySelector(`.screen[data-screen="${name}"]`);
+  const body = current.querySelector('.screen-body');
+  if (body) body.scrollTop = 0;
+  if (name === 'finetune') {
+    drawEqCurve();
+    drawTraces();
+  }
+  const focusTarget = name === 'main' ? $('power') : current.querySelector('.back');
+  if (focusTarget) focusTarget.focus();
+}
+
+function openScreen(name, focusId) {
+  showScreen(name);
   if (focusId && $(focusId)) $(focusId).focus();
 }
 
+// ---------- events ----------
 function bindEvents() {
   $('power').addEventListener('change', async (event) => {
     state.enabled = event.target.checked;
@@ -1052,13 +1134,15 @@ function bindEvents() {
     });
   }
 
-  for (const id of ['fineTune', 'processing']) {
-    $(id).addEventListener('toggle', () => {
-      state.ui[id] = $(id).open;
-      saveUi();
-      if (id === 'fineTune' && $(id).open) drawEqCurve();
-    });
+  for (const back of document.querySelectorAll('.back')) {
+    back.addEventListener('click', () => showScreen('main'));
   }
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.screen !== 'main') {
+      event.preventDefault();
+      showScreen('main');
+    }
+  });
 
   const form = $('savePresetForm');
   $('savePresetButton').addEventListener('click', () => {
@@ -1111,7 +1195,7 @@ async function init() {
   bindEvents();
   renderAll();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    drawTrace();
+    drawTraces();
     drawEqCurve();
   });
 

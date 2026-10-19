@@ -171,7 +171,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const metrics = await ask({ op: 'popup-metrics' });
     const noOverflow = m => m.docScrollW <= m.docClientW && m.innerScrollW <= m.innerClientW;
     check('popup has no horizontal scrollbar', metrics && noOverflow(metrics.closed), metrics && JSON.stringify(metrics.closed));
-    check('no horizontal scrollbar with Fine-tune open', metrics && noOverflow(metrics.open), metrics && JSON.stringify(metrics.open));
+    for (const screen of ['finetune', 'listening']) {
+      check(`no horizontal scrollbar on the ${screen} screen`, metrics && metrics[screen] && noOverflow(metrics[screen]),
+        metrics && JSON.stringify(metrics[screen]));
+    }
     check('no page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
     if (withCaptions && speech.en) {

@@ -82,22 +82,37 @@
       <ol class="transcript" id="transcript" hidden></ol>
     </section>
 
-    <details class="drawer" id="fineTune">
-      <summary>Fine-tune</summary>
-      <div class="drawer-body" id="fineTuneBody"></div>
-      <div class="save-preset">
-        <form id="savePresetForm" hidden>
-          <input type="text" id="presetName" maxlength="24" placeholder="Name this preset" required>
-          <button type="submit" class="button">Save</button>
-          <button type="button" class="button quiet" id="cancelPreset">Cancel</button>
-        </form>
-        <button type="button" class="button quiet" id="savePresetButton">Save these settings as a preset</button>
+    <section class="screen" data-screen="finetune" hidden>
+      <header class="screen-head">
+        <button type="button" class="back" aria-label="Back to Limitr">&larr;</button>
+        <h2>Fine-tune</h2>
+      </header>
+      <div class="live-strip">
+        <canvas id="miniTrace" width="656" height="80"></canvas>
+        <p class="caught mini" id="miniCaught"></p>
+        <p class="mini-preset" id="miniPreset"></p>
       </div>
-    </details>
+      <div class="screen-body">
+        <div id="fineTuneBody"></div>
+        <section class="saved-presets" id="savedPresets" tabindex="-1" aria-label="Your presets">
+          <h3>Your presets</h3>
+          <ul id="savedPresetList"></ul>
+          <form id="savePresetForm" hidden>
+            <input type="text" id="presetName" maxlength="24" placeholder="Name this preset" required>
+            <button type="submit" class="button">Save</button>
+            <button type="button" class="button quiet" id="cancelPreset">Cancel</button>
+          </form>
+          <button type="button" class="button quiet" id="savePresetButton">Save these settings as a preset</button>
+        </section>
+      </div>
+    </section>
 
-    <details class="drawer" id="processing">
-      <summary>How Limitr listens</summary>
-      <div class="drawer-body">
+    <section class="screen" data-screen="listening" hidden>
+      <header class="screen-head">
+        <button type="button" class="back" aria-label="Back to Limitr">&larr;</button>
+        <h2>How Limitr listens</h2>
+      </header>
+      <div class="screen-body">
         <div class="mode-choice" role="radiogroup" aria-label="How Limitr listens">
           <label class="mode-option">
             <input type="radio" name="mode" value="page">
@@ -111,11 +126,11 @@
           </label>
         </div>
         <div class="mixer" id="mixer" hidden>
-          <h2 class="mixer-title">Tabs Limitr is listening to</h2>
+          <h3 class="mixer-title">Tabs Limitr is listening to</h3>
           <ul id="mixerList"></ul>
         </div>
       </div>
-    </details>
+    </section>
   </main>
 
   <script src="lib/settings.js"></script>
