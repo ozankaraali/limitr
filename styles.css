@@ -634,8 +634,8 @@ input[type='range']:disabled {
 }
 
 .transcript {
-  max-height: 96px;
-  margin: 4px 0 8px;
+  max-height: 220px;
+  margin: 10px 0 8px;
   padding: 8px 10px;
   overflow-y: auto;
   border-radius: var(--radius-control);
@@ -645,7 +645,17 @@ input[type='range']:disabled {
 }
 
 .transcript li + li {
-  margin-top: 2px;
+  margin-top: 6px;
+}
+
+.transcript .orig,
+.transcript .tr {
+  display: block;
+}
+
+.transcript .tr {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 /* ---------- Fine-tune sections ---------- */

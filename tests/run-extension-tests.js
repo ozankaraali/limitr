@@ -371,6 +371,33 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await rPopup.close();
     await restricted.close();
 
+    console.log('\nCaptions screen');
+    // Drive the popup with the transcriber's own messages instead of downloading a speech model
+    await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'active' }), tabId);
+    await sleep(300);
+    check('captions on: the language chip shows', await visible('#captionsChip'));
+    await popup.click('#captionsChip').catch(() => {});
+    await sleep(300);
+    check('the chip opens the captions screen', await visible('[data-screen="captions"]'));
+    check('Language and Translate to are on it', (await visible('#captionsLanguage')) && (await visible('#captionsTranslate')));
+    await worker.evaluate(id => chrome.runtime.sendMessage({
+      action: 'transcription-result', tabId: id,
+      result: { text: 'Herkese iyi ak\u015famlar', translation: 'Good evening everyone' }
+    }), tabId);
+    await sleep(300);
+    const lines = await popup.$$eval('#transcript li', items => items.map(li => ({
+      orig: li.querySelector('.orig') && li.querySelector('.orig').textContent,
+      tr: li.querySelector('.tr') && li.querySelector('.tr').textContent
+    })));
+    const last = lines[lines.length - 1] || {};
+    check('transcript shows the original with its translation under it',
+      last.orig === 'Herkese iyi ak\u015famlar' && last.tr === 'Good evening everyone', JSON.stringify(last));
+    o = await overflow();
+    check('captions: no horizontal overflow', o.doc <= 360 && o.inner <= 0, JSON.stringify(o));
+    check('captions screen has a way back', await visible('[data-screen="captions"] .back'));
+    await popup.click('[data-screen="captions"] .back').catch(() => {});
+    await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'stopped' }), tabId);
+
     console.log('\nTheme');
     const bodyBackground = () => popup.evaluate(() => getComputedStyle(document.body).backgroundColor);
     await popup.emulateMedia({ colorScheme: 'dark' });

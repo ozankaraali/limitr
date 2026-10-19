@@ -171,7 +171,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const metrics = await ask({ op: 'popup-metrics' });
     const noOverflow = m => m.docScrollW <= m.docClientW && m.innerScrollW <= m.innerClientW;
     check('popup has no horizontal scrollbar', metrics && noOverflow(metrics.closed), metrics && JSON.stringify(metrics.closed));
-    for (const screen of ['finetune', 'listening']) {
+    for (const screen of ['finetune', 'listening', 'captions']) {
       check(`no horizontal scrollbar on the ${screen} screen`, metrics && metrics[screen] && noOverflow(metrics[screen]),
         metrics && JSON.stringify(metrics[screen]));
     }

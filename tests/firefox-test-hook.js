@@ -39,6 +39,11 @@ browser.runtime.onMessage.addListener((message, sender) => {
           screens[name] = measure();
           view.document.querySelector(`[data-screen="${name}"] .back`).click();
         }
+        // The captions screen opens from a chip that only shows while captions run
+        view.showScreen('captions');
+        await new Promise(resolve => setTimeout(resolve, 300));
+        screens.captions = measure();
+        view.showScreen('main');
         const result = { closed, ...screens };
         await browser.windows.remove(win.id);
         return result;

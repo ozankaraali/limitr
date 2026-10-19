@@ -1038,7 +1038,17 @@ function showTranscriptLine(result) {
     list.append(line);
     while (list.children.length > 6) list.firstChild.remove();
   }
-  line.textContent = result.text;
+  // Original line, with the translation (when there is one) muted underneath
+  const orig = document.createElement('span');
+  orig.className = 'orig';
+  orig.textContent = result.text;
+  line.replaceChildren(orig);
+  if (result.translation) {
+    const tr = document.createElement('span');
+    tr.className = 'tr';
+    tr.textContent = result.translation;
+    line.append(tr);
+  }
   list.scrollTop = list.scrollHeight;
 }
 

@@ -69,17 +69,23 @@
     </section>
 
     <section class="screen" data-screen="captions" hidden>
-      <label class="select-row">
-        <span>Language</span>
-        <select id="captionsLanguage"></select>
-      </label>
-      <label class="select-row">
-        <span>Translate to</span>
-        <select id="captionsTranslate"></select>
-      </label>
-      <p class="group-note" id="captionsHint" hidden></p>
-      <button type="button" class="button quiet" id="translationDownload" hidden></button>
-      <ol class="transcript" id="transcript" hidden></ol>
+      <header class="screen-head">
+        <button type="button" class="back" aria-label="Back to Limitr">&larr;</button>
+        <h2>Live captions</h2>
+      </header>
+      <div class="screen-body">
+        <label class="select-row">
+          <span>Language</span>
+          <select id="captionsLanguage"></select>
+        </label>
+        <label class="select-row">
+          <span>Translate to</span>
+          <select id="captionsTranslate"></select>
+        </label>
+        <p class="group-note" id="captionsHint" hidden></p>
+        <button type="button" class="button quiet" id="translationDownload" hidden></button>
+        <ol class="transcript" id="transcript" aria-live="polite" hidden></ol>
+      </div>
     </section>
 
     <section class="screen" data-screen="finetune" hidden>
