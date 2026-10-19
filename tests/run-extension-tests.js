@@ -85,6 +85,13 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(page(`http://localhost:${port}`));
     },
+    '/remote-only.html': (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<!DOCTYPE html><html><body><button id="play">Play</button>
+<audio id="remote" src="http://localhost:${port}/tone.wav" loop></audio>
+<script>document.getElementById('play').onclick = () => document.getElementById('remote').play();</script>
+</body></html>`);
+    },
     '/frame.html': (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(frame);
@@ -183,6 +190,42 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await worker.evaluate((s) => chrome.storage.local.set({ limitrSettings: s }), limitrSettings);
 
     check('no page errors', pageErrors.length === 0, pageErrors.join(' | '));
+
+    console.log('\nToolbar icon');
+    const iconState = id => worker.evaluate(t => (typeof tabIconStates === 'undefined' ? null : tabIconStates.get(t)), id);
+    check('protected player plus an unreachable one: working (gold)', (await iconState(tabId)) === 'working', await iconState(tabId));
+    const remoteTab = await context.newPage();
+    await remoteTab.goto(`http://127.0.0.1:${port}/remote-only.html`);
+    await sleep(500);
+    const remoteId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'http://127.0.0.1/remote-only.html' }))[0].id);
+    await remoteTab.click('#play');
+    await sleep(1500);
+    check('only an unreachable player plays: needs attention (red)', (await iconState(remoteId)) === 'attention', await iconState(remoteId));
+    const remotePopup = await context.newPage();
+    await remotePopup.goto(`chrome-extension://${extensionId}/popup.html?tabId=${remoteId}`);
+    await sleep(2000);
+    const remoteStatus = await remotePopup.textContent('#status');
+    check('popup says why it needs attention', /can\u2019t be reached/.test(remoteStatus), remoteStatus);
+    await remotePopup.close();
+    await remoteTab.evaluate(() => document.getElementById('remote').pause());
+    await sleep(800);
+    check('pausing it clears the red state', (await iconState(remoteId)) === 'on', await iconState(remoteId));
+    await worker.evaluate(() => chrome.storage.local.set({ limitrEnabled: false }));
+    await sleep(800);
+    check('turning Limitr off: off (gray)', (await iconState(tabId)) === 'off', await iconState(tabId));
+    await worker.evaluate(() => chrome.storage.local.set({ limitrEnabled: true }));
+    await sleep(800);
+    const newTab = await context.newPage();
+    await newTab.goto('chrome://newtab/').catch(() => {});
+    await sleep(800);
+    const newTabId = await worker.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      const t = tabs.find(x => (x.url || x.pendingUrl || '').startsWith('chrome://new'));
+      return t && t.id;
+    });
+    check('browser pages never show red', (await iconState(newTabId)) !== 'attention', await iconState(newTabId));
+    await newTab.close();
+    await remoteTab.close();
 
     console.log('\nPopup');
     const popup = await context.newPage();

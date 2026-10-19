@@ -42,6 +42,9 @@
   const waiting = new Set();     // elements waiting for the AudioContext to be allowed to start
   const skipped = new Map();     // reason -> count of distinct elements
   const skippedElements = new WeakSet();
+  // Skipped players Whole tab could reach; while one plays, the toolbar asks for attention
+  const ATTENTION_REASONS = new Set(['cross-origin', 'drm', 'page-audio']);
+  const unreachable = new Set();
   const sources = [];
   let gestureListening = false;
   let gestureListener = null;
@@ -220,6 +223,7 @@
       if (!skippedElements.has(el)) {
         skippedElements.add(el);
         skipped.set(reason, (skipped.get(reason) || 0) + 1);
+        if (ATTENTION_REASONS.has(reason)) trackUnreachable(el);
         reportStatus();
       }
       return;
@@ -250,6 +254,7 @@
       if (!skippedElements.has(el)) {
         skippedElements.add(el);
         skipped.set('page-audio', (skipped.get('page-audio') || 0) + 1);
+        trackUnreachable(el);
         reportStatus();
       }
     }
@@ -283,6 +288,20 @@
     return result;
   };
 
+  // Listen on the element itself: detached and shadow-DOM players don't reach window listeners
+  function trackUnreachable(el) {
+    unreachable.add(el);
+    for (const type of ['play', 'playing', 'pause', 'ended', 'volumechange', 'emptied']) {
+      el.addEventListener(type, reportStatus);
+    }
+  }
+
+  function playingUnreachable() {
+    let count = 0;
+    for (const el of unreachable) if (isAudible(el)) count++;
+    return count;
+  }
+
   // ---------- status & meters ----------
   let statusTimer = null;
   function reportStatus() {
@@ -293,6 +312,7 @@
         status: {
           attached: attachedCount,
           waitingForGesture: waiting.size,
+          playingSkipped: playingUnreachable(),
           skipped: Object.fromEntries(skipped),
           contextState: ctx ? ctx.state : 'none',
           dsp: engine ? engine.status.dsp : 'none',

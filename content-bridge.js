@@ -32,7 +32,8 @@
   const current = { settings: null, enabled: false, captured: false, captions: false };
   // Read by the popup via scripting.executeScript to find the frame that holds the media
   globalThis.__limitrBridgeStatus = { attached: 0, skipped: {}, waitingForGesture: 0 };
-  let lastReportedAttached = 0;
+  let lastReported = '';
+  let reportTimer = null;
 
   function postToPage(type, payload = {}, transfer) {
     window.postMessage({ source: BRIDGE, type, ...payload }, '*', transfer || []);
@@ -49,15 +50,24 @@
     });
   }
 
+  // Tells the background what this frame is doing so it can colour the toolbar icon.
+  // Sent whenever it changes (including back to zero), at most every 250 ms.
   function reportStatusToBackground() {
-    const status = globalThis.__limitrBridgeStatus;
-    if (status.attached === 0 && lastReportedAttached === 0) return;
-    lastReportedAttached = status.attached;
-    api.runtime.sendMessage({
-      action: 'limitr-status',
-      attached: status.attached,
-      enabled: current.enabled
-    }).catch(() => {});
+    if (reportTimer) return;
+    reportTimer = setTimeout(() => {
+      reportTimer = null;
+      const status = globalThis.__limitrBridgeStatus;
+      const report = {
+        attached: status.attached || 0,
+        waitingForGesture: status.waitingForGesture || 0,
+        playingSkipped: status.playingSkipped || 0,
+        enabled: current.enabled
+      };
+      const key = JSON.stringify(report);
+      if (key === lastReported) return;
+      lastReported = key;
+      api.runtime.sendMessage({ action: 'limitr-status', ...report }).catch(() => {});
+    }, 250);
   }
 
   async function loadState() {

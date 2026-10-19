@@ -39,9 +39,31 @@ function isRestrictedUrl(url) {
 // ---------- icons ----------
 // Gray: off. Purple: on. Gold: working on this tab. Red: playing unprotected, needs the user.
 const tabIconStates = new Map();   // tabId -> last icon state (read by tests)
+const tabFrames = new Map();       // tabId -> Map(frameId -> { attached, waitingForGesture, playingSkipped })
+const capturedTabs = new Set();
+const captureFailures = new Set();
+let globalEnabled = true;
+
+// Off beats everything; then working (anything processed), then attention, then on
+function iconStateFor(tabId) {
+  if (!globalEnabled) return 'off';
+  const frames = [...(tabFrames.get(tabId) || new Map()).values()];
+  if (capturedTabs.has(tabId) || frames.some(f => f.attached > 0)) return 'working';
+  if (captureFailures.has(tabId) || frames.some(f => f.waitingForGesture > 0 || f.playingSkipped > 0)) return 'attention';
+  return 'on';
+}
+
+function updateTabIcon(tabId) {
+  setTabIcon(tabId, iconStateFor(tabId));
+}
+
+function updateAllTabIcons() {
+  for (const tabId of new Set([...tabFrames.keys(), ...capturedTabs, ...captureFailures])) updateTabIcon(tabId);
+}
 
 async function refreshGlobalIcon() {
   const { enabled } = await S.load(chrome.storage.local);
+  globalEnabled = enabled;
   chrome.action.setIcon({ path: enabled ? ICONS.on : ICONS.off });
 }
 
@@ -105,7 +127,9 @@ function captureTab(tabId) {
     if (!response?.success) throw new Error(response?.error || 'Capture failed');
     // Page-mode engines in this tab step aside so audio isn't processed twice
     await chrome.tabs.sendMessage(tabId, { action: 'limitr-capture-state', captured: true }).catch(() => {});
-    setTabIcon(tabId, state.enabled ? 'working' : 'off');
+    capturedTabs.add(tabId);
+    captureFailures.delete(tabId);
+    updateTabIcon(tabId);
     // Captions running from page audio move over to the captured stream
     if ((await captionsStatus(tabId)).active) {
       await toOffscreen({ action: 'captions-start', tabId, prefs: await loadCaptionPrefs() });
@@ -120,8 +144,8 @@ async function releaseTab(tabId) {
   const hadCaptions = (await captionsStatus(tabId)).active;
   if (await hasOffscreen()) await toOffscreen({ action: 'capture-stop', tabId });
   await chrome.tabs.sendMessage(tabId, { action: 'limitr-capture-state', captured: false }).catch(() => {});
-  const { enabled } = await S.load(chrome.storage.local);
-  setTabIcon(tabId, enabled ? 'on' : 'off');
+  capturedTabs.delete(tabId);
+  updateTabIcon(tabId);
   // Stopping the capture also stopped its captions; carry on from page audio
   if (hadCaptions) await startCaptions(tabId).catch(() => {});
 }
@@ -144,13 +168,26 @@ async function autoCapture(tabId) {
       if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
+  // Only turns the icon red if page mode isn't protecting anything here either
+  captureFailures.add(tabId);
+  updateTabIcon(tabId);
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.audible === true) autoCapture(tabId);
+  // A new page starts with no players; its frames report again once they have some
+  if (changeInfo.status === 'loading' && (tabFrames.has(tabId) || captureFailures.has(tabId))) {
+    tabFrames.delete(tabId);
+    captureFailures.delete(tabId);
+    updateTabIcon(tabId);
+  }
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
+  tabFrames.delete(tabId);
+  capturedTabs.delete(tabId);
+  captureFailures.delete(tabId);
+  tabIconStates.delete(tabId);
   if (await hasOffscreen()) {
     await toOffscreen({ action: 'capture-stop', tabId }).catch(() => {});
     await toOffscreen({ action: 'captions-stop', tabId }).catch(() => {});
@@ -272,9 +309,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         captured: ids.includes(sender.tab.id),
         captions: Boolean(captions && captions.active)
       })), sendResponse);
-    case 'limitr-status':
-      if (sender.tab) setTabIcon(sender.tab.id, !message.enabled ? 'off' : message.attached > 0 ? 'working' : 'on');
+    case 'limitr-status': {
+      if (!sender.tab) return false;
+      const tabId = sender.tab.id;
+      if (!tabFrames.has(tabId)) tabFrames.set(tabId, new Map());
+      tabFrames.get(tabId).set(sender.frameId || 0, {
+        attached: message.attached || 0,
+        waitingForGesture: message.waitingForGesture || 0,
+        playingSkipped: message.playingSkipped || 0
+      });
+      globalEnabled = message.enabled !== false;
+      updateTabIcon(tabId);
       return false;
+    }
     case 'limitr-transcriber-audio':
       // Firefox hosts captions here; Chrome's offscreen document handles this message itself
       if (transcriberInBackground && sender.tab) receiveCaptionAudio(sender.tab.id, message.pcm);
@@ -298,7 +345,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ capture: captureSupported() });
       return false;
     case 'capture-tab':
-      return respond(captureTab(message.tabId).then(() => ({ success: true })), sendResponse);
+      return respond(captureTab(message.tabId).then(() => ({ success: true }), error => {
+        captureFailures.add(message.tabId);
+        updateTabIcon(message.tabId);
+        throw error;
+      }), sendResponse);
     case 'release-tab':
       return respond(releaseTab(message.tabId).then(() => ({ success: true })), sendResponse);
     case 'capture-list':
@@ -341,10 +392,13 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
     }
     if (KEYS.enabled in changes) {
       refreshGlobalIcon();
-      for (const tabId of await capturedTabIds()) setTabIcon(tabId, state.enabled ? 'working' : 'off');
+      globalEnabled = state.enabled;
+      updateAllTabIcons();
     }
   }
   if (KEYS.mode in changes && changes[KEYS.mode].newValue === 'page') {
+    captureFailures.clear();
+    updateAllTabIcons();
     releaseAll();
   }
   if (KEYS.captions in changes) {
@@ -404,3 +458,4 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 chrome.runtime.onStartup?.addListener(refreshGlobalIcon);
 refreshGlobalIcon();
+capturedTabIds().then(ids => ids.forEach(id => capturedTabs.add(id))).catch(() => {});
