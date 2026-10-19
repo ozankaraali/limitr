@@ -105,6 +105,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: 'chromium',
     headless: true,
+    // Screenshots are used for the store and README, so render them at 2x
+    deviceScaleFactor: screenshotDir ? 2 : 1,
     // Playwright's default --mute-audio also silences what tab capture receives, so unmute but
     // send output to a fake device: capture still gets audio and nothing reaches the speakers
     ignoreDefaultArgs: ['--mute-audio'],
@@ -122,6 +124,50 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     if (!worker) worker = await context.waitForEvent('serviceworker');
     const extensionId = new URL(worker.url()).host;
     worker.on('console', m => { if (m.type() === 'error') console.log('  [sw]', m.text()); });
+
+    // Every screen in both themes, cropped to the popup's real height (README + store artwork)
+    async function takeScreenshots() {
+      await worker.evaluate(() => chrome.storage.local.set({ limitrCaptions: { language: 'tr', translateTo: 'en' } }));
+      const shot = await context.newPage();
+      await shot.setViewportSize({ width: 360, height: 600 });
+      await shot.goto(`chrome-extension://${extensionId}/popup.html?tabId=${tabId}`);
+      await sleep(3000);
+      const save = async name => {
+        const height = await shot.evaluate(() => Math.ceil(document.querySelector('.popup').getBoundingClientRect().height));
+        await shot.screenshot({ path: path.join(screenshotDir, `${name}.png`), clip: { x: 0, y: 0, width: 360, height } });
+      };
+      const say = (text, translation) => worker.evaluate(m => chrome.runtime.sendMessage(m),
+        { action: 'transcription-result', tabId, result: { text, translation } });
+      for (const [scheme, tag] of [['dark', 'night'], ['light', 'day']]) {
+        await shot.emulateMedia({ colorScheme: scheme });
+        await sleep(600);
+        await save(`popup-main-${tag}`);
+        await shot.click('.nav-row[data-open="finetune"]');
+        await sleep(600);
+        await save(`popup-finetune-${tag}`);
+        await shot.click('[data-screen="finetune"] .back');
+        await shot.click('.nav-row[data-open="listening"]');
+        await sleep(300);
+        await save(`popup-listening-${tag}`);
+        await shot.click('[data-screen="listening"] .back');
+        await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'active' }), tabId);
+        await sleep(200);
+        await shot.click('#captionsChip');
+        await shot.evaluate(() => { document.getElementById('transcript').replaceChildren(); });
+        await say('Herkese iyi ak\u015famlar, yay\u0131na ho\u015f geldiniz.', 'Good evening everyone, welcome to the stream.');
+        await say('Bug\u00fcn biraz sessiz oynayaca\u011f\u0131z.', 'We\u2019ll keep it quiet tonight.');
+        await sleep(300);
+        await save(`popup-captions-${tag}`);
+        await shot.click('[data-screen="captions"] .back');
+        await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'stopped' }), tabId);
+      }
+      await shot.emulateMedia({ colorScheme: 'dark' });
+      await shot.click('[role="radio"]:has-text("Sleep")');
+      await sleep(1500);
+      await save('popup-sleep-night');
+      await shot.close();
+      await worker.evaluate(() => chrome.storage.local.remove('limitrCaptions'));
+    }
 
     const tab = await context.newPage();
     const pageErrors = [];
@@ -241,17 +287,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('popup reports the player is being tamed', /Taming/.test(statusText), statusText);
     const caption = await popup.textContent('#traceCaption');
     check('popup shows caught spikes', /CAUGHT \d+ spikes?\./.test(caption), caption);
-    if (screenshotDir) {
-      await popup.screenshot({ path: path.join(screenshotDir, 'popup-main.png'), fullPage: true });
-      await popup.click('.nav-row[data-open="finetune"]');
-      await sleep(300);
-      await popup.screenshot({ path: path.join(screenshotDir, 'popup-finetune.png'), fullPage: true });
-      await popup.click('[data-screen="finetune"] .back');
-      await popup.click('.nav-row[data-open="listening"]');
-      await sleep(300);
-      await popup.screenshot({ path: path.join(screenshotDir, 'popup-processing.png'), fullPage: true });
-      await popup.click('[data-screen="listening"] .back');
-    }
+    if (screenshotDir) await takeScreenshots();
     await popup.click('[role="radio"]:has-text("Sleep")');
     await sleep(400);
     const stored = await worker.evaluate(() => chrome.storage.local.get(['limitrSettings', 'limitrPreset']));
@@ -280,6 +316,13 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       check(`${scheme}: main screen fits in 600 px`, l.mainHeight !== null && l.mainHeight <= 600, `${l.mainHeight} px`);
       check(`${scheme}: Fine-tune and listening rows visible without scrolling`, l.rowsVisible);
     }
+    // Tabbing to the bottom row must not slide the main screen sideways
+    await popup.focus('.nav-row[data-open="listening"]');
+    const sideways = await popup.evaluate(() => {
+      const main = document.querySelector('.screen[data-screen="main"]');
+      return { scrollLeft: main.scrollLeft, overflow: main.scrollWidth - main.clientWidth };
+    });
+    check('main screen never scrolls sideways', sideways.scrollLeft === 0 && sideways.overflow <= 0, JSON.stringify(sideways));
     let layout = await mainLayout();
     check('six presets with line icons', layout.presetIcons === 6, layout.presetIcons);
     check('Even out levels is not on the main screen', !layout.levelOnMain);
