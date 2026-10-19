@@ -57,6 +57,9 @@
   function sendReport(report) {
     const key = JSON.stringify(report);
     if (key === lastReported) return;
+    // The background starts every frame at nothing, so most frames (no players) never need to
+    // wake it; reports begin with the first change from there
+    if (!lastReported && !report.attached && !report.waitingForGesture && !report.playingSkipped) return;
     lastReported = key;
     lastSentAt = Date.now();
     api.runtime.sendMessage({ action: 'limitr-status', ...report }).catch(() => {});
