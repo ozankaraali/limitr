@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icons/icon128.png" alt="Limitr" width="80">
+  <img src="icons/app-128.png" alt="Limitr" width="80">
 </p>
 
 <h1 align="center">Limitr</h1>

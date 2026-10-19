@@ -12,7 +12,8 @@
     "test:firefox": "node build-firefox.js --test && node tests/run-firefox-tests.js",
     "build:firefox": "node build-firefox.js",
     "lint:firefox": "node build-firefox.js && web-ext lint --source-dir dist/firefox",
-    "screenshots": "node tests/run-extension-tests.js --screenshots=docs/assets"
+    "screenshots": "node tests/run-extension-tests.js --screenshots=docs/assets",
+    "icons": "node icons/build-icons.js"
   },
   "devDependencies": {
     "@huggingface/transformers": "3.8.1",

@@ -13,8 +13,8 @@ const skippedFiles = new Set([
   'build-firefox.js',
   'package.json',
   'package-lock.json',
-  'icons/generate-icons.html',
-  'icons/genicons.js',
+  'icons/build-icons.js',
+  'icons/mark.svg',
   'offscreen.html',
   'offscreen.js'
 ]);

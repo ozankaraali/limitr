@@ -13,10 +13,13 @@ const S = globalThis.LimitrSettings;
 const KEYS = S.STORAGE_KEYS;
 const OFFSCREEN_PATH = 'offscreen.html';
 
+const ICON_SIZES = [16, 32, 48, 128];
+const iconSet = state => Object.fromEntries(ICON_SIZES.map(size => [size, `icons/toolbar-${state}-${size}.png`]));
 const ICONS = {
-  off: { 16: 'icons/icon16-gray.png', 32: 'icons/icon32-gray.png', 48: 'icons/icon48-gray.png', 128: 'icons/icon128-gray.png' },
-  on: { 16: 'icons/icon16.png', 32: 'icons/icon32.png', 48: 'icons/icon48.png', 128: 'icons/icon128.png' },
-  active: { 16: 'icons/icon16-active.png', 32: 'icons/icon32-active.png', 48: 'icons/icon48-active.png', 128: 'icons/icon128-active.png' }
+  off: iconSet('off'),
+  on: iconSet('on'),
+  working: iconSet('working'),
+  attention: iconSet('attention')
 };
 
 const LEGACY_KEYS = [
@@ -34,15 +37,17 @@ function isRestrictedUrl(url) {
 }
 
 // ---------- icons ----------
-// Gray: off. Purple: on. Gold: actively processing audio in this tab.
+// Gray: off. Purple: on. Gold: working on this tab. Red: playing unprotected, needs the user.
+const tabIconStates = new Map();   // tabId -> last icon state (read by tests)
+
 async function refreshGlobalIcon() {
   const { enabled } = await S.load(chrome.storage.local);
   chrome.action.setIcon({ path: enabled ? ICONS.on : ICONS.off });
 }
 
-function setTabIcon(tabId, active, enabled) {
-  const path = !enabled ? ICONS.off : active ? ICONS.active : ICONS.on;
-  Promise.resolve(chrome.action.setIcon({ tabId, path })).catch(() => {});
+function setTabIcon(tabId, iconState) {
+  tabIconStates.set(tabId, iconState);
+  Promise.resolve(chrome.action.setIcon({ tabId, path: ICONS[iconState] })).catch(() => {});
 }
 
 // ---------- offscreen document (Chrome tab capture + captions) ----------
@@ -100,7 +105,7 @@ function captureTab(tabId) {
     if (!response?.success) throw new Error(response?.error || 'Capture failed');
     // Page-mode engines in this tab step aside so audio isn't processed twice
     await chrome.tabs.sendMessage(tabId, { action: 'limitr-capture-state', captured: true }).catch(() => {});
-    setTabIcon(tabId, true, state.enabled);
+    setTabIcon(tabId, state.enabled ? 'working' : 'off');
     // Captions running from page audio move over to the captured stream
     if ((await captionsStatus(tabId)).active) {
       await toOffscreen({ action: 'captions-start', tabId, prefs: await loadCaptionPrefs() });
@@ -116,7 +121,7 @@ async function releaseTab(tabId) {
   if (await hasOffscreen()) await toOffscreen({ action: 'capture-stop', tabId });
   await chrome.tabs.sendMessage(tabId, { action: 'limitr-capture-state', captured: false }).catch(() => {});
   const { enabled } = await S.load(chrome.storage.local);
-  setTabIcon(tabId, false, enabled);
+  setTabIcon(tabId, enabled ? 'on' : 'off');
   // Stopping the capture also stopped its captions; carry on from page audio
   if (hadCaptions) await startCaptions(tabId).catch(() => {});
 }
@@ -268,7 +273,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         captions: Boolean(captions && captions.active)
       })), sendResponse);
     case 'limitr-status':
-      if (sender.tab) setTabIcon(sender.tab.id, message.attached > 0, message.enabled);
+      if (sender.tab) setTabIcon(sender.tab.id, !message.enabled ? 'off' : message.attached > 0 ? 'working' : 'on');
       return false;
     case 'limitr-transcriber-audio':
       // Firefox hosts captions here; Chrome's offscreen document handles this message itself
@@ -336,7 +341,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
     }
     if (KEYS.enabled in changes) {
       refreshGlobalIcon();
-      for (const tabId of await capturedTabIds()) setTabIcon(tabId, true, state.enabled);
+      for (const tabId of await capturedTabIds()) setTabIcon(tabId, state.enabled ? 'working' : 'off');
     }
   }
   if (KEYS.mode in changes && changes[KEYS.mode].newValue === 'page') {
