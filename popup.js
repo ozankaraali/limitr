@@ -213,17 +213,26 @@ function renderPresetChips() {
   more.hidden = true;
   more.addEventListener('click', () => openScreen('finetune', 'savedPresets'));
   row.append(more);
+  requestAnimationFrame(fitPresetChips);
+}
 
-  requestAnimationFrame(() => {
-    let hiddenCount = 0;
-    for (let i = chips.length - 1; i >= 0 && row.scrollWidth > row.clientWidth; i--) {
-      chips[i].hidden = true;
-      hiddenCount++;
-      more.hidden = false;
-      more.textContent = `+${hiddenCount}`;
-      more.setAttribute('aria-label', `${hiddenCount} more saved presets`);
-    }
-  });
+// Hides chips from the end until the row fits, behind a "+N" chip. Only measurable while the main
+// screen is shown, so showScreen('main') calls it again.
+function fitPresetChips() {
+  const row = $('presetChips');
+  if (row.hidden || !row.clientWidth) return;
+  const chips = [...row.querySelectorAll('.chip:not(.more)')];
+  const more = row.querySelector('.chip.more');
+  chips.forEach(chip => { chip.hidden = false; });
+  more.hidden = true;
+  let hiddenCount = 0;
+  for (let i = chips.length - 1; i >= 0 && row.scrollWidth > row.clientWidth; i--) {
+    chips[i].hidden = true;
+    hiddenCount++;
+    more.hidden = false;
+    more.textContent = `+${hiddenCount}`;
+    more.setAttribute('aria-label', `${hiddenCount} more saved presets`);
+  }
 }
 
 // Which preset Fine-tune is adjusting, shown in its live strip
@@ -925,7 +934,10 @@ function renderCaptions(note) {
   $('transcript').hidden = state.captions !== 'active';
   const chip = $('captionsChip');
   chip.hidden = !toggle.checked;
-  chip.textContent = LANGUAGE_NAMES[state.captionPrefs.language] || 'Auto';
+  const auto = state.captionPrefs.language === 'auto';
+  chip.textContent = auto
+    ? (state.captionsDetected ? `Auto: ${LANGUAGE_NAMES[state.captionsDetected] || state.captionsDetected}` : 'Auto')
+    : LANGUAGE_NAMES[state.captionPrefs.language] || state.captionPrefs.language;
   chip.setAttribute('aria-label', `Caption settings: ${chip.textContent}`);
   if (note) $('captionsNote').textContent = note;
 }
@@ -952,7 +964,10 @@ function buildCaptionOptions() {
   language.value = state.captionPrefs.language;
   translate.value = targets.some(([c]) => c === state.captionPrefs.translateTo) ? state.captionPrefs.translateTo : '';
 
-  language.addEventListener('change', () => saveCaptionPrefs({ language: language.value }));
+  language.addEventListener('change', () => {
+    saveCaptionPrefs({ language: language.value });
+    renderCaptions();
+  });
   translate.addEventListener('change', () => {
     saveCaptionPrefs({ translateTo: translate.value });
     // The change event carries the click, which a first-time translator download needs
@@ -1027,6 +1042,7 @@ async function refreshCaptions() {
   if (status?.active) state.captions = 'active';
   else if (status?.loading) state.captions = 'loading';
   const detected = status?.session?.language;
+  if (detected) state.captionsDetected = detected;
   renderCaptions(status?.active && detected && state.captionPrefs.language === 'auto'
     ? `Listening in ${LANGUAGE_NAMES[detected] || detected}.`
     : undefined);
@@ -1067,6 +1083,7 @@ chrome.runtime.onMessage.addListener((message) => {
     else if (message.status === 'error') state.captions = 'error';
     else if (message.status === 'stopped') state.captions = 'off';
     if (message.status === 'language') {
+      state.captionsDetected = message.language;
       renderCaptions(`Listening in ${LANGUAGE_NAMES[message.language] || message.language}.`);
     } else if (message.status === 'translation-download') {
       const button = $('translationDownload');
@@ -1109,6 +1126,7 @@ function showScreen(name) {
     drawEqCurve();
     drawTraces();
   }
+  if (name === 'main') fitPresetChips();
   const focusTarget = name === 'main' ? $('power') : current.querySelector('.back');
   if (focusTarget) focusTarget.focus();
 }

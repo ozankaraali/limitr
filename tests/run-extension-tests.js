@@ -96,6 +96,17 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       res.end('<!DOCTYPE html><html><body><button id="play">Play</button><audio id="a" src="/stream.wav" loop></audio>' +
         '<script>document.getElementById("play").onclick = () => document.getElementById("a").play();</script></body></html>');
     },
+    '/ad-host.html': (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<!DOCTYPE html><html><body><iframe id="ad" src="/ad-frame.html" width="300" height="80"></iframe></body></html>');
+    },
+    '/ad-frame.html': (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<!DOCTYPE html><html><body><button id="play">Play</button>
+<audio id="remote" src="http://localhost:${port}/tone.wav" loop></audio>
+<script>document.getElementById('play').onclick = () => document.getElementById('remote').play();</script>
+</body></html>`);
+    },
     '/remote-only.html': (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(`<!DOCTYPE html><html><body><button id="play">Play</button>
@@ -287,6 +298,23 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('turning Limitr off: off (gray)', (await iconState(tabId)) === 'off', await iconState(tabId));
     await worker.evaluate(() => chrome.storage.local.set({ limitrEnabled: true }));
     await sleep(800);
+    // An ad in an iframe: plays unreachable audio, then ends and is removed straight away
+    const adTab = await context.newPage();
+    await adTab.goto(`http://127.0.0.1:${port}/ad-host.html`);
+    await sleep(500);
+    const adId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'http://127.0.0.1/ad-host.html' }))[0].id);
+    await adTab.frameLocator('#ad').locator('#play').click();
+    await sleep(1500);
+    check('unreachable ad playing in an iframe: red', (await iconState(adId)) === 'attention', await iconState(adId));
+    await adTab.evaluate(() => {
+      const frame = document.getElementById('ad');
+      frame.contentWindow.document.getElementById('remote').pause();
+      frame.remove();
+    });
+    await sleep(1000);
+    check('ad iframe removed right after it ends: red clears', (await iconState(adId)) === 'on', await iconState(adId));
+    await adTab.close();
+
     const newTab = await context.newPage();
     await newTab.goto('chrome://newtab/').catch(() => {});
     await sleep(800);
@@ -363,6 +391,19 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('saved presets stay on one line', layout.chipOverflow !== null && layout.chipOverflow <= 1, layout.chipOverflow);
     check('extra saved presets collapse into "+N"', layout.more);
     check('no horizontal overflow with long preset names', layout.docWidth <= 360, layout.docWidth);
+    // Changing a setting re-renders the chips while the main screen is hidden; coming back must re-fit them
+    await popup.click('.nav-row[data-open="finetune"]');
+    await popup.evaluate(() => {
+      const slider = document.getElementById('ctl-guardHeadroom');
+      slider.value = 7;
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await sleep(300);
+    await popup.click('[data-screen="finetune"] .back');
+    await sleep(300);
+    layout = await mainLayout();
+    check('after a Fine-tune change, saved presets still collapse into "+N"', layout.more && layout.chipOverflow <= 1,
+      `more=${layout.more}, overflow=${layout.chipOverflow}`);
     await worker.evaluate(() => chrome.storage.local.remove('limitrUserPresets'));
 
     console.log('\nSecondary screens');
@@ -449,6 +490,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await sleep(300);
     check('the chip opens the captions screen', await visible('[data-screen="captions"]'));
     check('Language and Translate to are on it', (await visible('#captionsLanguage')) && (await visible('#captionsTranslate')));
+    await popup.selectOption('#captionsLanguage', 'auto');
+    await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'language', language: 'tr' }), tabId);
+    await sleep(300);
+    const chipText = await popup.textContent('#captionsChip');
+    check('Auto shows what it picked on the chip', chipText === 'Auto: T\u00fcrk\u00e7e', chipText);
     await worker.evaluate(id => chrome.runtime.sendMessage({
       action: 'transcription-result', tabId: id,
       result: { text: 'Herkese iyi ak\u015famlar', translation: 'Good evening everyone' }

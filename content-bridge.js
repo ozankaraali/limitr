@@ -50,25 +50,51 @@
     });
   }
 
-  // Tells the background what this frame is doing so it can colour the toolbar icon.
-  // Sent whenever it changes (including back to zero), at most every 250 ms.
+  // Tells the background what this frame is doing so it can colour the toolbar icon. A change is
+  // sent straight away; further changes within 250 ms are coalesced into one trailing report.
+  let lastSentAt = 0;
+
+  function sendReport(report) {
+    const key = JSON.stringify(report);
+    if (key === lastReported) return;
+    lastReported = key;
+    lastSentAt = Date.now();
+    api.runtime.sendMessage({ action: 'limitr-status', ...report }).catch(() => {});
+  }
+
+  function currentReport() {
+    const status = globalThis.__limitrBridgeStatus;
+    return {
+      attached: status.attached || 0,
+      waitingForGesture: status.waitingForGesture || 0,
+      playingSkipped: status.playingSkipped || 0,
+      enabled: current.enabled
+    };
+  }
+
   function reportStatusToBackground() {
     if (reportTimer) return;
+    const wait = 250 - (Date.now() - lastSentAt);
+    if (wait <= 0) {
+      sendReport(currentReport());
+      return;
+    }
     reportTimer = setTimeout(() => {
       reportTimer = null;
-      const status = globalThis.__limitrBridgeStatus;
-      const report = {
-        attached: status.attached || 0,
-        waitingForGesture: status.waitingForGesture || 0,
-        playingSkipped: status.playingSkipped || 0,
-        enabled: current.enabled
-      };
-      const key = JSON.stringify(report);
-      if (key === lastReported) return;
-      lastReported = key;
-      api.runtime.sendMessage({ action: 'limitr-status', ...report }).catch(() => {});
-    }, 250);
+      sendReport(currentReport());
+    }, wait);
   }
+
+  // A frame that goes away (an ad iframe removed, a navigation) stops counting immediately
+  window.addEventListener('pagehide', () => {
+    clearTimeout(reportTimer);
+    reportTimer = null;
+    if (lastReported) sendReport({ attached: 0, waitingForGesture: 0, playingSkipped: 0, enabled: current.enabled });
+  });
+  // Back/forward cache: the same page comes back with its players, so report them again
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) reportStatusToBackground();
+  });
 
   async function loadState() {
     try {

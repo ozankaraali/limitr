@@ -55,6 +55,12 @@ async function main() {
     await page.evaluate(markup => document.body.insertAdjacentHTML('afterbegin', markup), symbol);
     await page.evaluate(() => document.fonts.ready);
     await page.waitForFunction(() => [...document.images].every(img => img.complete));
+    // A popup cut off by the artwork's edge reads as a mistake, so never ship one
+    const clipped = await page.evaluate(() => [...document.querySelectorAll('.popup')].some(img => {
+      const box = img.getBoundingClientRect();
+      return box.top < 0 || box.left < 0 || box.bottom > innerHeight || box.right > innerWidth;
+    }));
+    if (clipped) throw new Error(`${file}: the popup image runs past the edge of the artwork`);
     await page.screenshot({ path: path.join(OUT, file) });
     console.log(`  ${file}`);
   };

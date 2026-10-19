@@ -61,6 +61,9 @@ browser.runtime.onMessage.addListener((message, sender) => {
         if (backgroundTranscriber) out.session = (await backgroundTranscriber).sessionInfo(tabId);
         return out;
       })();
+    case 'icon-state':
+      // Same background page as background.js, so its icon bookkeeping is in scope
+      return Promise.resolve(tabIconStates.get(tabId) || null);
     case 'storage-set':
       return browser.storage.local.set(query.values).then(() => true);
     case 'popup':

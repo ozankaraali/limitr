@@ -85,6 +85,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       <audio id="a-en" src="/en.wav" loop></audio><audio id="a-tr" src="/tr.wav" loop></audio>
       <script>for (const l of ['en', 'tr']) document.getElementById(l).onclick = () => {
         document.querySelectorAll('audio').forEach(a => a.pause()); document.getElementById('a-' + l).play(); };</script></body></html>`),
+    '/remote-only.html': html(() => `<!DOCTYPE html><html><body><button id="play">Play</button>
+      <audio id="remote" src="http://localhost:${port}/tone.wav" loop></audio>
+      <script>play.onclick = () => remote.play();</script></body></html>`),
     '/frame.html': html(() => `<!DOCTYPE html><html><body><button id="play">Play</button>
       <audio id="framed" src="/tone.wav" loop></audio>
       <script>play.onclick = () => framed.play();</script></body></html>`)
@@ -116,7 +119,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await sleep(800);
 
     // Extension APIs are reached through the test agent (BiDi can't open moz-extension pages)
-    const ask = query => tab.evaluate(q => new Promise((resolve, reject) => {
+    const askIn = (page, query) => page.evaluate(q => new Promise((resolve, reject) => {
       const id = Math.random().toString(36).slice(2);
       const onReply = (event) => {
         const reply = event.data && event.data.limitrTestReply;
@@ -127,6 +130,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       window.addEventListener('message', onReply);
       window.postMessage({ limitrTestQuery: { id, query: q } }, '*');
     }), query);
+    const ask = query => askIn(tab, query);
     const frameStatus = () => ask({ op: 'frame-status' });
     const meters = frameId => ask({ op: 'meters', frameId });
 
@@ -162,6 +166,16 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await sleep(1000);
     m = await meters(0);
     check('turning it back on resumes processing', m && m.inDb > -60, m && `in ${m.inDb?.toFixed(1)}`);
+
+    console.log('\nToolbar icon');
+    const remoteTab = await browser.newPage();
+    await remoteTab.goto(`http://127.0.0.1:${port}/remote-only.html`);
+    await sleep(800);
+    await remoteTab.click('#play');
+    await sleep(1500);
+    const remoteIcon = await askIn(remoteTab, { op: 'icon-state' });
+    check('unreachable player in Firefox: not red (Whole tab is not available here)', remoteIcon === 'on', remoteIcon);
+    await remoteTab.close();
 
     console.log('\nPopup');
     const popup = await ask({ op: 'popup' });

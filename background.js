@@ -49,7 +49,9 @@ function iconStateFor(tabId) {
   if (!globalEnabled) return 'off';
   const frames = [...(tabFrames.get(tabId) || new Map()).values()];
   if (capturedTabs.has(tabId) || frames.some(f => f.attached > 0)) return 'working';
-  if (captureFailures.has(tabId) || frames.some(f => f.waitingForGesture > 0 || f.playingSkipped > 0)) return 'attention';
+  // An unreachable player only needs the user where Whole-tab capture exists to fix it
+  const unreachable = captureSupported() && frames.some(f => f.playingSkipped > 0);
+  if (captureFailures.has(tabId) || unreachable || frames.some(f => f.waitingForGesture > 0)) return 'attention';
   return 'on';
 }
 
