@@ -69,7 +69,11 @@ async function refreshGlobalIcon() {
   chrome.action.setIcon({ path: enabled ? ICONS.on : ICONS.off });
 }
 
+// Every frame of every page reports in, and each setIcon makes the service worker fetch and
+// decode four PNGs, so only changes go out. The browser drops a tab's icon when the tab loads a
+// new document; onUpdated forgets the state then, so the next report sets it again.
 function setTabIcon(tabId, iconState) {
+  if (tabIconStates.get(tabId) === iconState) return;
   tabIconStates.set(tabId, iconState);
   Promise.resolve(chrome.action.setIcon({ tabId, path: ICONS[iconState] })).catch(() => {});
 }
@@ -183,6 +187,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     captureFailures.delete(tabId);
     updateTabIcon(tabId);
   }
+  if (changeInfo.status === 'loading') tabIconStates.delete(tabId);
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
