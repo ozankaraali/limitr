@@ -60,18 +60,34 @@ function updateTabIcon(tabId) {
 }
 
 function updateAllTabIcons() {
-  for (const tabId of new Set([...tabFrames.keys(), ...capturedTabs, ...captureFailures])) updateTabIcon(tabId);
+  const tabs = [...tabFrames.keys(), ...capturedTabs, ...captureFailures, ...tabIconStates.keys()];
+  for (const tabId of new Set(tabs)) updateTabIcon(tabId);
 }
 
-async function refreshGlobalIcon() {
-  const { enabled } = await S.load(chrome.storage.local);
+// What a tab without an icon of its own shows: the global icon
+const defaultIconState = () => (globalEnabled ? 'on' : 'off');
+
+// The global icon outlives the service worker, so a worker that merely restarted leaves it alone
+// unless it changed (remembered in storage.session). Install, update and browser startup reset
+// the icon, so those always set it.
+const GLOBAL_ICON_KEY = 'limitrGlobalIcon';
+const sessionArea = chrome.storage.session;
+
+async function refreshGlobalIcon(always = false) {
+  const [{ enabled }, session] = await Promise.all([
+    S.load(chrome.storage.local),
+    sessionArea ? sessionArea.get(GLOBAL_ICON_KEY).catch(() => ({})) : {}
+  ]);
   globalEnabled = enabled;
-  chrome.action.setIcon({ path: enabled ? ICONS.on : ICONS.off });
+  const iconState = defaultIconState();
+  if (!always && session[GLOBAL_ICON_KEY] === iconState) return;
+  await chrome.action.setIcon({ path: ICONS[iconState] });
+  if (sessionArea) await sessionArea.set({ [GLOBAL_ICON_KEY]: iconState }).catch(() => {});
 }
 
 // Every frame of every page reports in, and each setIcon makes the service worker fetch and
-// decode four PNGs, so only changes go out. The browser drops a tab's icon when the tab loads a
-// new document; onUpdated forgets the state then, so the next report sets it again.
+// decode four PNGs, so only changes go out. When a tab loads a new document the browser resets
+// it to the global icon, and onUpdated records that, so a page with nothing to show costs none.
 function setTabIcon(tabId, iconState) {
   if (tabIconStates.get(tabId) === iconState) return;
   tabIconStates.set(tabId, iconState);
@@ -181,13 +197,15 @@ async function autoCapture(tabId) {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.audible === true) autoCapture(tabId);
+  if (changeInfo.status !== 'loading') return;
+  // 'loading' arrives once the new document has committed, after the browser's reset
+  tabIconStates.set(tabId, defaultIconState());
   // A new page starts with no players; its frames report again once they have some
-  if (changeInfo.status === 'loading' && (tabFrames.has(tabId) || captureFailures.has(tabId))) {
+  if (tabFrames.has(tabId) || captureFailures.has(tabId) || capturedTabs.has(tabId)) {
     tabFrames.delete(tabId);
     captureFailures.delete(tabId);
     updateTabIcon(tabId);
   }
-  if (changeInfo.status === 'loading') tabIconStates.delete(tabId);
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
@@ -459,10 +477,10 @@ chrome.contextMenus.onClicked.addListener((info) => {
 chrome.runtime.onInstalled.addListener(async () => {
   await migrateStorage();
   await createContextMenus();
-  await refreshGlobalIcon();
+  await refreshGlobalIcon(true);
   injectIntoOpenTabs();
 });
 
-chrome.runtime.onStartup?.addListener(refreshGlobalIcon);
+chrome.runtime.onStartup?.addListener(() => refreshGlobalIcon(true));
 refreshGlobalIcon();
 capturedTabIds().then(ids => ids.forEach(id => capturedTabs.add(id))).catch(() => {});
