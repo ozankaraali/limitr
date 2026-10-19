@@ -681,7 +681,14 @@ function renderStatus() {
   setRichText($('status'), parts);
 }
 
+// The meter poll re-renders these lines 15 times a second; unchanged text skips the DOM work
+// (and the style, layout and paint it would cause)
+const richTextShown = new WeakMap();
+
 function setRichText(el, parts) {
+  const key = JSON.stringify(parts);
+  if (richTextShown.get(el) === key) return;
+  richTextShown.set(el, key);
   el.replaceChildren(...parts.map(([text, style]) => {
     if (!style) return document.createTextNode(text);
     const span = document.createElement(style === 'strong' ? 'strong' : 'span');
@@ -699,7 +706,7 @@ function renderCaughtLine(el) {
   const m = state.meters;
   const live = state.enabled && m && typeof m.spikes === 'number';
   if (!live) {
-    el.replaceChildren();
+    setRichText(el, []);
     return;
   }
   if (m.spikes === 0) {
