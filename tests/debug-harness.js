@@ -240,14 +240,19 @@
     const y = db => height - ((Math.max(lo, Math.min(hi, db)) - lo) / (hi - lo)) * height;
     const x = i => width - (h.length - 1 - i) * (width / (HISTORY_POINTS - 1));
 
-    g.fillStyle = 'rgba(147, 132, 248, 0.28)';
+    const css = getComputedStyle(document.documentElement);
+    const accent = css.getPropertyValue('--accent').trim();
+    const spike = css.getPropertyValue('--spike').trim();
+    g.fillStyle = accent;
+    g.globalAlpha = 0.28;
     g.beginPath();
     g.moveTo(x(0), height);
     h.forEach((p, i) => g.lineTo(x(i), y(p.out)));
     g.lineTo(x(h.length - 1), height);
     g.fill();
 
-    g.fillStyle = 'rgba(246, 185, 78, 0.85)';
+    g.globalAlpha = 0.85;
+    g.fillStyle = spike;
     for (let i = 1; i < h.length; i++) {
       const a = h[i - 1];
       const b = h[i];
@@ -263,7 +268,8 @@
     const limit = h[h.length - 1].limit;
     if (Number.isFinite(limit)) {
       g.setLineDash([10, 10]);
-      g.strokeStyle = 'rgba(246, 185, 78, 0.5)';
+      g.globalAlpha = 0.5;
+      g.strokeStyle = spike;
       g.lineWidth = 2;
       g.beginPath();
       g.moveTo(0, y(limit));

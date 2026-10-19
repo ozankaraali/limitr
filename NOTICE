@@ -127,11 +127,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-Nunito typeface
+IBM Plex Sans and IBM Plex Mono typefaces
 ================================================================================
-Source: https://github.com/googlefonts/nunito
-File: fonts/nunito-latin.woff2 (full license text in fonts/OFL.txt)
+Source: https://github.com/IBM/plex
+Files: fonts/ibm-plex-sans-latin.woff2, fonts/ibm-plex-mono-500-latin.woff2
+(full license text in fonts/OFL.txt)
 
-Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito)
+Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.

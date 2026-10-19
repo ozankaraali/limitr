@@ -64,6 +64,23 @@ const fmt = {
   q: v => trim(v)
 };
 
+// ---------- theme ----------
+// Canvas drawings read the CSS theme tokens at draw time, so they follow light/dark switches
+function themeColors() {
+  const css = getComputedStyle(document.documentElement);
+  const token = name => css.getPropertyValue(name).trim();
+  return {
+    bg: token('--bg'),
+    raised: token('--raised'),
+    line: token('--line'),
+    text: token('--text'),
+    muted: token('--muted'),
+    accent: token('--accent'),
+    onAccent: token('--on-accent'),
+    spike: token('--spike')
+  };
+}
+
 // ---------- messaging ----------
 function toBackground(message) {
   return chrome.runtime.sendMessage({ ...message, target: 'background' });
@@ -456,14 +473,15 @@ function drawEqCurve() {
   }
 
   const y = db => height / 2 - (Math.max(-18, Math.min(18, db)) / 18) * (height / 2 - 6);
-  g.strokeStyle = 'rgba(170, 164, 210, 0.25)';
+  const colors = themeColors();
+  g.strokeStyle = colors.line;
   g.lineWidth = 2;
   g.beginPath();
   g.moveTo(0, height / 2);
   g.lineTo(width, height / 2);
   g.stroke();
 
-  g.strokeStyle = s.toneEnabled ? '#b0a5ff' : 'rgba(170, 164, 210, 0.5)';
+  g.strokeStyle = s.toneEnabled ? colors.accent : colors.muted;
   g.lineWidth = 3;
   g.beginPath();
   for (let i = 0; i < points; i++) {
@@ -582,9 +600,11 @@ function drawTrace() {
   const h = state.history;
   const x = i => width - (h.length - 1 - i) * step;
 
+  const colors = themeColors();
+
   // Resting line when there is nothing to show
   if (h.length < 2) {
-    g.strokeStyle = 'rgba(59, 54, 99, 1)';
+    g.strokeStyle = colors.line;
     g.lineWidth = 2;
     g.beginPath();
     g.moveTo(0, height - 1);
@@ -594,7 +614,8 @@ function drawTrace() {
   }
 
   // Output loudness (what you hear)
-  g.fillStyle = 'rgba(147, 132, 248, 0.28)';
+  g.fillStyle = colors.accent;
+  g.globalAlpha = 0.28;
   g.beginPath();
   g.moveTo(x(0), height);
   h.forEach((p, i) => g.lineTo(x(i), y(p.out)));
@@ -603,7 +624,8 @@ function drawTrace() {
   g.fill();
 
   // What Limitr shaved off: between the would-be level and what you hear
-  g.fillStyle = 'rgba(246, 185, 78, 0.85)';
+  g.fillStyle = colors.spike;
+  g.globalAlpha = 0.85;
   for (let i = 1; i < h.length; i++) {
     const a = h[i - 1];
     const b = h[i];
@@ -616,8 +638,9 @@ function drawTrace() {
     g.closePath();
     g.fill();
   }
+  g.globalAlpha = 1;
 
-  g.strokeStyle = '#b0a5ff';
+  g.strokeStyle = colors.accent;
   g.lineWidth = 2;
   g.beginPath();
   h.forEach((p, i) => (i === 0 ? g.moveTo(x(i), y(p.out)) : g.lineTo(x(i), y(p.out))));
@@ -627,17 +650,20 @@ function drawTrace() {
   const last = h[h.length - 1];
   if (Number.isFinite(last.limit)) {
     g.setLineDash([6, 6]);
-    g.strokeStyle = 'rgba(246, 185, 78, 0.45)';
+    g.strokeStyle = colors.spike;
+    g.globalAlpha = 0.5;
     g.lineWidth = 2;
     g.beginPath();
     g.moveTo(0, y(last.limit));
     g.lineTo(width, y(last.limit));
     g.stroke();
     g.setLineDash([]);
-    g.fillStyle = 'rgba(246, 185, 78, 0.8)';
-    g.font = '600 20px Nunito, sans-serif';
+    g.globalAlpha = 0.85;
+    g.fillStyle = colors.spike;
+    g.font = "600 20px 'IBM Plex Sans', sans-serif";
     g.textBaseline = 'bottom';
     g.fillText('Taming starts here', 0, y(last.limit) - 4);
+    g.globalAlpha = 1;
   }
 }
 
@@ -1010,6 +1036,10 @@ async function init() {
   buildCaptionOptions();
   bindEvents();
   renderAll();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    drawTrace();
+    drawEqCurve();
+  });
 
   if (state.tabId && !state.restricted) {
     chrome.tabs.sendMessage(state.tabId, { action: 'get-crt-visual' })

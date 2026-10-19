@@ -188,6 +188,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const popup = await context.newPage();
     const popupErrors = [];
     popup.on('pageerror', e => popupErrors.push(e.message));
+    const popupRequests = [];
+    popup.on('request', r => popupRequests.push(r.url()));
     popup.on('console', msg => { if (msg.type() === 'error') popupErrors.push(msg.text()); });
     await popup.setViewportSize({ width: 360, height: 640 });
     await popup.goto(`chrome-extension://${extensionId}/popup.html?tabId=${tabId}`);
@@ -210,6 +212,24 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const stored = await worker.evaluate(() => chrome.storage.local.get(['limitrSettings', 'limitrPreset']));
     check('preset click is saved', stored.limitrPreset === 'sleep' && stored.limitrSettings.guardHeadroom === 3);
     check('no popup errors', popupErrors.length === 0, popupErrors.join(' | '));
+
+    console.log('\nTheme');
+    const bodyBackground = () => popup.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    await popup.emulateMedia({ colorScheme: 'dark' });
+    check('night theme background is cool graphite', (await bodyBackground()) === 'rgb(28, 29, 33)', await bodyBackground());
+    await popup.emulateMedia({ colorScheme: 'light' });
+    check('day theme background is warm paper', (await bodyBackground()) === 'rgb(246, 244, 239)', await bodyBackground());
+    await popup.emulateMedia({ colorScheme: 'dark' });
+    const spike = await popup.evaluate(() => (typeof themeColors === 'function' ? themeColors().spike : null));
+    check('canvas colours follow the theme (night spike gold)', ['#f0b84a', 'rgb(240, 184, 74)'].includes(spike), spike);
+    // fonts.check() is true when no face matches at all, so look for a loaded Plex face instead
+    const plex = await popup.evaluate(async () => {
+      await document.fonts.ready;
+      return [...document.fonts].some(f => f.family.replace(/["']/g, '') === 'IBM Plex Sans' && f.status === 'loaded');
+    });
+    check('IBM Plex Sans is loaded', plex);
+    const remote = popupRequests.filter(url => !url.startsWith('chrome-extension://'));
+    check('popup makes no network requests', remote.length === 0, remote.join(' | '));
 
     console.log('\nWhole-tab capture mode');
     await popup.click('#processing > summary').catch(() => {});

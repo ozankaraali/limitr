@@ -5,45 +5,53 @@
   <title>Limitr debug harness</title>
   <style>
     @font-face {
-      font-family: 'Nunito';
-      font-weight: 400 800;
-      src: url('../fonts/nunito-latin.woff2') format('woff2');
+      font-family: 'IBM Plex Sans';
+      font-weight: 400 700;
+      src: url('../fonts/ibm-plex-sans-latin.woff2') format('woff2');
     }
+    /* Same tokens as styles.css: warm paper by day, cool graphite at night */
     :root {
-      --night: #1b1834; --dusk: #262245; --haze: #3b3663;
-      --mist: #aaa4d2; --moon: #ece9ff; --iris: #9384f8; --lamp: #f6b94e;
-      color-scheme: dark;
+      --bg: #f6f4ef; --raised: #ffffff; --line: #e2ded5; --text: #1d1a2b; --muted: #6c6680;
+      --accent: #6b5ce7; --on-accent: #ffffff; --spike: #d4920f;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1d21; --raised: #26272c; --line: #36383f; --text: #eff0f4; --muted: #a3a6b0;
+        --accent: #9586f7; --on-accent: #16122b; --spike: #f0b84a;
+        color-scheme: dark;
+      }
     }
     * { box-sizing: border-box; }
     body {
-      margin: 0; background: var(--night); color: var(--moon);
-      font: 15px/1.45 'Nunito', system-ui, sans-serif;
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 15px/1.45 'IBM Plex Sans', system-ui, sans-serif;
     }
     main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
-    h1 { margin: 0 0 4px; font-size: 26px; font-weight: 800; }
-    p.lede { margin: 0 0 20px; color: var(--mist); }
+    h1 { margin: 0 0 4px; font-size: 26px; font-weight: 700; }
+    p.lede { margin: 0 0 20px; color: var(--muted); }
     .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
     #drop {
-      padding: 22px; border: 2px dashed var(--haze); border-radius: 12px; text-align: center; color: var(--mist);
+      padding: 22px; border: 2px dashed var(--line); border-radius: 12px; text-align: center; color: var(--muted);
     }
-    #drop.over { border-color: var(--iris); color: var(--moon); }
+    #drop.over { border-color: var(--accent); color: var(--text); }
     button, select {
-      padding: 8px 14px; border: 1px solid var(--haze); border-radius: 8px;
-      background: var(--dusk); color: var(--moon); font: inherit; font-weight: 700; cursor: pointer;
+      padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--raised); color: var(--text); font: inherit; font-weight: 700; cursor: pointer;
     }
-    button.primary { background: var(--iris); border-color: var(--iris); color: var(--night); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
     button:disabled { opacity: 0.4; cursor: default; }
     canvas { display: block; width: 100%; height: 160px; margin: 12px 0 4px; }
     .readouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-    .readout { padding: 10px 12px; border-radius: 10px; background: var(--dusk); }
-    .readout span { display: block; color: var(--mist); font-size: 13px; }
+    .readout { padding: 10px 12px; border-radius: 10px; background: var(--raised); }
+    .readout span { display: block; color: var(--muted); font-size: 13px; }
     .readout strong { font-size: 18px; font-variant-numeric: tabular-nums; }
     table { width: 100%; margin-top: 12px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-    th, td { padding: 6px 8px; border-bottom: 1px solid var(--haze); text-align: right; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; }
     th:first-child, td:first-child { text-align: left; }
-    th { color: var(--mist); font-weight: 700; }
-    .note { color: var(--mist); font-size: 13px; }
-    .spike { color: var(--lamp); }
+    th { color: var(--muted); font-weight: 700; }
+    .note { color: var(--muted); font-size: 13px; }
+    .spike { color: var(--spike); }
   </style>
 </head>
 <body>

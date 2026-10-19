@@ -11,7 +11,7 @@
     "test:captions": "node tests/run-captions-tests.js --idle",
     "test:firefox": "node build-firefox.js --test && node tests/run-firefox-tests.js",
     "build:firefox": "node build-firefox.js",
-    "lint:firefox": "node build-firefox.js && web-ext lint --source-dir dist/firefox",
+    "lint:firefox": "node build-firefox.js --out=dist/firefox-lint && web-ext lint --source-dir dist/firefox-lint",
     "screenshots": "node tests/run-extension-tests.js --screenshots=docs/assets",
     "icons": "node icons/build-icons.js"
   },

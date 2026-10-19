@@ -5,9 +5,13 @@ const fs = require('fs/promises');
 const path = require('path');
 
 const rootDir = __dirname;
-// --test adds a small agent the Firefox E2E test drives (never ship that build)
+// --test adds a small agent the Firefox E2E test drives (never ship that build).
+// --out=DIR builds elsewhere, so linting doesn't overwrite a dist/firefox that Firefox has loaded.
 const testBuild = process.argv.includes('--test');
-const outDir = path.join(rootDir, 'dist', testBuild ? 'firefox-test' : 'firefox');
+const outArg = (process.argv.find(a => a.startsWith('--out=')) || '').slice('--out='.length);
+const outDir = outArg
+  ? path.resolve(rootDir, outArg)
+  : path.join(rootDir, 'dist', testBuild ? 'firefox-test' : 'firefox');
 const skippedRootEntries = new Set(['.claude', '.git', '.playwright-mcp', 'dist', 'node_modules', 'docs']);
 const skippedFiles = new Set([
   'build-firefox.js',
