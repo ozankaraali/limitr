@@ -18,6 +18,26 @@ const EXPLAINERS = {
   tv90s: 'Narrow, warm broadcast sound with a little tape hiss.'
 };
 
+// Line icons for the factory presets (24 px grid, stroked with currentColor)
+const PRESET_ICONS = {
+  off: '<path d="M12 3v8"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/>',
+  gentle: '<path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14z"/><path d="M5 19l7-7"/>',
+  stream: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/>',
+  sleep: '<path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10z"/>',
+  movie: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M7.5 5v14M16.5 5v14M3.5 9.5h4M3.5 14.5h4M16.5 9.5h4M16.5 14.5h4"/>',
+  tv90s: '<rect x="3.5" y="7" width="17" height="13" rx="2.5"/><path d="M8.5 3.5L12 7l3.5-3.5"/>'
+};
+
+function lineIcon(markup, className) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', className);
+  // Static markup from the constants above, never user input
+  svg.innerHTML = markup;
+  return svg;
+}
+
 const HISTORY_POINTS = 150;          // ~10 s at the meter poll rate
 const METER_INTERVAL_MS = 66;
 const STATUS_INTERVAL_MS = 1500;
@@ -125,29 +145,19 @@ function applyPreset(id) {
 function renderPresets() {
   const grid = $('presetGrid');
   grid.replaceChildren();
-  for (const [id, preset, isCustom] of presetEntries()) {
-    const cell = document.createElement('div');
-    cell.className = 'preset-cell';
+  for (const id of S.PRESET_ORDER) {
+    const preset = S.PRESETS[id];
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'preset';
     button.setAttribute('role', 'radio');
     button.setAttribute('aria-checked', String(state.preset === id));
-    button.textContent = preset.name;
     button.title = preset.desc || '';
+    button.append(lineIcon(PRESET_ICONS[id] || '', 'preset-icon'), preset.name);
     button.addEventListener('click', () => applyPreset(id));
-    cell.append(button);
-    if (isCustom) {
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'preset-remove';
-      remove.textContent = '×';
-      remove.setAttribute('aria-label', `Delete preset ${preset.name}`);
-      remove.addEventListener('click', () => deletePreset(id));
-      cell.append(remove);
-    }
-    grid.append(cell);
+    grid.append(button);
   }
+  renderPresetChips();
 
   const explainer = $('presetExplainer');
   explainer.replaceChildren();
@@ -164,6 +174,53 @@ function renderPresets() {
       explainer.append(reset);
     }
   }
+}
+
+// Saved presets sit in one line of chips; whatever doesn't fit collapses into "+N"
+function renderPresetChips() {
+  const row = $('presetChips');
+  const entries = Object.entries(state.custom);
+  row.replaceChildren();
+  row.hidden = entries.length === 0;
+  if (!entries.length) return;
+
+  const chips = entries.map(([id, preset]) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.classList.toggle('on', state.preset === id);
+    const apply = document.createElement('button');
+    apply.type = 'button';
+    apply.className = 'chip-apply';
+    apply.textContent = preset.name;
+    apply.setAttribute('aria-pressed', String(state.preset === id));
+    apply.addEventListener('click', () => applyPreset(id));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'chip-remove';
+    remove.textContent = '\u00d7';
+    remove.setAttribute('aria-label', `Delete preset ${preset.name}`);
+    remove.addEventListener('click', () => deletePreset(id));
+    chip.append(apply, remove);
+    row.append(chip);
+    return chip;
+  });
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'chip more';
+  more.hidden = true;
+  more.addEventListener('click', () => openScreen('finetune', 'savedPresets'));
+  row.append(more);
+
+  requestAnimationFrame(() => {
+    let hiddenCount = 0;
+    for (let i = chips.length - 1; i >= 0 && row.scrollWidth > row.clientWidth; i--) {
+      chips[i].hidden = true;
+      hiddenCount++;
+      more.hidden = false;
+      more.textContent = `+${hiddenCount}`;
+      more.setAttribute('aria-label', `${hiddenCount} more saved presets`);
+    }
+  });
 }
 
 function deletePreset(id) {
@@ -498,7 +555,6 @@ function renderControls() {
   toggleBindings.forEach(sync => sync());
   groupBindings.forEach(sync => sync());
   $('denoiseEnabled').checked = state.settings.denoiseEnabled;
-  $('levelEnabled').checked = state.settings.levelEnabled;
   const crt = $('crt');
   if (crt) crt.checked = state.crt;
   drawEqCurve();
@@ -565,15 +621,15 @@ function renderCaption() {
   const m = state.meters;
   const live = state.enabled && m && typeof m.spikes === 'number';
   if (!live) {
-    el.textContent = '';
+    el.replaceChildren();
     return;
   }
   if (m.spikes === 0) {
-    el.textContent = 'Listening. Nothing too loud yet.';
+    setRichText(el, [['Listening. Nothing too loud yet.']]);
     return;
   }
   const count = m.spikes === 1 ? '1 spike' : `${m.spikes} spikes`;
-  setRichText(el, [[`Caught ${count}.`, 'spikes'], [` The biggest was cut by ${trim(m.maxSpikeDb)} dB.`]]);
+  setRichText(el, [['CAUGHT', 'tag'], [` ${count}. The biggest was cut by ${trim(m.maxSpikeDb)} dB.`]]);
 }
 
 function renderAll() {
@@ -789,6 +845,10 @@ function renderCaptions(note) {
   toggle.checked = state.captions === 'active' || state.captions === 'loading';
   toggle.disabled = state.captions === 'loading' || !state.enabled || state.restricted;
   $('transcript').hidden = state.captions !== 'active';
+  const chip = $('captionsChip');
+  chip.hidden = !toggle.checked;
+  chip.textContent = LANGUAGE_NAMES[state.captionPrefs.language] || 'Auto';
+  chip.setAttribute('aria-label', `Caption settings: ${chip.textContent}`);
   if (note) $('captionsNote').textContent = note;
 }
 
@@ -948,6 +1008,20 @@ async function setCrt(enabled) {
 }
 
 // ---------- events ----------
+// Opens a secondary screen. Until the screens exist, Fine-tune and listening are drawers below.
+function openScreen(name, focusId) {
+  if (typeof showScreen === 'function') {
+    showScreen(name);
+  } else {
+    const drawer = { finetune: 'fineTune', listening: 'processing' }[name];
+    if (drawer) {
+      $(drawer).open = true;
+      $(drawer).scrollIntoView({ block: 'start' });
+    }
+  }
+  if (focusId && $(focusId)) $(focusId).focus();
+}
+
 function bindEvents() {
   $('power').addEventListener('change', async (event) => {
     state.enabled = event.target.checked;
@@ -961,11 +1035,11 @@ function bindEvents() {
   bindRange($('volume'), $('volumeValue'), 'volume', fmt.db);
 
   $('denoiseEnabled').addEventListener('change', e => setSetting('denoiseEnabled', e.target.checked));
-  $('levelEnabled').addEventListener('change', e => {
-    setSetting('levelEnabled', e.target.checked);
-    renderControls();
-  });
   $('captions').addEventListener('change', e => setCaptions(e.target.checked));
+  $('captionsChip').addEventListener('click', () => openScreen('captions'));
+  for (const row of document.querySelectorAll('.nav-row')) {
+    row.addEventListener('click', () => openScreen(row.dataset.open));
+  }
 
   for (const radio of document.querySelectorAll('input[name="mode"]')) {
     radio.addEventListener('change', async () => {

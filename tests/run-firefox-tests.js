@@ -166,7 +166,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     console.log('\nPopup');
     const popup = await ask({ op: 'popup' });
     check('popup reports the player is being tamed', popup && /Taming/.test(popup.status), popup && popup.status);
-    check('popup shows caught spikes', popup && /Caught/.test(popup.caption), popup && popup.caption);
+    check('popup shows caught spikes', popup && /CAUGHT \d+ spikes?\./.test(popup.caption), popup && popup.caption);
     check('whole-tab capture is offered as unavailable', popup && popup.captureDisabled);
     const metrics = await ask({ op: 'popup-metrics' });
     const noOverflow = m => m.docScrollW <= m.docClientW && m.innerScrollW <= m.innerClientW;

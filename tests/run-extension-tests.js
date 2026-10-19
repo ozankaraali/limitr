@@ -197,7 +197,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const statusText = await popup.textContent('#status');
     check('popup reports the player is being tamed', /Taming/.test(statusText), statusText);
     const caption = await popup.textContent('#traceCaption');
-    check('popup shows caught spikes', /Caught/.test(caption), caption);
+    check('popup shows caught spikes', /CAUGHT \d+ spikes?\./.test(caption), caption);
     if (screenshotDir) {
       await popup.screenshot({ path: path.join(screenshotDir, 'popup-main.png'), fullPage: true });
       await popup.click('#fineTune > summary');
@@ -212,6 +212,44 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const stored = await worker.evaluate(() => chrome.storage.local.get(['limitrSettings', 'limitrPreset']));
     check('preset click is saved', stored.limitrPreset === 'sleep' && stored.limitrSettings.guardHeadroom === 3);
     check('no popup errors', popupErrors.length === 0, popupErrors.join(' | '));
+
+    console.log('\nMain screen');
+    await popup.setViewportSize({ width: 360, height: 600 });
+    const mainLayout = () => popup.evaluate(() => {
+      const main = document.querySelector('.screen[data-screen="main"]');
+      const rows = [...document.querySelectorAll('.nav-row')];
+      const chipRow = document.querySelector('.chip-row');
+      return {
+        mainHeight: main ? main.scrollHeight : null,
+        rowsVisible: rows.length === 2 && rows.every(r => { const b = r.getBoundingClientRect(); return b.top >= 0 && b.bottom <= 600; }),
+        presetIcons: document.querySelectorAll('#presetGrid .preset svg').length,
+        levelOnMain: Boolean(main && main.querySelector('#levelEnabled')),
+        chipOverflow: chipRow ? chipRow.scrollWidth - chipRow.clientWidth : null,
+        more: Boolean(document.querySelector('.chip.more')),
+        docWidth: document.documentElement.scrollWidth
+      };
+    });
+    for (const scheme of ['dark', 'light']) {
+      await popup.emulateMedia({ colorScheme: scheme });
+      const l = await mainLayout();
+      check(`${scheme}: main screen fits in 600 px`, l.mainHeight !== null && l.mainHeight <= 600, `${l.mainHeight} px`);
+      check(`${scheme}: Fine-tune and listening rows visible without scrolling`, l.rowsVisible);
+    }
+    let layout = await mainLayout();
+    check('six presets with line icons', layout.presetIcons === 6, layout.presetIcons);
+    check('Even out levels is not on the main screen', !layout.levelOnMain);
+    const longPresets = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`custom_test_${i}`, {
+      name: `A long preset name 123${i}`, desc: 'Custom', settings: { guardHeadroom: 4 + i }
+    }]));
+    await worker.evaluate(p => chrome.storage.local.set({ limitrUserPresets: p }), longPresets);
+    await popup.reload();
+    await sleep(1500);
+    layout = await mainLayout();
+    check('eight long saved presets: main screen still fits', layout.mainHeight !== null && layout.mainHeight <= 600, `${layout.mainHeight} px`);
+    check('saved presets stay on one line', layout.chipOverflow !== null && layout.chipOverflow <= 1, layout.chipOverflow);
+    check('extra saved presets collapse into "+N"', layout.more);
+    check('no horizontal overflow with long preset names', layout.docWidth <= 360, layout.docWidth);
+    await worker.evaluate(() => chrome.storage.local.remove('limitrUserPresets'));
 
     console.log('\nTheme');
     const bodyBackground = () => popup.evaluate(() => getComputedStyle(document.body).backgroundColor);

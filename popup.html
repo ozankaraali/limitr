@@ -7,33 +7,35 @@
 </head>
 <body>
   <main class="popup" id="popup">
-    <header class="masthead">
-      <img src="icons/app-32.png" alt="" class="masthead-icon" width="24" height="24">
-      <h1 class="wordmark">Limitr</h1>
-      <label class="power" title="Turn Limitr on or off everywhere">
-        <input type="checkbox" id="power" role="switch">
-        <span class="power-track"><span class="power-thumb"></span></span>
-        <span class="power-label" id="powerLabel">Off</span>
-      </label>
-    </header>
+    <section class="screen" data-screen="main">
+      <header class="masthead">
+        <svg class="mark" viewBox="0 0 100 100" width="26" height="26" aria-hidden="true">
+          <path fill="currentColor" d="M14.00,50.00 L14.75,47.97 L15.50,45.95 L16.25,43.95 L17.00,41.98 L17.75,40.04 L18.50,38.14 L19.25,36.29 L20.00,34.50 L20.75,32.78 L21.50,31.13 L22.25,29.56 L23.00,28.08 L23.75,26.69 L24.50,25.41 L25.25,24.22 L26.00,23.15 L26.75,22.20 L27.50,21.36 L28.25,20.65 L29.00,20.06 L29.75,19.60 L30.50,19.27 L31.25,19.07 L32.00,19.00 L32.75,19.07 L33.50,19.27 L34.25,19.60 L35.00,20.06 L35.75,20.65 L36.50,21.36 L37.25,22.20 L38.00,23.15 L38.75,24.22 L39.50,25.41 L40.25,26.69 L41.00,28.08 L41.75,29.56 L42.50,31.13 L43.25,32.78 L44.00,34.50 L44.75,36.29 L45.50,38.14 L46.25,40.04 L47.00,41.98 L47.75,43.95 L48.50,45.95 L49.25,47.97 L50.00,50.00 Z M50.00,50.00 L50.75,52.03 L51.50,54.05 L52.25,56.05 L53.00,58.02 L53.75,59.96 L54.50,61.86 L55.25,63.71 L56.00,65.50 L56.75,67.22 L57.50,68.87 L58.25,70.44 L59.00,71.92 L59.75,73.31 L60.50,74.59 L61.25,75.78 L62.00,76.85 L62.75,77.80 L63.50,78.64 L64.25,79.35 L65.00,79.94 L65.75,80.40 L66.50,80.73 L67.25,80.93 L68.00,81.00 L68.75,80.93 L69.50,80.73 L70.25,80.40 L71.00,79.94 L71.75,79.35 L72.50,78.64 L73.25,77.80 L74.00,76.85 L74.75,75.78 L75.50,74.59 L76.25,73.31 L77.00,71.92 L77.75,70.44 L78.50,68.87 L79.25,67.22 L80.00,65.50 L80.75,63.71 L81.50,61.86 L82.25,59.96 L83.00,58.02 L83.75,56.05 L84.50,54.05 L85.25,52.03 L86.00,50.00 Z"/>
+          <rect fill="currentColor" x="9" y="48.2" width="82" height="3.6" rx="1.8"/>
+        </svg>
+        <h1 class="wordmark">Limitr</h1>
+        <label class="power" title="Turn Limitr on or off everywhere">
+          <input type="checkbox" id="power" role="switch">
+          <span class="power-track"><span class="power-thumb"></span></span>
+          <span class="power-label" id="powerLabel">Off</span>
+        </label>
+      </header>
 
-    <p class="status" id="status" aria-live="polite"></p>
+      <p class="status" id="status" aria-live="polite"></p>
 
-    <section class="trace" aria-label="Loudness over the last few seconds">
-      <canvas id="trace" width="656" height="176"></canvas>
-      <p class="trace-caption" id="traceCaption"></p>
-    </section>
+      <div class="trace" role="img" aria-label="Loudness over the last few seconds">
+        <canvas id="trace" width="656" height="144"></canvas>
+      </div>
+      <p class="caught" id="traceCaption"></p>
 
-    <section class="presets" aria-label="Presets">
-      <div class="preset-grid" id="presetGrid" role="radiogroup"></div>
+      <div class="preset-grid" id="presetGrid" role="radiogroup" aria-label="Presets"></div>
+      <div class="chip-row" id="presetChips" aria-label="Your presets" hidden></div>
       <p class="preset-explainer" id="presetExplainer"></p>
-    </section>
 
-    <section class="main-controls">
-      <div class="slider-row">
+      <div class="volume-row">
         <label for="volume">Volume</label>
-        <output id="volumeValue" for="volume"></output>
         <input type="range" id="volume">
+        <output id="volumeValue" for="volume"></output>
       </div>
 
       <ul class="quick-toggles">
@@ -47,37 +49,36 @@
             <span class="switch" aria-hidden="true"></span>
           </label>
         </li>
-        <li>
-          <label class="toggle-row">
-            <span class="toggle-text">
-              <span>Even out levels</span>
-              <small>Quiet and loud streams end up at one level</small>
-            </span>
-            <input type="checkbox" id="levelEnabled" role="switch">
-            <span class="switch" aria-hidden="true"></span>
-          </label>
-        </li>
-        <li>
+        <li class="captions-row">
           <label class="toggle-row">
             <span class="toggle-text">
               <span>Live captions</span>
               <small id="captionsNote">Runs on your computer. The first time downloads a speech model.</small>
             </span>
+            <button type="button" class="chip-button" id="captionsChip" hidden></button>
             <input type="checkbox" id="captions" role="switch">
             <span class="switch" aria-hidden="true"></span>
           </label>
-          <label class="select-row">
-            <span>Language</span>
-            <select id="captionsLanguage"></select>
-          </label>
-          <label class="select-row">
-            <span>Translate to</span>
-            <select id="captionsTranslate"></select>
-          </label>
-          <p class="group-note" id="captionsHint" hidden></p>
-          <button type="button" class="button quiet" id="translationDownload" hidden></button>
         </li>
       </ul>
+
+      <nav class="nav-rows" aria-label="More settings">
+        <button type="button" class="nav-row" data-open="finetune">Fine-tune</button>
+        <button type="button" class="nav-row" data-open="listening">How Limitr listens</button>
+      </nav>
+    </section>
+
+    <section class="screen" data-screen="captions" hidden>
+      <label class="select-row">
+        <span>Language</span>
+        <select id="captionsLanguage"></select>
+      </label>
+      <label class="select-row">
+        <span>Translate to</span>
+        <select id="captionsTranslate"></select>
+      </label>
+      <p class="group-note" id="captionsHint" hidden></p>
+      <button type="button" class="button quiet" id="translationDownload" hidden></button>
       <ol class="transcript" id="transcript" hidden></ol>
     </section>
 
