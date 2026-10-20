@@ -70,6 +70,27 @@ function checkCaptionPrefs() {
   check('anything else falls back to standard', S.normalizeCaptions({ model: 'huge' }, 'en').model === 'standard');
 }
 
+// Whisper sometimes "hears" the credit lines it learned from broadcast subtitles on silence or
+// music. They are never live speech: drop those sentences, keep everything else.
+async function checkCaptionText() {
+  const { cleanText } = await import(require('url').pathToFileURL(require('path').join(__dirname, '../lib/caption-text.js')).href);
+  console.log('\nCaption text');
+  const gone = [
+    'MİNT tarafından Sesli Betimleme Derneği\'ne yaptırılmıştır.',
+    'Bu dizinin betimlemesi TRT/Karamel Film tarafından Sesli Betimleme Derneği\'ne yaptırılmıştır.',
+    'Altyazı M.K.',
+    'Subtitles by the Amara.org community',
+    'Untertitel im Auftrag des ZDF, 2017'
+  ];
+  const left = gone.map(t => cleanText(t, 5000)).filter(Boolean);
+  check('credit lines Whisper makes up are dropped', left.length === 0, JSON.stringify(left));
+  const mixed = cleanText('İyi akşamlar herkese. Bu dizinin betimlemesi TRT tarafından Sesli Betimleme Derneği\'ne yaptırılmıştır.', 5000);
+  check('...but the real sentence next to one stays', mixed === 'İyi akşamlar herkese.', mixed);
+  const real = ['Bu gece yayını izlediğiniz için teşekkürler.', 'Sesli kitap dinlemeyi seviyorum.', 'Thanks for the subscription!'];
+  const kept = real.map(t => cleanText(t, 5000));
+  check('real speech that only sounds similar is kept', kept.every((t, i) => t === real[i]), JSON.stringify(kept));
+}
+
 // The captions resampler (lib/transcriber-capture-worklet.js) run in Node: speech passes, and
 // content above 8 kHz must not fold back into the speech band when going down to 16 kHz
 function checkCaptionResampler() {
@@ -458,6 +479,7 @@ async function runIn(browserType, port) {
   const only = (process.argv.find(a => a.startsWith('--browser=')) || '').split('=')[1];
   checkCaptionPrefs();
   checkCaptionResampler();
+  await checkCaptionText();
   await checkLegacyUpgrade();
   await checkUpgradeFrom20();
   const { server, port } = await startStaticServer();
