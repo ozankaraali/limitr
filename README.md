@@ -56,18 +56,21 @@ You can save your own presets on the Fine-tune screen.
 
 **On real streams.** `tests/run-engine-tests.js` also plays two recordings from Kick through the
 engine (when they're present locally): 5 minutes of a regular streamer who doesn't yell, with a
-game bed between phrases, and a 33 s clip that is loud overall with loud moments. "Talking" is the
-stream's talking level, measured the way BS.1770 does.
+game bed between phrases, and a 33 s clip of a streamer who yells for more than half of it, with
+calm talk between the yells, opened fresh. "Talking" is the stream's talking level, measured the
+way BS.1770 does.
 
-| Preset | Regular streamer: guard cutting | Talking −18.9 LUFS comes out at | Loud clip: guard cutting | Talking −8.1 LUFS comes out at | Loudest moments |
+| Preset | Regular streamer: guard cutting | Talking −18.9 LUFS comes out at | Yelling clip: guard cutting | Calm talk −14.5 LUFS comes out at | Yells above the calm talk |
 |--------|---:|---:|---:|---:|---:|
-| Gentle | 1.9% of the time | −18.9 (untouched) | 0% | −15.2 | +3.6 → +3.5 dB |
-| Stream | 3.3% | −21.5 (its −20 level) | 3.4% | −21.4 | +3.7 → +3.0 dB |
-| Movie | 2.4% | −19.5 | 0% | −19.3 | +3.7 → +3.2 dB |
-| Sleep | 5.2% | −29.9 (its −28 level) | 10.4% | −29.3 | +3.7 → +3.1 dB |
+| Gentle | 1.9% of the time | −18.9 (untouched) | 66% | −16.6 | +7.4 → +4.8 dB |
+| Stream | 3.3% | −21.5 (its −20 level) | 90% | −20.9 (its −20 level) | +7.4 → +2.9 dB |
+| Movie | 2.4% | −19.5 | 83% | −17.9 (its −18 level) | +7.4 → +2.9 dB |
+| Sleep | 5.2% | −29.9 (its −28 level) | 98% | −29.7 (its −28 level) | +7.4 → +3.2 dB |
 
 Most of what remains on the regular stream is its first seconds, while Limitr learns it. 2.1.2
-cut the same regular stream 43–82% of the time and turned its talking down 10–18 dB.
+cut the same regular stream 43–82% of the time and turned its talking down 10–18 dB. On the
+yelling clip, the guard is busy because the yells are most of it; 2.1.3 took the yelling for
+normal within seconds and left the yells 7.3–7.9 dB over the calm talk.
 
 **On a synthetic stream.** The test also renders a synthetic stream through the real engine
 in Chromium and Firefox (both give the same numbers): talking with a sudden yell, an alert chime
@@ -129,10 +132,13 @@ for the stream. The limiter's ceiling moves with the volume and never goes past 
    and the game or music bed between phrases (on a real stream that bed fills almost half the
    time, 27 dB under the voice). Of what's left, normal is where the talking usually sits (its
    upper quartile). A jump of more than 3 dB only becomes the new normal after it has lasted the
-   preset's memory (15 s for Gentle, 30 s for Movie, 60 s for Stream, 5 minutes for Sleep; less
-   while Limitr is still learning a new stream), so a yelling fit stays a spike. Coming back to
-   the stream's familiar level is always allowed, so a quiet BRB screen doesn't leave the voice
-   ducked.
+   preset's memory (15 s for Gentle, 30 s for Movie, 60 s for Stream, 5 minutes for Sleep; 20 s
+   at most while Limitr is still learning a new stream), so a yelling fit stays a spike. A rise
+   the size of a yell starts over whenever the stream is back at normal for 2 s, so a streamer
+   who keeps yelling never teaches Limitr that yelling is normal. Only a rise of 12 dB or more in
+   a stream's first 20 s, the voice arriving after an intro or a pause, is taken within 3 s.
+   Coming back to the stream's familiar level is always allowed, so a quiet BRB screen doesn't
+   leave the voice ducked.
 3. Anything louder than normal plus the preset's headroom (2.5 to 7 dB) is pulled back down;
    sudden hits get at most 5 dB over their usual crest in every preset, the least that still
    leaves a real talker's consonants alone. The 20 ms lookahead lets the gain drop before the

@@ -60,11 +60,12 @@ const TRANSPARENT_PRESETS = ['gentle', 'stream', 'movie'];
 //   videoyun.wav  5 minutes of a regular Kick streamer who doesn't yell, with a game bed between
 //                 phrases: the guard stays idle, the talking passes (or is evened, when louder
 //                 than the preset's comfortable level)
-//   husam.wav     a 33 s clip that is loud overall (-8 LUFS talking) with loud moments: evened
-//                 to the comfortable level, the loud moments held
+//   husam.wav     a 33 s clip of a streamer yelling, more than half of it, between calm talk:
+//                 opened fresh, the yells held near the calm talk all the way through, the calm
+//                 talk evened to the comfortable level
 const RECORDINGS = {
   'videoyun.wav': { kind: 'regular', skip: 10, loops: 1 },
-  'husam.wav': { kind: 'loud', skip: 5, loops: 2 }
+  'husam.wav': { kind: 'yelling', skip: 5, loops: 1, yells: [[8, 9.7], [15.4, 26.4]], calm: [[14, 14.8], [27.4, 33]] }
 };
 function findRecordings() {
   const fs = require('fs');
@@ -353,6 +354,17 @@ async function runIn(browserType, port) {
     }
   }
 
+  // Gentle takes yelling for the stream's level once it fills a quarter of its familiar minute
+  // (four times its 15 s memory), so it holds the fits of the first 25 s only
+  console.log('\nA streamer who keeps yelling, from the stream\'s first seconds');
+  for (const id of ['gentle', 'movie', 'stream', 'sleep']) {
+    const limit = PRESET_EXPECTATIONS[id].maxYellAbove;
+    const fits = await page.evaluate(p => bench.yellingFits(p), id);
+    const held = fits.filter(f => id !== 'gentle' || f.at < 25);
+    check(`${id}: ${id === 'gentle' ? 'the fits of the first 25 s' : 'every fit of yelling'} held to +${limit} dB over the calm talk`,
+      held.every(f => f.outAbove <= limit), fits.map(f => `${f.at}s +${f.inAbove}→+${f.outAbove}`).join(', '));
+  }
+
   if (SPEECH) {
     console.log('\nReal speech (macOS say) is left alone');
     for (const id of ['gentle', 'stream', 'sleep', 'movie', 'tv90s']) {
@@ -385,9 +397,12 @@ async function runIn(browserType, port) {
 
   console.log('\nA long quiet intro (40 s of soft music), then the voice');
   for (const id of ['gentle', 'stream', 'movie', 'sleep']) {
-    const r = await page.evaluate(p => bench.longQuietIntro(p), id);
-    check(`${id}: the voice is cut for at most 25 s, not the preset's whole memory`, r.cutForSeconds <= 25 && r.guardBusyAfter <= 0.1,
-      `cut >3 dB for ${r.cutForSeconds} s, then guard cutting >1 dB ${Math.round(r.guardBusyAfter * 100)}% of the time`);
+    for (const pauseSeconds of [0, 3]) {
+      const r = await page.evaluate(([p, s]) => bench.longQuietIntro(p, { pauseSeconds: s }), [id, pauseSeconds]);
+      check(`${id}: the voice${pauseSeconds ? `, with ${pauseSeconds} s pauses over the music,` : ''} is cut for at most 25 s, not the preset's whole memory`,
+        r.cutForSeconds <= 25 && r.guardBusyAfter <= 0.1,
+        `cut >3 dB for ${r.cutForSeconds} s, then guard cutting >1 dB ${Math.round(r.guardBusyAfter * 100)}% of the time`);
+    }
   }
 
   if (Object.keys(RECORDING_FILES).length) {
@@ -400,21 +415,21 @@ async function runIn(browserType, port) {
         const comfortable = targets[id].settings.levelTarget;
         const loudest = r.loudest.filter(l => l.inAbove > 0);
         console.log(`  ${name} ${id.padEnd(7)} guard >1 dB ${(r.guardBusy * 100).toFixed(1)}% | talking ${r.talkingIn}→${r.talkingOut} LUFS | ` +
-          `loudest moments above the talking level: ${loudest.map(l => `${l.t}s +${l.inAbove}→+${l.outAbove}`).join(', ')}`);
+          (spec.yells ? `calm talk ${r.calmIn}→${r.calmOut} LUFS, yells over it +${r.yellsOverCalmIn}→+${r.yellsOverCalmOut} dB`
+            : `loudest moments above the talking level: ${loudest.map(l => `${l.t}s +${l.inAbove}→+${l.outAbove}`).join(', ')}`));
         // Louder than the comfortable level: evened to it (the louder half of the talking sits at
         // the level, so its median lands up to 3 dB under); otherwise untouched
-        const evened = r.talkingIn > comfortable;
-        const levelOk = evened
-          ? r.talkingOut <= comfortable + 0.5 && r.talkingOut >= comfortable - 3
-          : Math.abs(r.talkingOut - r.talkingIn) <= 1;
+        const levelOk = (input, output, kept = 1) => input > comfortable
+          ? output <= comfortable + 0.5 && output >= comfortable - 3
+          : Math.abs(output - input) <= kept;
         if (spec.kind === 'regular') {
-          check(`${name}: ${id} leaves the talking alone (guard idle, level ${evened ? 'evened' : 'kept'})`,
-            r.guardBusy <= (id === 'sleep' ? 0.2 : 0.05) && levelOk);
+          check(`${name}: ${id} leaves the talking alone (guard idle, level ${r.talkingIn > comfortable ? 'evened' : 'kept'})`,
+            r.guardBusy <= (id === 'sleep' ? 0.2 : 0.05) && levelOk(r.talkingIn, r.talkingOut));
         } else {
-          const held = Math.max(...loudest.map(l => l.outAbove));
-          const limit = { gentle: 8.5, stream: 6, movie: 6.5, sleep: 4 }[id];
-          check(`${name}: ${id} evens the stream to its comfortable level and holds the loud moments to +${limit} dB`,
-            levelOk && held <= limit, `loudest +${held.toFixed(1)} dB`);
+          // The calm talk right after a yell is still in the guard's release: kept within 2.5 dB
+          const limit = targets[id].settings.guardHeadroom + 1.5;
+          check(`${name}: ${id} holds the yells to +${limit} dB over the calm talk, the calm talk at the comfortable level`,
+            levelOk(r.calmIn, r.calmOut, 2.5) && r.yellsOverCalmOut <= limit, `yells +${r.yellsOverCalmOut} dB, calm talk ${r.calmOut} LUFS`);
         }
       }
     }

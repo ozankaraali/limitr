@@ -378,10 +378,18 @@
   // A long quiet intro (a "starting soon" screen with soft music), then the voice: normal must
   // not defend the intro for the preset's whole memory. Returns how long the voice was cut by
   // more than 3 dB after it started, and the guard's share of time cutting once that is over.
-  async function longQuietIntro(id, { introSeconds = 40, introDb = -45, sourceDb = -14, seconds = 100 } = {}) {
+  // With `pauseSeconds`, the voice comes in 4 s phrases with pauses that long, the music still
+  // playing under them.
+  async function longQuietIntro(id, { introSeconds = 40, introDb = -45, sourceDb = -14, seconds = 100, pauseSeconds = 0 } = {}) {
     const program = new Float32Array(seconds * FS);
     mix(program, scaleTo(bed(seconds, 11), introDb), 0);
-    mix(program, scaleTo(voice(seconds - introSeconds, 7), sourceDb), introSeconds);
+    let talk = scaleTo(voice(seconds - introSeconds, 7), sourceDb);
+    if (pauseSeconds) {
+      const phrases = [];
+      for (let t = 0; t < seconds - introSeconds; t += 4 + pauseSeconds) phrases.push([t, t + 4]);
+      talk = phrased(talk, phrases);
+    }
+    mix(program, talk, introSeconds);
     const out = await renderThroughEngine(program, program, presetSettings(id));
     const voiceMeters = out.meters.filter(m => m.time >= introSeconds + 1);
     let lastDeep = null;
@@ -397,8 +405,10 @@
   // A recorded stream (served by the test runner): the guard's share of time cutting >1 dB after
   // the first `skip` seconds, the talking level in and out, and the loudest moments measured
   // against the talking level of the 20 s around them, in and out. A short clip can be looped so
-  // the engine is settled when the measured pass starts.
-  async function recording(id, url, { skip = 10, loops = 1 } = {}) {
+  // the engine is settled when the measured pass starts. With `yells` and `calm` (time ranges in
+  // the recording, measured in the last pass), also how far the yells sit above the calm talk,
+  // in and out, and the calm talk's level.
+  async function recording(id, url, { skip = 10, loops = 1, yells = null, calm = null } = {}) {
     if (!window.recordings) window.recordings = {};
     if (!window.recordings[url]) {
       const decoded = await new OfflineAudioContext(2, FS, FS).decodeAudioData(await (await fetch(url)).arrayBuffer());
@@ -425,7 +435,19 @@
       if (picked.every(j => Math.abs(inM[j].t - inM[i].t) > 3)) picked.push(i);
       if (picked.length === 6) break;
     }
+    const offset = (loops - 1) * l.length / FS;
+    const level = (m, ranges) => {
+      const v = m.filter(x => ranges.some(([a, b]) => x.t >= offset + a + 0.4 && x.t <= offset + b)).map(x => Math.pow(10, x.lufs / 10));
+      return 10 * Math.log10(v.reduce((s, x) => s + x, 0) / v.length);
+    };
+    const yelling = yells && calm ? {
+      yellsOverCalmIn: +(level(inM, yells) - level(inM, calm)).toFixed(1),
+      yellsOverCalmOut: +(level(outM, yells) - level(outM, calm)).toFixed(1),
+      calmIn: +level(inM, calm).toFixed(1),
+      calmOut: +level(outM, calm).toFixed(1)
+    } : {};
     return {
+      ...yelling,
       guardBusy: +(meters.filter(m => m.guardDb < -1).length / meters.length).toFixed(3),
       talkingIn: +talkingLevel(after(inM)).toFixed(1),
       talkingOut: +talkingLevel(after(outM)).toFixed(1),
@@ -460,6 +482,31 @@
       at8: +above(8).toFixed(1),
       at15: +above(15).toFixed(1)
     };
+  }
+
+  // A streamer who keeps yelling: fits of +11 dB, 4 to 12 s long, from the stream's first seconds,
+  // with calm talk in between. However often they come, the fits are spikes the listener didn't
+  // set the volume for. Returns how far each fit comes out above the calm talk's talking level
+  // (the median of its momentary loudness), in and out.
+  async function yellingFits(id, { fits = [[6, 10], [14, 24], [29, 35], [40, 52]], seconds = 58 } = {}) {
+    const program = new Float32Array(seconds * FS);
+    const talk = scaleTo(voice(seconds, 7), NORMAL_LUFS);
+    for (const [a, b] of fits) for (let i = a * FS; i < b * FS; i++) talk[i] = 0;
+    mix(program, talk, 0);
+    fits.forEach(([a, b], k) => mix(program, scaleTo(voice(b - a, 99 + k, { pitch: 300, brightness: 7000, continuous: true }), NORMAL_LUFS + 11), a));
+    const out = await renderThroughEngine(program, program, presetSettings(id));
+    const inM = momentary(program, program);
+    const outM = momentary(out.left, out.right);
+    const within = (m, ranges) => m.filter(v => ranges.some(([a, b]) => v.t >= a + 0.5 && v.t <= b)).map(v => v.lufs);
+    // The calm talk: before the first fit and between them
+    const calm = fits.map(([a], k) => [k === 0 ? 1 : fits[k - 1][1], a]).concat([[fits[fits.length - 1][1], seconds]]);
+    const calmIn = talkingLevel(within(inM, calm));
+    const calmOut = talkingLevel(within(outM, calm));
+    return fits.map(fit => ({
+      at: fit[0],
+      inAbove: +(median(within(inM, [fit])) - calmIn).toFixed(1),
+      outAbove: +(median(within(outM, [fit])) - calmOut).toFixed(1)
+    }));
   }
 
   // Talking, a 30 s pause (silence from the site, the preset's own hiss still playing), talking:
@@ -591,6 +638,7 @@
     offTransparent,
     scenario,
     sustained,
+    yellingFits,
     quietStart,
     talkWithBed,
     longQuietIntro,
