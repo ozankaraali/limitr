@@ -331,6 +331,19 @@
     return { before: +gainIn(10, 19).toFixed(1), after: +gainIn(51, 57).toFixed(1) };
   }
 
+  // Real recorded speech (a WAV from the test runner) at a source level: how often and how deep
+  // the guard cuts it. Normal talking should be left alone.
+  async function speechCut(id, wav, sourceDb) {
+    const decoded = await new OfflineAudioContext(1, FS, FS).decodeAudioData(wav);
+    const talk = scaleTo(Float32Array.from(decoded.getChannelData(0)), sourceDb);
+    const out = await renderThroughEngine(talk, talk, presetSettings(id));
+    const meters = out.meters.filter(m => m.time > 5);
+    return {
+      busy: meters.filter(m => m.guardDb < -1).length / meters.length,
+      deepest: Math.min(...meters.map(m => m.guardDb))
+    };
+  }
+
   // Volume moved up and down while the limiter is working: the output must stay under 0 dBFS
   async function volumeSteps(id, sourceDb) {
     const program = scaled(buildScenario(), sourceDb);
@@ -434,6 +447,7 @@
     sustained,
     pauseAndResume,
     volumeSteps,
+    speechCut: (id, base64, sourceDb) => speechCut(id, Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer, sourceDb),
     presetIds: () => LimitrSettings.PRESET_ORDER.slice(),
     userAgent: () => navigator.userAgent
   };

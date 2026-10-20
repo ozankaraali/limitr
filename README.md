@@ -62,10 +62,10 @@ at −24 LUFS. They stay within a few tenths of a dB of these at every source le
 | Preset | Yell | Alert | Clap | 20 s yelling fit, 8 s in | Output peak |
 |--------|-----:|------:|-----:|-------------------------:|------------:|
 | Off | +13.5 dB | +16.7 dB | +8.2 dB | +10.7 dB | as sent |
-| Gentle | +11.0 dB | +10.7 dB | +6.8 dB | +9.6 dB | −1.5 dBFS |
-| Stream | +6.3 dB | +5.4 dB | +3.0 dB | +5.0 dB | −7.0 dBFS |
-| Movie | +9.3 dB | +8.6 dB | +5.3 dB | +7.9 dB | −3.7 dBFS |
-| 90s TV | +6.8 dB | +7.5 dB | +3.5 dB | | −10.9 dBFS |
+| Gentle | +7.8 dB | +5.2 dB | +3.0 dB | +7.9 dB | −7.2 dBFS |
+| Stream | +5.2 dB | +4.1 dB | +2.2 dB | +3.9 dB | −8.4 dBFS |
+| Movie | +6.0 dB | +4.5 dB | +2.7 dB | +4.8 dB | −8.0 dBFS |
+| 90s TV | +5.3 dB | +5.2 dB | +2.6 dB | | −12.9 dBFS |
 | Sleep | +4.6 dB | +3.3 dB | +1.5 dB | +2.8 dB | −11.5 dBFS |
 
 Where normal talking ends up, by how loud the stream is:
@@ -73,12 +73,14 @@ Where normal talking ends up, by how loud the stream is:
 | Preset | Comfortable level | Quiet stream (−30 LUFS) | −24 LUFS | Loud stream (−10 LUFS) |
 |--------|------------------:|------------------------:|---------:|-----------------------:|
 | Gentle | −14 LUFS | unchanged | unchanged | −13.9 LUFS |
-| Stream | −20 LUFS | unchanged | unchanged | −19.8 LUFS |
+| Stream | −20 LUFS | unchanged | unchanged | −19.9 LUFS |
 | Movie | −18 LUFS | unchanged | unchanged | −17.8 LUFS |
 | Sleep | −28 LUFS | −28.1 LUFS (lifted) | −28.0 LUFS | −28.0 LUFS |
 
 90s TV is −20 LUFS too, but its own tone and compressor shape the sound on purpose. While the
-stream plays normally, the guard stays idle: it doesn't touch plain talking at any level.
+stream plays normally, the guard stays idle: it doesn't touch plain talking at any level. The tests
+also play about a minute of real speech (macOS `say`) through every preset at −30 and −14 LUFS:
+the guard cuts it by at most 0.6 dB (1.1 dB in Sleep, which evens things out on purpose).
 
 The guard lets go 0.4 to 2.6 seconds after a spike ends, depending on the preset. Turning the
 Limitr volume up or down changes how loud everything is and nothing else: the tests check that
@@ -111,8 +113,9 @@ for the stream. The limiter's ceiling moves with the volume and never goes past 
    Gentle, 30 s for Movie, 60 s for Stream, 5 minutes for Sleep), so a yelling fit stays a spike.
    Coming back to the stream's familiar level is always allowed, so a quiet BRB screen doesn't
    leave the voice ducked.
-3. Anything louder than normal plus the preset's headroom (2.5 to 9 dB) is pulled back down. The
-   20 ms lookahead lets the gain drop before the jump reaches the output.
+3. Anything louder than normal plus the preset's headroom (2.5 to 7 dB) is pulled back down;
+   sudden hits get at most 3 dB in every preset, the most that still leaves real speech alone.
+   The 20 ms lookahead lets the gain drop before the jump reaches the output.
 4. The comfortable level turns the stream's normal loudness down to the preset's level within
    about a second when it's louder, and leaves quieter streams alone (Sleep lifts them by up to
    6 dB). A new video starts fresh, and the site's own volume slider acts like a plain gain.

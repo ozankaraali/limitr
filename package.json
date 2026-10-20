@@ -1,6 +1,6 @@
 {
   "name": "limitr",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "private": true,
   "description": "Browser extension that tames sudden loud spikes for night and sleep listening",
   "license": "MIT",

@@ -18,12 +18,36 @@ const MAKEUP_CASES = [
 
 // What each preset must achieve on the synthetic stream (dB above normal talking level)
 const PRESET_EXPECTATIONS = {
-  gentle: { maxYellAbove: 11, maxAlertAbove: 12 },
-  stream: { maxYellAbove: 7.5, maxAlertAbove: 8 },
-  sleep: { maxYellAbove: 5, maxAlertAbove: 5.5 },
-  movie: { maxYellAbove: 9.5, maxAlertAbove: 10 },
-  tv90s: { maxYellAbove: 9, maxAlertAbove: 9 }
+  gentle: { maxYellAbove: 8.5, maxAlertAbove: 6 },
+  stream: { maxYellAbove: 6, maxAlertAbove: 5 },
+  sleep: { maxYellAbove: 5, maxAlertAbove: 4 },
+  movie: { maxYellAbove: 6.5, maxAlertAbove: 5 },
+  tv90s: { maxYellAbove: 6.5, maxAlertAbove: 6.2 }
 };
+// How deep the guard may cut real speech (dB): untouched, except Sleep evens it a little
+const SPEECH_MAX_CUT = { gentle: 0.5, stream: 1, sleep: 2, movie: 0.5, tv90s: 0.5 };
+
+// About a minute of a streamer talking, spoken by macOS `say` (skipped where it's missing)
+function realSpeech() {
+  const os = require('os');
+  const fs = require('fs');
+  const path = require('path');
+  const { execFileSync } = require('child_process');
+  const text = 'Okay chat, welcome back! So today we are going to try the hardest level again. Last time I almost ' +
+    'made it, remember? That jump at the end. Honestly, I think the timing is off. Let me check the settings real quick. ' +
+    'Alright, here we go. Wait, wait, wait. Oh no. No no no. Okay, that was close. Thanks for the follows by the way, ' +
+    'really appreciate you all. If I go left here, and then grab the key, maybe that works. Hmm. Interesting. Okay, so, ' +
+    'the boss has three phases, and the second one is the hardest. Anyway. Drink some water, everyone. It is late, I know.';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limitr-speech-'));
+  try {
+    execFileSync('say', ['-o', path.join(dir, 's.aiff'), text]);
+    execFileSync('afconvert', ['-f', 'WAVE', '-d', 'LEI16@48000', path.join(dir, 's.aiff'), path.join(dir, 's.wav')]);
+    return fs.readFileSync(path.join(dir, 's.wav')).toString('base64');
+  } catch (e) {
+    return null;
+  }
+}
+const SPEECH = realSpeech();
 const TRANSPARENT_PRESETS = ['gentle', 'stream', 'movie'];
 
 let failures = 0;
@@ -273,6 +297,16 @@ async function runIn(browserType, port) {
       const ok = r.at8 <= limit + 1 && (!holdsFor15 || r.at15 <= limit + 1);
       check(`${id} at ${sourceDb} LUFS: 20 s of yelling (+${r.inAbove} dB) held${holdsFor15 ? ' 15 s in' : ' 8 s in'}`, ok,
         `+${r.at8} dB at 8 s, +${r.at15} dB at 15 s`);
+    }
+  }
+
+  if (SPEECH) {
+    console.log('\nReal speech (macOS say) is left alone');
+    for (const id of ['gentle', 'stream', 'sleep', 'movie', 'tv90s']) {
+      const cuts = [];
+      for (const level of [-30, -14]) cuts.push({ level, ...(await page.evaluate(([p, w, l]) => bench.speechCut(p, w, l), [id, SPEECH, level])) });
+      check(`${id}: real speech cut at most ${SPEECH_MAX_CUT[id]} dB at quiet and loud levels`,
+        cuts.every(c => -c.deepest <= SPEECH_MAX_CUT[id]), cuts.map(c => `${c.level}: ${c.deepest.toFixed(1)} dB`).join(', '));
     }
   }
 
