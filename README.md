@@ -109,14 +109,19 @@ for the stream. The limiter's ceiling moves with the volume and never goes past 
    for hits, a 50 ms one for the start of a sustained sound, and a 400 ms one for what the ear
    hears. Each is compared after taking off the crest it normally has on this stream, so all
    three speak the same LUFS as the threshold.
-2. Takes "normal" to be the median loudness of the last 20 seconds of non-silent audio. A jump of
-   more than 3 dB only becomes the new normal after it has lasted the preset's memory (15 s for
-   Gentle, 30 s for Movie, 60 s for Stream, 5 minutes for Sleep), so a yelling fit stays a spike.
-   Coming back to the stream's familiar level is always allowed, so a quiet BRB screen doesn't
-   leave the voice ducked.
+2. Takes "normal" to be the talking level of the last 20 seconds: the way BS.1770 measures a
+   programme's loudness, anything more than 10 dB under the window's mean doesn't count (pauses,
+   the game or music bed between phrases; on a real stream that bed fills almost half the time
+   and sits 27 dB under the voice, so a plain median landed on it), and of what's left, the
+   level the talking usually sits at (its upper quartile). A jump of more than 3 dB only becomes
+   the new normal after it has lasted the preset's memory (15 s for Gentle, 30 s for Movie, 60 s
+   for Stream, 5 minutes for Sleep; 20 s while the stream is still new, 3 s in its first 20 s),
+   so a yelling fit stays a spike. Coming back to the stream's familiar level is always allowed, so a quiet BRB screen
+   doesn't leave the voice ducked.
 3. Anything louder than normal plus the preset's headroom (2.5 to 7 dB) is pulled back down;
-   sudden hits get at most 3 dB in every preset, the most that still leaves real speech alone.
-   The 20 ms lookahead lets the gain drop before the jump reaches the output.
+   sudden hits get at most 5 dB over their usual crest in every preset, the least that still
+   leaves a real talker's consonants alone. The 20 ms lookahead lets the gain drop before the
+   jump reaches the output.
 4. The comfortable level turns the stream's normal loudness down to the preset's level within
    about a second when it's louder, and leaves quieter streams alone (Sleep lifts them by up to
    6 dB). A new video starts fresh, and the site's own volume slider acts like a plain gain.

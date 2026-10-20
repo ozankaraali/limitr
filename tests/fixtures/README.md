@@ -41,3 +41,17 @@ ffmpeg -f lavfi -i "sine=frequency=440:duration=30,volume='0.001*exp(log(1000)*t
 2. Open `tests/debug-harness.html` in Chrome
 3. Drop a fixture file onto the page or use the file picker
 4. Select a preset and click Play, or use "Run All Presets"
+
+## Recorded streams (engine tests)
+
+`tests/run-engine-tests.js` also runs real recordings through the engine when it finds them in
+`tests/fixtures/recordings/` (ignored by git) or in the folder named by `LIMITR_RECORDINGS`.
+They are 48 kHz WAVs captured from live streams, and the checks are specific to each:
+
+- `videoyun.wav`: 5 minutes of a regular streamer who doesn't yell, with a game bed between
+  phrases. The guard must stay idle and the talking pass (or be evened when it is louder than
+  the preset's comfortable level).
+- `husam.wav`: a 33 s clip that is loud overall, with loud moments. It is looped so the engine is
+  settled; it must be evened to the comfortable level with the loud moments held.
+
+Missing files are skipped.

@@ -227,6 +227,43 @@
     return sorted.length ? sorted[Math.floor(sorted.length / 2)] : NaN;
   }
 
+  // The talking level: the median of momentary loudness after the BS.1770-4 relative gate
+  // (blocks more than 10 LU under the mean don't count), so pauses and a background bed between
+  // phrases don't pull it down. The engine gates the same way for "normal" (and then takes the
+  // upper quartile, where the talking usually sits).
+  function talkingLevel(values) {
+    const heard = values.filter(v => v > -70);
+    if (!heard.length) return NaN;
+    const mean = -0.691 + 10 * Math.log10(heard.reduce((s, v) => s + Math.pow(10, (v + 0.691) / 10), 0) / heard.length);
+    return median(heard.filter(v => v > mean - 10));
+  }
+
+  // A game or music bed: dull, slowly swelling noise
+  function bed(seconds, seed) {
+    const r = rng(seed);
+    const n = Math.round(seconds * FS);
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = (r() * 2 - 1) * (0.7 + 0.3 * Math.sin(2 * Math.PI * i / (3.7 * FS)));
+    onePoleLowpass(out, 1200);
+    onePoleHighpass(out, 60);
+    return out;
+  }
+
+  // Keep `data` only inside the [from, to] phrases (20 ms ramps at the edges)
+  function phrased(data, phrases) {
+    const out = new Float32Array(data.length);
+    const ramp = Math.round(0.02 * FS);
+    for (const [from, to] of phrases) {
+      const a = Math.round(from * FS);
+      const b = Math.min(data.length, Math.round(to * FS));
+      for (let i = a; i < b; i++) {
+        const edge = Math.min(1, (i - a) / ramp, (b - i) / ramp);
+        out[i] = data[i] * edge;
+      }
+    }
+    return out;
+  }
+
   function peakDb(...channels) {
     let peak = 0;
     for (const ch of channels) for (let i = 0; i < ch.length; i++) peak = Math.max(peak, Math.abs(ch[i]));
@@ -249,8 +286,8 @@
     const gainDiff = (a, b) => within(outM, a, b).map((v, i) => v.lufs - within(inM, a, b)[i].lufs);
 
     const normalWindow = [8, 19.5];
-    const normalIn = median(within(inM, ...normalWindow).map(v => v.lufs));
-    const normalOut = median(within(outM, ...normalWindow).map(v => v.lufs));
+    const normalIn = talkingLevel(within(inM, ...normalWindow).map(v => v.lufs));
+    const normalOut = talkingLevel(within(outM, ...normalWindow).map(v => v.lufs));
     const normalGain = median(gainDiff(...normalWindow));
 
     const eventReport = {};
@@ -293,15 +330,16 @@
   }
 
   // A stream that starts quiet (an intro, a pause, the end of an ad) and then plays normally:
-  // the normal talking afterwards must not be treated as a loud stretch
+  // the normal talking afterwards must not be treated as a loud stretch (it becomes normal after
+  // 3 s; the guard's release then takes a few seconds more in Sleep, so measure from 10 s)
   async function quietStart(id, { introDb = -45, sourceDb = -14, seconds = 30 } = {}) {
     const program = new Float32Array(seconds * FS);
     mix(program, scaleTo(voice(2, 3), introDb), 0);
     mix(program, scaleTo(voice(seconds - 2, 7), sourceDb), 2);
     const out = await renderThroughEngine(program, program, presetSettings(id));
-    const talk = out.meters.filter(m => m.time >= 8);
-    const inM = momentary(program, program).filter(v => v.t >= 8);
-    const outM = momentary(out.left, out.right).filter(v => v.t >= 8);
+    const talk = out.meters.filter(m => m.time >= 10);
+    const inM = momentary(program, program).filter(v => v.t >= 10);
+    const outM = momentary(out.left, out.right).filter(v => v.t >= 10);
     return {
       guardBusy: +(talk.filter(m => m.guardDb < -1).length / talk.length).toFixed(2),
       deepest: +Math.min(...talk.map(m => m.guardDb)).toFixed(1),
@@ -309,25 +347,116 @@
     };
   }
 
-  // A long loud stretch (+11 dB yelling for `seconds`) inside normal talking: how far above normal
-  // does it come out 8 and 15 s in?
+  // What real streams look like: a streamer talking in phrases over a quieter game bed that
+  // fills the pauses (on a recorded stream, the bed filled 43% of the time, 27 dB under the
+  // voice). The talking must pass as if the bed weren't there. Returns the guard's share of
+  // time cutting >1 dB during the phrases (after the first 25 s), its deepest cut, and how much
+  // the talking level moved.
+  async function talkWithBed(id, { sourceDb = -24, bedUnderDb = 22, talkShare = 0.45, seconds = 120 } = {}) {
+    const r = rng(21);
+    const phrases = [];
+    for (let t = 0; t < seconds;) {
+      const on = 1.5 + r() * 3.5;
+      phrases.push([t, t + on]);
+      t += on + on * (1 - talkShare) / talkShare * (0.5 + r());
+    }
+    const program = new Float32Array(seconds * FS);
+    mix(program, scaleTo(bed(seconds, 11), sourceDb - bedUnderDb), 0);
+    mix(program, phrased(scaleTo(voice(seconds, 7), sourceDb), phrases), 0);
+    const out = await renderThroughEngine(program, program, presetSettings(id));
+    const inPhrase = t => phrases.some(([a, b]) => t >= a + 0.4 && t <= b);
+    const talk = out.meters.filter(m => m.time >= 25 && inPhrase(m.time));
+    const inM = momentary(program, program).filter(v => v.t >= 25 && inPhrase(v.t));
+    const outM = momentary(out.left, out.right).filter(v => v.t >= 25 && inPhrase(v.t));
+    return {
+      guardBusy: +(talk.filter(m => m.guardDb < -1).length / talk.length).toFixed(2),
+      deepest: +Math.min(...talk.map(m => m.guardDb)).toFixed(1),
+      talkGainDb: +(talkingLevel(outM.map(v => v.lufs)) - talkingLevel(inM.map(v => v.lufs))).toFixed(1)
+    };
+  }
+
+  // A long quiet intro (a "starting soon" screen with soft music), then the voice: normal must
+  // not defend the intro for the preset's whole memory. Returns how long the voice was cut by
+  // more than 3 dB after it started, and the guard's share of time cutting once that is over.
+  async function longQuietIntro(id, { introSeconds = 40, introDb = -45, sourceDb = -14, seconds = 100 } = {}) {
+    const program = new Float32Array(seconds * FS);
+    mix(program, scaleTo(bed(seconds, 11), introDb), 0);
+    mix(program, scaleTo(voice(seconds - introSeconds, 7), sourceDb), introSeconds);
+    const out = await renderThroughEngine(program, program, presetSettings(id));
+    const voiceMeters = out.meters.filter(m => m.time >= introSeconds + 1);
+    let lastDeep = null;
+    for (const m of voiceMeters) if (m.guardDb < -3) lastDeep = m.time;
+    const cutFor = lastDeep === null ? 0 : lastDeep - introSeconds;
+    const after = voiceMeters.filter(m => m.time >= introSeconds + cutFor + 5);
+    return {
+      cutForSeconds: +cutFor.toFixed(1),
+      guardBusyAfter: after.length ? +(after.filter(m => m.guardDb < -1).length / after.length).toFixed(2) : 0
+    };
+  }
+
+  // A recorded stream (served by the test runner): the guard's share of time cutting >1 dB after
+  // the first `skip` seconds, the talking level in and out, and the loudest moments measured
+  // against the talking level of the 20 s around them, in and out. A short clip can be looped so
+  // the engine is settled when the measured pass starts.
+  async function recording(id, url, { skip = 10, loops = 1 } = {}) {
+    if (!window.recordings) window.recordings = {};
+    if (!window.recordings[url]) {
+      const decoded = await new OfflineAudioContext(2, FS, FS).decodeAudioData(await (await fetch(url)).arrayBuffer());
+      window.recordings[url] = [decoded.getChannelData(0), decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : decoded.getChannelData(0)];
+    }
+    const [l, r] = window.recordings[url];
+    const left = new Float32Array(l.length * loops);
+    const right = new Float32Array(l.length * loops);
+    for (let k = 0; k < loops; k++) {
+      left.set(l, k * l.length);
+      right.set(r, k * l.length);
+    }
+    const from = (loops - 1) * l.length / FS + skip;
+    const out = await renderThroughEngine(left, right, presetSettings(id));
+    const meters = out.meters.filter(m => m.time > from);
+    const inM = momentary(left, right);
+    const outM = momentary(out.left, out.right);
+    const after = m => m.filter(v => v.t > from).map(v => v.lufs);
+    const local = (m, t) => talkingLevel(m.filter(v => v.t > from && Math.abs(v.t - t) < 10).map(v => v.lufs));
+    // The loudest moments, at least 3 s apart
+    const order = inM.map((v, i) => i).filter(i => inM[i].t > from).sort((a, b) => inM[b].lufs - inM[a].lufs);
+    const picked = [];
+    for (const i of order) {
+      if (picked.every(j => Math.abs(inM[j].t - inM[i].t) > 3)) picked.push(i);
+      if (picked.length === 6) break;
+    }
+    return {
+      guardBusy: +(meters.filter(m => m.guardDb < -1).length / meters.length).toFixed(3),
+      talkingIn: +talkingLevel(after(inM)).toFixed(1),
+      talkingOut: +talkingLevel(after(outM)).toFixed(1),
+      loudest: picked.map(i => ({
+        t: +inM[i].t.toFixed(0),
+        inAbove: +(inM[i].lufs - local(inM, inM[i].t)).toFixed(1),
+        outAbove: +(outM[i].lufs - local(outM, inM[i].t)).toFixed(1)
+      }))
+    };
+  }
+
+  // A long loud stretch (+11 dB yelling for `seconds`) inside normal talking, after 25 s of it
+  // (the stream's first 20 s aren't defended): how far above normal does it come out 8 and 15 s in?
   async function sustained(id, { sourceDb = NORMAL_LUFS, seconds = 20, overrides = {} } = {}) {
-    const total = 15 + seconds + 10;
+    const from = 25;
+    const total = from + seconds + 10;
     const program = new Float32Array(total * FS);
     const talk = scaleTo(voice(total, 7), NORMAL_LUFS);
-    for (let i = 15 * FS; i < (15 + seconds) * FS; i++) talk[i] = 0;
+    for (let i = from * FS; i < (from + seconds) * FS; i++) talk[i] = 0;
     mix(program, talk, 0);
-    mix(program, scaleTo(voice(seconds, 99, { pitch: 300, brightness: 7000, continuous: true }), NORMAL_LUFS + 11), 15);
+    mix(program, scaleTo(voice(seconds, 99, { pitch: 300, brightness: 7000, continuous: true }), NORMAL_LUFS + 11), from);
     const input = scaled(program, sourceDb);
     const out = await renderThroughEngine(input, input, presetSettings(id, overrides));
     const inM = momentary(input, input);
     const outM = momentary(out.left, out.right);
     const within = (m, a, b) => m.filter(v => v.t >= a && v.t <= b).map(v => v.lufs);
-    const normalOut = median(within(outM, 5, 14.5));
-    const normalIn = median(within(inM, 5, 14.5));
-    const above = at => median(within(outM, 15 + at - 0.5, 15 + at + 0.5)) - normalOut;
+    const normalOut = talkingLevel(within(outM, 5, from - 0.5));
+    const normalIn = talkingLevel(within(inM, 5, from - 0.5));
+    const above = at => median(within(outM, from + at - 0.5, from + at + 0.5)) - normalOut;
     return {
-      inAbove: +(median(within(inM, 20, 25)) - normalIn).toFixed(1),
+      inAbove: +(median(within(inM, from + 5, from + 10)) - normalIn).toFixed(1),
       at8: +above(8).toFixed(1),
       at15: +above(15).toFixed(1)
     };
@@ -463,6 +592,9 @@
     scenario,
     sustained,
     quietStart,
+    talkWithBed,
+    longQuietIntro,
+    recording,
     pauseAndResume,
     volumeSteps,
     speechCut: (id, base64, sourceDb) => speechCut(id, Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer, sourceDb),

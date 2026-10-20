@@ -4,3 +4,4 @@ dist/
 *.csv
 .superpowers/
 .DS_Store
+tests/fixtures/recordings/
