@@ -334,6 +334,13 @@ async function runIn(browserType, port) {
     }
   }
 
+  console.log('\nA stream that starts quiet, then plays normally');
+  for (const id of ['gentle', 'stream', 'movie', 'sleep']) {
+    const r = await page.evaluate(p => bench.quietStart(p), id);
+    check(`${id}: normal talking after a quiet start isn't treated as a loud stretch`, r.guardBusy <= 0.1,
+      `guard cutting >1 dB ${Math.round(r.guardBusy * 100)}% of the time, deepest ${r.deepest} dB`);
+  }
+
   console.log('\nThings that used to fight the guard');
   for (const [id, overrides] of [['tv90s', {}], ['stream', { noiseLevel: 0.01, noiseType: 'pink' }]]) {
     const r = await page.evaluate(([p, o]) => bench.pauseAndResume(p, o), [id, overrides]);

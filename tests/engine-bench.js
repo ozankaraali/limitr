@@ -292,6 +292,23 @@
     };
   }
 
+  // A stream that starts quiet (an intro, a pause, the end of an ad) and then plays normally:
+  // the normal talking afterwards must not be treated as a loud stretch
+  async function quietStart(id, { introDb = -45, sourceDb = -14, seconds = 30 } = {}) {
+    const program = new Float32Array(seconds * FS);
+    mix(program, scaleTo(voice(2, 3), introDb), 0);
+    mix(program, scaleTo(voice(seconds - 2, 7), sourceDb), 2);
+    const out = await renderThroughEngine(program, program, presetSettings(id));
+    const talk = out.meters.filter(m => m.time >= 8);
+    const inM = momentary(program, program).filter(v => v.t >= 8);
+    const outM = momentary(out.left, out.right).filter(v => v.t >= 8);
+    return {
+      guardBusy: +(talk.filter(m => m.guardDb < -1).length / talk.length).toFixed(2),
+      deepest: +Math.min(...talk.map(m => m.guardDb)).toFixed(1),
+      normalGainDb: +(median(outM.map(v => v.lufs)) - median(inM.map(v => v.lufs))).toFixed(1)
+    };
+  }
+
   // A long loud stretch (+11 dB yelling for `seconds`) inside normal talking: how far above normal
   // does it come out 8 and 15 s in?
   async function sustained(id, { sourceDb = NORMAL_LUFS, seconds = 20, overrides = {} } = {}) {
@@ -445,6 +462,7 @@
     offTransparent,
     scenario,
     sustained,
+    quietStart,
     pauseAndResume,
     volumeSteps,
     speechCut: (id, base64, sourceDb) => speechCut(id, Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer, sourceDb),
