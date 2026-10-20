@@ -994,12 +994,14 @@ function buildCaptionOptions() {
   language.replaceChildren(option('auto', 'Detect automatically'), ...S.CAPTION_LANGUAGES.map(([c, n]) => option(c, n)));
   translate.replaceChildren(option('', 'Off'), ...S.CAPTION_LANGUAGES.map(([c, n]) => option(c, n)));
   translate.closest('label').hidden = !translatorApi();
-  const largeModel = $('captionsLargeModel');
-  largeModel.closest('label').hidden = !largeModelSupported();
+  // English always uses Moonshine; this is the Whisper size for every other language
+  const model = $('captionsModel');
+  model.replaceChildren(option('fast', 'Faster, less accurate'), option('standard', 'Standard'),
+    ...(largeModelSupported() ? [option('large', 'Larger (410 MB, graphics card)')] : []));
 
   language.value = state.captionPrefs.language;
   translate.value = state.captionPrefs.translateTo;
-  largeModel.checked = state.captionPrefs.largeModel;
+  model.value = [...model.options].some(o => o.value === state.captionPrefs.model) ? state.captionPrefs.model : 'standard';
 
   language.addEventListener('change', () => {
     saveCaptionPrefs({ language: language.value });
@@ -1011,7 +1013,7 @@ function buildCaptionOptions() {
     const source = state.captionPrefs.language;
     if (translate.value && source !== 'auto') prepareTranslation(source, translate.value);
   });
-  largeModel.addEventListener('change', () => saveCaptionPrefs({ largeModel: largeModel.checked }));
+  model.addEventListener('change', () => saveCaptionPrefs({ model: model.value }));
   $('translationDownload').addEventListener('click', () => {
     const { source, target } = $('translationDownload').dataset;
     prepareTranslation(source, target);

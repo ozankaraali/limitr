@@ -76,7 +76,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
           caption: view.document.getElementById('traceCaption').textContent,
           captureDisabled: view.document.querySelector('input[name="mode"][value="capture"]').disabled,
           translateShown: !view.document.getElementById('captionsTranslate').closest('label').hidden,
-          largeModelShown: !view.document.getElementById('captionsLargeModel')?.closest('label').hidden
+          models: [...view.document.querySelectorAll('#captionsModel option')].map(o => o.value)
         } : null;
         await browser.tabs.remove(popupTab.id);
         return result;

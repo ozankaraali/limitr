@@ -190,6 +190,16 @@ function wordRecall(lang, captions) {
         `${Math.round(wordRecall('tr', text) * 100)}% of words: ${JSON.stringify(text.slice(0, 1))}`);
       console.log(`        first caption ${run.firstFinalMs} ms after play; processing per sentence ${run.latencies.join(', ')} ms`);
 
+      console.log('\nTürkçe, faster model (Whisper tiny)');
+      await setPrefs({ language: 'tr', translateTo: '', model: 'fast' });
+      await sleep(500);
+      run = await play('tr', 24);
+      text = finals(run.results).map(r => r.text);
+      check('the faster model gets most Turkish words', wordRecall('tr', text) >= 0.5,
+        `${Math.round(wordRecall('tr', text) * 100)}% of words: ${JSON.stringify(text.slice(0, 1))}`);
+      console.log(`        first caption ${run.firstFinalMs} ms after play; processing per sentence ${run.latencies.join(', ')} ms`);
+      await setPrefs({ language: 'tr', translateTo: '' });
+
       console.log('\nDetect automatically');
       await setPrefs({ language: 'auto', translateTo: '' });
       await sleep(500);

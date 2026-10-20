@@ -28,9 +28,11 @@ This data is stored with the browser's extension storage API and never leaves yo
 
 The first time you turn on live captions, Limitr downloads open speech-recognition models from
 Hugging Face: Moonshine for English, and Whisper (77 MB) the first time you pick another language or
-automatic detection. On Chrome or Edge you can switch on a larger, more accurate 410 MB Whisper model
-that runs on a capable graphics card; it is only downloaded if you do. Recognition then runs entirely
-on your computer. No audio is uploaded.
+automatic detection. If you pick the faster model, a smaller Whisper is downloaded instead; on
+Chrome or Edge you can pick a larger, more accurate 410 MB Whisper model that runs on a capable
+graphics card. Each is only downloaded if you pick it. Recognition then runs entirely on your
+computer. No audio is uploaded. Saved transcripts are written to your downloads only when you
+click Save transcript.
 
 Translated captions use your browser's built-in on-device translator (Chrome and Edge; Firefox has
 none, so it doesn't offer translation). The first

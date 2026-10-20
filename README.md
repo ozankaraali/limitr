@@ -45,8 +45,9 @@ You can save your own presets on the Fine-tune screen.
 
 - **Live captions, on your computer:** Moonshine for live English, Whisper for Turkish and 14 other
   languages, or detect the language automatically. Chrome and Edge can translate them with their
-  on-device translator. On Chrome and Edge you can switch on a larger, more accurate model that
-  runs on the graphics card (410 MB, off by default).
+  on-device translator. For other languages you can pick a faster, less accurate model (Whisper
+  tiny, about twice as fast) or, on Chrome and Edge, a larger one that runs on the graphics card
+  (410 MB). Save the transcript as a text file from the Captions screen.
 - **Remove background noise:** RNNoise, running locally
 - **Fine-tune:** spike guard, peak limiter, tone (low/high cut and a 5-band EQ), a classic
   compressor, tape hiss, a mono fix and a CRT video look

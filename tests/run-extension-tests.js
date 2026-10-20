@@ -582,13 +582,15 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await sleep(300);
     check('the chip opens the captions screen', await visible('[data-screen="captions"]'));
     check('Language and Translate to are on it', (await visible('#captionsLanguage')) && (await visible('#captionsTranslate')));
-    check('the larger model is offered, off by default',
-      (await visible('#captionsLargeModel + .switch')) && !(await popup.isChecked('#captionsLargeModel')));
-    await popup.click('label:has(#captionsLargeModel)');
+    const models = await popup.evaluate(() => [...document.querySelectorAll('#captionsModel option')].map(o => o.value));
+    check('other languages: standard model, with a faster and a larger one offered',
+      (await visible('#captionsModel')) && (await popup.inputValue('#captionsModel')) === 'standard' &&
+      models.join() === 'fast,standard,large', models.join());
+    await popup.selectOption('#captionsModel', 'fast');
     await sleep(200);
-    const largeModel = await worker.evaluate(async () => (await chrome.storage.local.get('limitrCaptions')).limitrCaptions);
-    check('switching it on is saved', largeModel && largeModel.largeModel === true, JSON.stringify(largeModel));
-    await popup.click('label:has(#captionsLargeModel)');
+    const chosenModel = await worker.evaluate(async () => (await chrome.storage.local.get('limitrCaptions')).limitrCaptions);
+    check('choosing the faster model is saved', chosenModel && chosenModel.model === 'fast', JSON.stringify(chosenModel));
+    await popup.selectOption('#captionsModel', 'standard');
     await popup.selectOption('#captionsLanguage', 'auto');
     await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'language', language: 'tr' }), tabId);
     await sleep(300);

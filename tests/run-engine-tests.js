@@ -63,9 +63,11 @@ function checkCaptionPrefs() {
   console.log('\nCaption preferences');
   check('English browser starts on English captions', S.defaultCaptions('en-GB').language === 'en');
   check('other browsers start on automatic detection', S.defaultCaptions('tr-TR').language === 'auto');
-  check('the larger 410 MB model is off until chosen', S.normalizeCaptions(null, 'en').largeModel === false);
-  check('choosing the larger model is kept', S.normalizeCaptions({ largeModel: true }, 'en').largeModel === true);
-  check('anything else is not a yes', S.normalizeCaptions({ largeModel: 'yes' }, 'en').largeModel === false);
+  check('other languages use the standard model until another is chosen', S.normalizeCaptions(null, 'en').model === 'standard');
+  check('choosing the faster or the larger model is kept',
+    S.normalizeCaptions({ model: 'fast' }, 'en').model === 'fast' && S.normalizeCaptions({ model: 'large' }, 'en').model === 'large');
+  check('a 2.1 "larger model" switch that was on carries over', S.normalizeCaptions({ largeModel: true }, 'en').model === 'large');
+  check('anything else falls back to standard', S.normalizeCaptions({ model: 'huge' }, 'en').model === 'standard');
 }
 
 // The captions resampler (lib/transcriber-capture-worklet.js) run in Node: speech passes, and

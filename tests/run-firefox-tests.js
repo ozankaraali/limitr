@@ -183,7 +183,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('popup shows caught spikes', popup && /CAUGHT \d+ spikes?\./.test(popup.caption), popup && popup.caption);
     check('whole-tab capture is offered as unavailable', popup && popup.captureDisabled);
     check('captions: no translation offered (Firefox has no on-device translator)', popup && popup.translateShown === false);
-    check('captions: no larger graphics-card model offered', popup && popup.largeModelShown === false);
+    check('captions: faster and standard models offered, not the graphics-card one',
+      popup && popup.models && popup.models.join() === 'fast,standard', popup && popup.models && popup.models.join());
     const metrics = await ask({ op: 'popup-metrics' });
     const noOverflow = m => m.docScrollW <= m.docClientW && m.innerScrollW <= m.innerClientW;
     check('popup has no horizontal scrollbar', metrics && noOverflow(metrics.closed), metrics && JSON.stringify(metrics.closed));
@@ -222,6 +223,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
         await sleep(500);
         finals = await play('tr', 26);
         check('Turkish captions match the spoken words', wordRecall('tr', finals.map(r => r.text)) >= 0.6,
+          `${Math.round(wordRecall('tr', finals.map(r => r.text)) * 100)}%, ${finals.map(r => r.latencyMs).join('/')} ms per sentence`);
+        await ask({ op: 'storage-set', values: { limitrCaptions: { language: 'tr', translateTo: '', model: 'fast' } } });
+        await sleep(500);
+        finals = await play('tr', 26);
+        check('the faster model gets most Turkish words', wordRecall('tr', finals.map(r => r.text)) >= 0.5,
           `${Math.round(wordRecall('tr', finals.map(r => r.text)) * 100)}%, ${finals.map(r => r.latencyMs).join('/')} ms per sentence`);
         await ask({ op: 'storage-set', values: { limitrCaptions: { language: 'auto', translateTo: '' } } });
         await sleep(500);
