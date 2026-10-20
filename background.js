@@ -218,6 +218,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
+  forgetTranscript(tabId);
   tabFrames.delete(tabId);
   capturedTabs.delete(tabId);
   captureFailures.delete(tabId);
@@ -228,6 +229,46 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   }
   if (transcriberInBackground && backgroundTranscriber) (await backgroundTranscriber).stop(tabId);
 });
+
+// ---------- transcripts: each tab's finished caption lines, kept so they can be saved as text ----------
+// Session storage keeps them while the service worker sleeps; they go when the tab closes.
+const TRANSCRIPT_MAX_LINES = 5000;
+const transcriptKey = tabId => `limitrTranscript:${tabId}`;
+const transcripts = new Map();       // tabId -> Promise<lines>
+const transcriptSaves = new Map();   // tabId -> pending save timer
+
+function transcriptLines(tabId) {
+  if (!transcripts.has(tabId)) {
+    transcripts.set(tabId, sessionArea
+      ? sessionArea.get(transcriptKey(tabId)).then(stored => stored[transcriptKey(tabId)] || [], () => [])
+      : Promise.resolve([]));
+  }
+  return transcripts.get(tabId);
+}
+
+async function recordTranscript(tabId, result) {
+  if (tabId == null || !result || !result.final || !result.text) return;
+  const lines = await transcriptLines(tabId);
+  lines.push({
+    at: result.timestamp || Date.now(),
+    text: result.text,
+    ...(result.translation && { translation: result.translation })
+  });
+  if (lines.length > TRANSCRIPT_MAX_LINES) lines.splice(0, lines.length - TRANSCRIPT_MAX_LINES);
+  if (sessionArea && !transcriptSaves.has(tabId)) {
+    transcriptSaves.set(tabId, setTimeout(() => {
+      transcriptSaves.delete(tabId);
+      sessionArea.set({ [transcriptKey(tabId)]: lines }).catch(() => {});
+    }, 1000));
+  }
+}
+
+function forgetTranscript(tabId) {
+  transcripts.delete(tabId);
+  clearTimeout(transcriptSaves.get(tabId));
+  transcriptSaves.delete(tabId);
+  if (sessionArea) sessionArea.remove(transcriptKey(tabId)).catch(() => {});
+}
 
 // ---------- captions host: offscreen in Chrome, this background page in Firefox ----------
 const transcriberInBackground = !chrome.offscreen?.createDocument && typeof window !== 'undefined';
@@ -249,6 +290,7 @@ function ensureBackgroundTranscriber() {
       window.LimitrExtensionRuntime = {
         getURL: path => chrome.runtime.getURL(path),
         sendMessage: payload => {
+          if (payload?.action === 'transcription-result') recordTranscript(payload.tabId, payload.result);
           chrome.runtime.sendMessage(payload).catch(() => {});
           if (payload?.tabId != null) chrome.tabs.sendMessage(payload.tabId, payload).catch(() => {});
         }
@@ -366,6 +408,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     case 'transcription-result':
     case 'transcription-status':
+      // Lines only count from the extension itself (the offscreen document), never a web page
+      if (message.action === 'transcription-result' && (sender.url || '').startsWith(chrome.runtime.getURL(''))) {
+        recordTranscript(message.tabId, message.result);
+      }
       // Forward to the tab so the caption overlay can render it
       if (message.tabId != null && !sender.tab) chrome.tabs.sendMessage(message.tabId, message).catch(() => {});
       return false;
@@ -407,6 +453,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return respond(stopCaptions(message.tabId), sendResponse);
     case 'captions-status':
       return respond(captionsStatus(message.tabId), sendResponse);
+    case 'captions-transcript':
+      return respond(transcriptLines(message.tabId).then(lines => ({ lines })), sendResponse);
     case 'captions-prefs':
       // The offscreen document has no storage access; it asks when restarting captions
       return respond(loadCaptionPrefs(), sendResponse);

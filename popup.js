@@ -65,6 +65,7 @@ const state = {
   history: [],
   meters: null,
   captions: 'off',
+  transcriptLines: 0,
   captionPrefs: S.normalizeCaptions(null, uiLanguage()),
   crt: false
 };
@@ -962,9 +963,12 @@ function renderCaptions(note) {
   const toggle = $('captions');
   toggle.checked = state.captions === 'active' || state.captions === 'loading';
   toggle.disabled = state.captions === 'loading' || !state.enabled || state.restricted;
-  $('transcript').hidden = state.captions !== 'active';
+  // A transcript can still be read and saved after captions are turned off
+  const hasTranscript = state.transcriptLines > 0;
+  $('transcript').hidden = state.captions !== 'active' && !hasTranscript;
+  $('saveTranscript').hidden = !hasTranscript;
   const chip = $('captionsChip');
-  chip.hidden = !toggle.checked;
+  chip.hidden = !toggle.checked && !hasTranscript;
   const auto = state.captionPrefs.language === 'auto';
   chip.textContent = auto
     ? (state.captionsDetected ? `Auto: ${LANGUAGE_NAMES[state.captionsDetected] || state.captionsDetected}` : 'Auto')
@@ -1072,6 +1076,10 @@ async function setCaptions(enabled) {
 }
 
 async function refreshCaptions() {
+  const transcript = await toBackground({ action: 'captions-transcript', tabId: state.tabId }).catch(() => null);
+  const lines = (transcript && transcript.lines) || [];
+  state.transcriptLines = lines.length;
+  for (const [i, line] of lines.slice(-6).entries()) showTranscriptLine({ ...line, segmentId: `saved-${i}` });
   const status = await toBackground({ action: 'captions-status', tabId: state.tabId }).catch(() => null);
   if (status?.active) state.captions = 'active';
   else if (status?.loading) state.captions = 'loading';
@@ -1107,9 +1115,42 @@ function showTranscriptLine(result) {
   list.scrollTop = list.scrollHeight;
 }
 
+// The tab's whole transcript as plain text: a header, then each line with its time and, under
+// it, its translation
+async function saveTranscript() {
+  const { lines = [] } = await toBackground({ action: 'captions-transcript', tabId: state.tabId }).catch(() => ({}));
+  if (!lines.length) return;
+  const tab = await chrome.tabs.get(state.tabId).catch(() => null);
+  const pad = n => String(n).padStart(2, '0');
+  const time = at => { const d = new Date(at); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+  const now = new Date();
+  const text = [
+    'Limitr transcript',
+    ...(tab ? [tab.title, tab.url] : []),
+    `Saved ${now.toLocaleString()}`,
+    '',
+    ...lines.flatMap(line => [`[${time(line.at)}] ${line.text}`, ...(line.translation ? [`           ${line.translation}`] : [])]),
+    ''
+  ].join('\n');
+  let site = 'tab';
+  try { site = new URL(tab.url).hostname.replace(/^www\./, '') || site; } catch (e) { /* no URL */ }
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  link.download = `limitr-transcript-${site.replace(/[^a-z0-9.-]/gi, '-')}-${stamp}.txt`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+}
+
 chrome.runtime.onMessage.addListener((message) => {
   if (message.tabId !== state.tabId) return;
   if (message.action === 'transcription-result' && message.result?.text) {
+    if (message.result.final) {
+      state.transcriptLines++;
+      renderCaptions();
+    }
     showTranscriptLine(message.result);
   } else if (message.action === 'transcription-status') {
     if (message.status === 'active') state.captions = 'active';
@@ -1189,6 +1230,7 @@ function bindEvents() {
   $('denoiseEnabled').addEventListener('change', e => setSetting('denoiseEnabled', e.target.checked));
   $('captions').addEventListener('change', e => setCaptions(e.target.checked));
   $('captionsChip').addEventListener('click', () => openScreen('captions'));
+  $('saveTranscript').addEventListener('click', saveTranscript);
   for (const row of document.querySelectorAll('.nav-row')) {
     row.addEventListener('click', () => openScreen(row.dataset.open));
   }

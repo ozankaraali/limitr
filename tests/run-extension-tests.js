@@ -610,7 +610,29 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('captions: no horizontal overflow', o.doc <= 360 && o.inner <= 0, JSON.stringify(o));
     check('captions screen has a way back', await visible('[data-screen="captions"] .back'));
     await popup.click('[data-screen="captions"] .back').catch(() => {});
+
+    // The transcript is kept for the tab (the offscreen document's lines pass through the
+    // background), so it can be saved as text, also after captions are turned off
+    const sendLine = (text, translation, at) => popup.evaluate(m => chrome.runtime.sendMessage(m), {
+      action: 'transcription-result', tabId,
+      result: { text, translation, final: true, segmentId: at, language: 'tr', timestamp: Date.parse('2026-10-20T21:03:00Z') + at * 1000 }
+    });
+    await sendLine('Bu gece yay\u0131n\u0131 izledi\u011finiz i\u00e7in te\u015fekk\u00fcrler.', 'Thanks for watching the stream tonight.', 4);
+    await sendLine('Bol su i\u00e7in.', null, 9);
     await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'stopped' }), tabId);
+    const saver = await context.newPage();
+    await saver.goto(`chrome-extension://${extensionId}/popup.html?tabId=${tabId}`);
+    await sleep(1500);
+    check('with a transcript, the captions screen stays reachable after captions stop', await saver.isVisible('#captionsChip'));
+    await saver.click('#captionsChip');
+    await sleep(300);
+    const [download] = await Promise.all([saver.waitForEvent('download'), saver.click('#saveTranscript')]);
+    const saved = fs.readFileSync(await download.path(), 'utf8');
+    check('Save transcript downloads a .txt', /^limitr-transcript-.+\.txt$/.test(download.suggestedFilename()), download.suggestedFilename());
+    check('...with every line, its time and its translation',
+      /Bu gece yay\u0131n\u0131 izledi\u011finiz/.test(saved) && /Thanks for watching the stream tonight\./.test(saved) &&
+      /Bol su i\u00e7in\./.test(saved) && /\d\d:\d\d:\d\d/.test(saved), saved.slice(0, 300));
+    await saver.close();
 
     console.log('\nTheme');
     const bodyBackground = () => popup.evaluate(() => getComputedStyle(document.body).backgroundColor);
