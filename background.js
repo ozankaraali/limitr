@@ -451,7 +451,8 @@ async function migrateStorage() {
   if (!stored[KEYS.settings]) updates[KEYS.settings] = state.settings;
   if (typeof stored[KEYS.enabled] !== 'boolean') updates[KEYS.enabled] = state.enabled;
   if (!stored[KEYS.mode]) updates[KEYS.mode] = captureSupported() ? state.mode : 'page';
-  if (!stored[KEYS.preset] && !stored[KEYS.settings]) updates[KEYS.preset] = state.preset || S.DEFAULT_PRESET;
+  // null when the 1.x tone and extras that carried over don't match any preset
+  if (!stored[KEYS.preset] && !stored[KEYS.settings]) updates[KEYS.preset] = state.preset;
   if (stored.limitrCustomPresets && !stored[KEYS.customPresets]) {
     updates[KEYS.customPresets] = S.migrateLegacyCustomPresets(stored.limitrCustomPresets);
   }

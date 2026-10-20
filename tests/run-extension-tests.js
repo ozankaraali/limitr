@@ -461,6 +461,21 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('Fine-tune shows the live loudness strip', await visible('#miniTrace'));
     check('Fine-tune sections have icons', (await popup.$$eval('[data-screen="finetune"] .gi svg',
       els => els.filter(svg => svg.querySelector('path, rect, circle')).length)) === 6);
+    // Web Audio ignores gain on pass and notch filters, and Q on shelves: only show what works
+    const eqRows = type => popup.evaluate(t => {
+      const select = document.querySelector('.eq-band select');
+      select.value = t;
+      select.dispatchEvent(new Event('change'));
+      const shown = key => !document.getElementById(`ctl-${key}`).closest('.slider-row').hidden;
+      return { gain: shown('eq1Gain'), q: shown('eq1Q'), freq: shown('eq1Freq') };
+    }, type);
+    const asHighPass = await eqRows('highpass');
+    const asShelf = await eqRows('lowshelf');
+    const asBell = await eqRows('peaking');
+    check('EQ band shows only the controls its type uses',
+      !asHighPass.gain && asHighPass.q && !asShelf.q && asShelf.gain && asBell.gain && asBell.q && asBell.freq,
+      JSON.stringify({ asHighPass, asShelf, asBell }));
+    await eqRows('lowshelf');
     const guardSliders = ['guardHeadroom', 'guardCeiling', 'guardRatio', 'guardAttack', 'guardHold', 'guardRelease'];
     const presentSliders = await popup.evaluate(ids => ids.filter(id => document.getElementById(`ctl-${id}`)), guardSliders);
     check('all six Spike guard sliders are there', presentSliders.length === 6, presentSliders.join(', '));

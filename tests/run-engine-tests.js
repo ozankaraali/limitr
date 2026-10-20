@@ -44,6 +44,77 @@ function checkCaptionPrefs() {
   check('anything else is not a yes', S.normalizeCaptions({ largeModel: 'yes' }, 'en').largeModel === false);
 }
 
+// The captions resampler (lib/transcriber-capture-worklet.js) run in Node: speech passes, and
+// content above 8 kHz must not fold back into the speech band when going down to 16 kHz
+function checkCaptionResampler() {
+  const vm = require('vm');
+  const source = require('fs').readFileSync(require('path').join(__dirname, '../lib/transcriber-capture-worklet.js'), 'utf8');
+  const through = (rate, freq, seconds = 2) => {
+    const sandbox = { sampleRate: rate, Math, Float32Array, Float64Array, chunks: [] };
+    sandbox.AudioWorkletProcessor = class { constructor() { this.port = { postMessage: m => sandbox.chunks.push(m.audio) }; } };
+    sandbox.registerProcessor = (name, cls) => { sandbox.Processor = cls; };
+    vm.createContext(sandbox);
+    vm.runInContext(source, sandbox);
+    const processor = new sandbox.Processor();
+    const total = Math.round(seconds * rate);
+    for (let start = 0; start < total; start += 128) {
+      const block = new Float32Array(128);
+      for (let i = 0; i < 128; i++) block[i] = Math.sin(2 * Math.PI * freq * (start + i) / rate);
+      processor.process([[block, block]]);
+    }
+    const out = new Float32Array(sandbox.chunks.length * 8000);
+    sandbox.chunks.forEach((c, i) => out.set(c, i * 8000));
+    return out;
+  };
+  // Level (dB re the input tone) at one frequency of the 16 kHz output, skipping the start
+  const levelAt = (x, freq) => {
+    const w = 2 * Math.PI * freq / 16000;
+    let s1 = 0, s2 = 0;
+    const from = Math.floor(x.length / 4);
+    for (let i = from; i < x.length; i++) { const v = x[i] + 2 * Math.cos(w) * s1 - s2; s2 = s1; s1 = v; }
+    const re = s1 - s2 * Math.cos(w), im = s2 * Math.sin(w);
+    return 20 * Math.log10(2 * Math.hypot(re, im) / (x.length - from) + 1e-12);
+  };
+  console.log('\nCaptions resampler (to 16 kHz)');
+  for (const rate of [48000, 44100]) {
+    const pass = [1000, 6000].map(f => levelAt(through(rate, f), f));
+    check(`${rate / 1000} kHz: speech passes (1 and 6 kHz)`, Math.abs(pass[0]) <= 0.5 && Math.abs(pass[1]) <= 1,
+      pass.map(v => `${v.toFixed(1)} dB`).join(', '));
+    const folded = [9000, 10000, 12000, 14000].map(f => ({ f, level: levelAt(through(rate, f), 16000 - f) }));
+    const worst = folded.reduce((a, b) => (b.level > a.level ? b : a));
+    check(`${rate / 1000} kHz: 9 to 14 kHz don't fold into the speech band (under -40 dB)`, worst.level <= -40,
+      folded.map(x => `${x.f / 1000}k ${x.level.toFixed(1)}`).join(', '));
+  }
+}
+
+// Upgrading from 1.x keeps the listener's tone and extras on top of the default preset
+async function checkLegacyUpgrade() {
+  const S = globalThis.LimitrSettings;
+  console.log('\nUpgrade from 1.x');
+  const area = {
+    get: async () => ({
+      limitrCurrentSettings: {
+        outputGain: -3, monoMixEnabled: true, noiseSuppressionEnabled: true,
+        eqEnabled: true, eq3Gain: 4, eq3Freq: 1200, filtersEnabled: true, bassCutFreq: 80,
+        effectsEnabled: true, noiseLevel: 0.02, noiseType: 'pink',
+        limiterEnabled: true, limiterThreshold: -6
+      }
+    })
+  };
+  const { settings, preset } = await S.load(area);
+  const base = S.PRESETS[S.DEFAULT_PRESET].settings;
+  check('volume carries over', settings.volume === -3);
+  check('tone, EQ, mono, noise removal and tape hiss carry over',
+    settings.toneEnabled && settings.eq3Gain === 4 && settings.eq3Freq === 1200 && settings.lowCut === 80 &&
+    settings.monoEnabled && settings.denoiseEnabled && settings.noiseLevel === 0.02 && settings.noiseType === 'pink',
+    JSON.stringify({ tone: settings.toneEnabled, eq3: [settings.eq3Gain, settings.eq3Freq], lowCut: settings.lowCut,
+      mono: settings.monoEnabled, denoise: settings.denoiseEnabled, hiss: [settings.noiseLevel, settings.noiseType] }));
+  check('the old limiter value (a compressor with hidden boost) is not reused as the ceiling',
+    settings.limiterCeiling === base.limiterCeiling, `${settings.limiterCeiling} vs ${base.limiterCeiling}`);
+  check('the spike guard comes from the default preset', settings.guardHeadroom === base.guardHeadroom && settings.guardEnabled);
+  check('changed tone means no preset is shown as selected', preset === null, String(preset));
+}
+
 async function runIn(browserType, port) {
   // Offline rendering needs neither the GPU nor the speakers
   // Off the GPU and silent. Chromium: fake audio output device, so the speakers are never opened.
@@ -75,6 +146,17 @@ async function runIn(browserType, port) {
   }
   const fb = await page.evaluate(() => bench.limiterCeiling(-1, true));
   check(`native fallback limiter (worklets blocked) → peak ${fb.outputPeakDbfs} dBFS`, fb.dsp === 'fallback' && fb.outputPeakDbfs <= 1.5);
+
+  // Pages that block AudioWorklets get native compressors, whose times only go up to 1 s
+  const rangeWarnings = [];
+  const onWarning = m => { if (m.type() === 'warning' && /range|clamp/i.test(m.text())) rangeWarnings.push(m.text()); };
+  page.on('console', onWarning);
+  for (const id of await page.evaluate(() => bench.presetIds())) {
+    await page.evaluate(p => bench.scenario(p, {}, { failWorklets: true }), id);
+  }
+  page.off('console', onWarning);
+  check('native fallback: every preset fits the browser\'s compressor ranges', rangeWarnings.length === 0,
+    rangeWarnings.slice(0, 2).join(' | '));
 
   console.log('\nTransparency');
   const bypass = await page.evaluate(() => bench.bypassExact());
@@ -188,6 +270,8 @@ async function runIn(browserType, port) {
 (async () => {
   const only = (process.argv.find(a => a.startsWith('--browser=')) || '').split('=')[1];
   checkCaptionPrefs();
+  checkCaptionResampler();
+  await checkLegacyUpgrade();
   const { server, port } = await startStaticServer();
   try {
     for (const type of [chromium, firefox]) {

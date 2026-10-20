@@ -399,7 +399,10 @@ function selectRow(key, label, options) {
   }
   select.addEventListener('change', () => {
     setSetting(key, select.value);
-    if (key.startsWith('eq')) drawEqCurve();
+    if (key.startsWith('eq')) {
+      syncEqRows();
+      drawEqCurve();
+    }
   });
   toggleBindings.push(() => { select.value = state.settings[key]; });
   row.append(text, select);
@@ -549,6 +552,14 @@ const EQ_TYPE_NAMES = [
   ['lowshelf', 'Low shelf'], ['peaking', 'Bell'], ['highshelf', 'High shelf'],
   ['highpass', 'High-pass'], ['lowpass', 'Low-pass'], ['notch', 'Notch']
 ];
+// Web Audio ignores gain on pass and notch filters, and Q on shelves: only show what works
+const EQ_TYPES_WITH_GAIN = new Set(['lowshelf', 'peaking', 'highshelf']);
+const EQ_TYPES_WITH_Q = new Set(['peaking', 'highpass', 'lowpass', 'notch']);
+const eqRowBindings = [];
+
+function syncEqRows() {
+  eqRowBindings.forEach(sync => sync());
+}
 
 function buildEq(container) {
   const canvas = document.createElement('canvas');
@@ -571,9 +582,14 @@ function buildEq(container) {
     select.classList.add('flush');
     head.append(select);
     band.append(head);
-    band.append(sliderRow(`eq${i}Freq`, 'Frequency', fmt.hz, logFreq));
-    band.append(sliderRow(`eq${i}Gain`, 'Gain', fmt.db));
-    band.append(sliderRow(`eq${i}Q`, 'Width (Q)', fmt.q));
+    const gainRow = sliderRow(`eq${i}Gain`, 'Gain', fmt.db);
+    const qRow = sliderRow(`eq${i}Q`, 'Width (Q)', fmt.q);
+    band.append(sliderRow(`eq${i}Freq`, 'Frequency', fmt.hz, logFreq), gainRow, qRow);
+    eqRowBindings.push(() => {
+      const type = state.settings[`eq${i}Type`];
+      gainRow.hidden = !EQ_TYPES_WITH_GAIN.has(type);
+      qRow.hidden = !EQ_TYPES_WITH_Q.has(type);
+    });
     bands.append(band);
   }
   container.append(bands);
@@ -634,6 +650,7 @@ function renderControls() {
   sliderBindings.forEach(paint => paint());
   toggleBindings.forEach(sync => sync());
   groupBindings.forEach(sync => sync());
+  syncEqRows();
   $('denoiseEnabled').checked = state.settings.denoiseEnabled;
   const crt = $('crt');
   if (crt) crt.checked = state.crt;
