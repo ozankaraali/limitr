@@ -541,6 +541,34 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await restricted.close();
 
     console.log('\nCaptions screen');
+    // The switch is what people click: it must turn captions on, not open the language screen.
+    // The start request is caught before it reaches the background, so no model downloads.
+    await popup.evaluate(() => {
+      window.captionRequests = [];
+      const send = chrome.runtime.sendMessage.bind(chrome.runtime);
+      chrome.runtime.sendMessage = (message, ...rest) => {
+        if (message && (message.action === 'captions-start' || message.action === 'captions-stop')) {
+          window.captionRequests.push(message.action);
+          return Promise.resolve({ success: true });
+        }
+        return send(message, ...rest);
+      };
+    });
+    await popup.click('.captions-row .switch');
+    await sleep(300);
+    const afterSwitch = await popup.evaluate(() => ({
+      requests: window.captionRequests.slice(),
+      checked: document.getElementById('captions').checked,
+      languageScreen: !document.querySelector('[data-screen="captions"]').hidden
+    }));
+    check('clicking the captions switch turns captions on', afterSwitch.requests.includes('captions-start') && afterSwitch.checked,
+      JSON.stringify(afterSwitch));
+    check('...and doesn\'t open the language screen instead', !afterSwitch.languageScreen);
+    await popup.click('.captions-row .switch');
+    await sleep(300);
+    check('clicking it again turns them off', (await popup.evaluate(() => window.captionRequests.slice())).includes('captions-stop'));
+    await popup.evaluate(() => { if (!document.querySelector('[data-screen="main"]').hidden) return; showScreen('main'); });
+
     // Drive the popup with the transcriber's own messages instead of downloading a speech model
     await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'active' }), tabId);
     await sleep(300);
