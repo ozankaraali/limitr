@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Limitr",
   "short_name": "Limitr",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "author": "Ozan Karaali",
   "description": "Tames sudden loud spikes — alerts, yelling, explosions — so you can watch and sleep in peace",
   "browser_specific_settings": {
