@@ -268,7 +268,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await worker.evaluate((s) => chrome.storage.local.set({ limitrSettings: { ...s, guardHeadroom: 2 } }), limitrSettings);
     await sleep(800);
     m = await meters(0);
-    check('setting change reaches the running engine', m && Math.abs(m.thresholdDb - Math.min(m.baselineDb + 2, limitrSettings.guardCeiling)) < 1.5,
+    check('setting change reaches the running engine',
+      m && Math.abs(m.thresholdDb - (m.baselineDb + m.levelDb + 2 + limitrSettings.volume)) < 0.5,
       m && `threshold ${m.thresholdDb?.toFixed(1)}, normal ${m.baselineDb?.toFixed(1)}`);
     await worker.evaluate((s) => chrome.storage.local.set({ limitrSettings: s }), limitrSettings);
 
@@ -385,7 +386,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await popup.click('[role="radio"]:has-text("Sleep")');
     await sleep(400);
     const stored = await worker.evaluate(() => chrome.storage.local.get(['limitrSettings', 'limitrPreset']));
-    check('preset click is saved', stored.limitrPreset === 'sleep' && stored.limitrSettings.guardHeadroom === 3);
+    const sleepPreset = require('../lib/settings.js') && globalThis.LimitrSettings.PRESETS.sleep.settings;
+    check('preset click is saved', stored.limitrPreset === 'sleep' && stored.limitrSettings.guardHeadroom === sleepPreset.guardHeadroom);
     check('no popup errors', popupErrors.length === 0, popupErrors.join(' | '));
 
     console.log('\nMain screen');
@@ -419,7 +421,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('main screen never scrolls sideways', sideways.scrollLeft === 0 && sideways.overflow <= 0, JSON.stringify(sideways));
     let layout = await mainLayout();
     check('six presets with line icons', layout.presetIcons === 6, layout.presetIcons);
-    check('Even out levels is not on the main screen', !layout.levelOnMain);
+    check('Comfortable level is not on the main screen', !layout.levelOnMain);
     const longPresets = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`custom_test_${i}`, {
       name: `A long preset name 123${i}`, desc: 'Custom', settings: { guardHeadroom: 4 + i }
     }]));
@@ -476,9 +478,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       !asHighPass.gain && asHighPass.q && !asShelf.q && asShelf.gain && asBell.gain && asBell.q && asBell.freq,
       JSON.stringify({ asHighPass, asShelf, asBell }));
     await eqRows('lowshelf');
-    const guardSliders = ['guardHeadroom', 'guardCeiling', 'guardRatio', 'guardAttack', 'guardHold', 'guardRelease'];
+    const guardSliders = ['guardHeadroom', 'guardRatio', 'guardAttack', 'guardHold', 'guardRelease',
+      'levelTarget', 'levelMaxCut', 'levelMaxBoost'];
     const presentSliders = await popup.evaluate(ids => ids.filter(id => document.getElementById(`ctl-${id}`)), guardSliders);
-    check('all six Spike guard sliders are there', presentSliders.length === 6, presentSliders.join(', '));
+    check('Spike guard and Comfortable level sliders are there', presentSliders.length === guardSliders.length, presentSliders.join(', '));
     await popup.evaluate(() => {
       const slider = document.getElementById('ctl-guardHeadroom');
       slider.value = 8;
@@ -604,8 +607,12 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('captured audio runs through the engine', cm && cm.dsp === 'worklet' && cm.inDb > -60, cm && `${cm.dsp}, in ${cm.inDb?.toFixed(1)}`);
     m = await meters(0);
     check('page-mode engine steps aside while captured', m && m.inDb < -60, m && `page in ${m.inDb?.toFixed(1)}`);
-    await sleep(3500);
-    const cm2 = (await worker.evaluate(id => chrome.runtime.sendMessage({ target: 'offscreen', action: 'capture-meters', tabId: id }), tabId)).meters;
+    // The test tone has two bursts in a 12 s loop; a burst before Limitr knew the stream isn't counted
+    let cm2 = null;
+    for (let waited = 0; waited < 12000 && !(cm2 && cm2.spikes >= 1); waited += 1000) {
+      await sleep(1000);
+      cm2 = (await worker.evaluate(id => chrome.runtime.sendMessage({ target: 'offscreen', action: 'capture-meters', tabId: id }), tabId)).meters;
+    }
     check('capture engine catches the bursts', cm2 && cm2.spikes >= 1, cm2 && `spikes=${cm2.spikes}`);
     await worker.evaluate(() => chrome.storage.local.set({ limitrMode: 'page' }));
     await sleep(1500);

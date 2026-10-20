@@ -167,7 +167,9 @@
   }
 
   // ---------- rendering through the real engine ----------
-  async function renderThroughEngine(left, right, settings, { enabled = true, failWorklets = false } = {}) {
+  // changes: [{ at: seconds, settings }] applied mid-render, like a listener moving a control.
+  // Returns the rendered audio and every meter message the worklet sent.
+  async function renderThroughEngine(left, right, settings, { enabled = true, failWorklets = false, changes = [] } = {}) {
     const ctx = new OfflineAudioContext(2, left.length, FS);
     const buffer = ctx.createBuffer(2, left.length, FS);
     buffer.copyToChannel(left, 0);
@@ -183,11 +185,41 @@
     });
     engine.update(settings, enabled);
     await engine.init();
+    const meters = [];
+    if (engine.dspNode) {
+      engine.dspNode.port.addEventListener('message', e => { if (e.data && e.data.type === 'meters') meters.push(e.data); });
+    }
+    for (const change of changes) {
+      ctx.suspend(change.at).then(() => {
+        engine.update(change.settings, enabled);
+        ctx.resume();
+      });
+    }
     source.connect(engine.input);
     engine.output.connect(ctx.destination);
     source.start();
     const rendered = await ctx.startRendering();
-    return { left: rendered.getChannelData(0), right: rendered.getChannelData(1), status: engine.status };
+    await new Promise(resolve => setTimeout(resolve, 50)); // let queued meter messages arrive
+    return { left: rendered.getChannelData(0), right: rendered.getChannelData(1), status: engine.status, meters };
+  }
+
+  const LATENCY_S = 0.025; // guard lookahead + limiter lookahead
+
+  function peakIn(data, from, to) {
+    let peak = 0;
+    for (let i = Math.round(from * FS); i < Math.round(to * FS) && i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));
+    return peak;
+  }
+
+  // How much louder the first 20 ms of an event come through than the rest of it (dB)
+  function onsetLeakDb(input, output, start) {
+    const gain = (a, b) => peakIn(output, a + LATENCY_S, b + LATENCY_S) / (peakIn(input, a, b) + 1e-12);
+    return 20 * Math.log10(gain(start, start + 0.02) / gain(start + 0.1, start + 0.25));
+  }
+
+  function scaled(program, sourceDb) {
+    const g = Math.pow(10, (sourceDb - NORMAL_LUFS) / 20);
+    return program.map(v => v * g);
   }
 
   function median(values) {
@@ -205,8 +237,9 @@
     return LimitrSettings.normalize({ ...LimitrSettings.applyPreset({ volume: 0 }, id), ...overrides });
   }
 
+  // options.sourceDb: how loud the stream's normal talking is (default -24 LUFS)
   async function scenario(id, overrides = {}, options = {}) {
-    const program = buildScenario();
+    const program = scaled(buildScenario(), options.sourceDb ?? NORMAL_LUFS);
     const settings = presetSettings(id, overrides);
     const out = await renderThroughEngine(program, program, settings, options);
     const inM = momentary(program, program);
@@ -237,9 +270,19 @@
     }));
     const recovered = after.find(v => Math.abs(v.diff - normalGain) < 1);
 
+    // Share of plain talking where the guard cuts more than 1 dB, and what the popup would say
+    const talkMeters = out.meters.filter(m => m.time >= normalWindow[0] && m.time <= normalWindow[1]);
+    const guardBusy = talkMeters.length ? talkMeters.filter(m => m.guardDb < -1).length / talkMeters.length : 0;
+    const last = out.meters[out.meters.length - 1] || {};
+
     return {
       preset: id,
       dsp: out.status.dsp,
+      guardBusy: +guardBusy.toFixed(2),
+      spikes: last.spikes,
+      maxSpikeDb: last.maxSpikeDb,
+      thresholdShown: out.meters.some(m => Number.isFinite(m.thresholdDb)),
+      alertOnsetLeakDb: +onsetLeakDb(program, out.left, EVENTS.alert.start).toFixed(2),
       normalInLufs: +normalIn.toFixed(1),
       normalOutLufs: +normalOut.toFixed(1),
       normalGainDb: +normalGain.toFixed(2),
@@ -247,6 +290,56 @@
       recoverySeconds: recovered ? +(recovered.t - EVENTS.yell.end).toFixed(1) : null,
       outputPeakDbfs: +peakDb(out.left, out.right).toFixed(2)
     };
+  }
+
+  // A long loud stretch (+11 dB yelling for `seconds`) inside normal talking: how far above normal
+  // does it come out 8 and 15 s in?
+  async function sustained(id, { sourceDb = NORMAL_LUFS, seconds = 20, overrides = {} } = {}) {
+    const total = 15 + seconds + 10;
+    const program = new Float32Array(total * FS);
+    const talk = scaleTo(voice(total, 7), NORMAL_LUFS);
+    for (let i = 15 * FS; i < (15 + seconds) * FS; i++) talk[i] = 0;
+    mix(program, talk, 0);
+    mix(program, scaleTo(voice(seconds, 99, { pitch: 300, brightness: 7000, continuous: true }), NORMAL_LUFS + 11), 15);
+    const input = scaled(program, sourceDb);
+    const out = await renderThroughEngine(input, input, presetSettings(id, overrides));
+    const inM = momentary(input, input);
+    const outM = momentary(out.left, out.right);
+    const within = (m, a, b) => m.filter(v => v.t >= a && v.t <= b).map(v => v.lufs);
+    const normalOut = median(within(outM, 5, 14.5));
+    const normalIn = median(within(inM, 5, 14.5));
+    const above = at => median(within(outM, 15 + at - 0.5, 15 + at + 0.5)) - normalOut;
+    return {
+      inAbove: +(median(within(inM, 20, 25)) - normalIn).toFixed(1),
+      at8: +above(8).toFixed(1),
+      at15: +above(15).toFixed(1)
+    };
+  }
+
+  // Talking, a 30 s pause (silence from the site, the preset's own hiss still playing), talking:
+  // normal talk must come back at the level it left
+  async function pauseAndResume(id, overrides = {}) {
+    const program = new Float32Array(70 * FS);
+    const talk = scaleTo(voice(70, 7), NORMAL_LUFS);
+    for (let i = 20 * FS; i < 50 * FS; i++) talk[i] = 0;
+    mix(program, talk, 0);
+    const out = await renderThroughEngine(program, program, presetSettings(id, overrides));
+    const inM = momentary(program, program);
+    const outM = momentary(out.left, out.right);
+    const gainIn = (a, b) => median(outM.filter(v => v.t >= a && v.t <= b).map((v, i) => v.lufs -
+      inM.filter(w => w.t >= a && w.t <= b)[i].lufs));
+    return { before: +gainIn(10, 19).toFixed(1), after: +gainIn(51, 57).toFixed(1) };
+  }
+
+  // Volume moved up and down while the limiter is working: the output must stay under 0 dBFS
+  async function volumeSteps(id, sourceDb) {
+    const program = scaled(buildScenario(), sourceDb);
+    const base = presetSettings(id, { volume: 12 });
+    const at = (seconds, volume) => ({ at: seconds, settings: { ...base, volume } });
+    const out = await renderThroughEngine(program, program, base, {
+      changes: [at(20.05, 0), at(20.6, 12), at(30.02, 0), at(30.3, 12), at(36.0, 0)]
+    });
+    return { outputPeakDbfs: +peakDb(out.left, out.right).toFixed(2) };
   }
 
   // Native DynamicsCompressorNode measured makeup vs our formula
@@ -338,6 +431,9 @@
     bypassExact,
     offTransparent,
     scenario,
+    sustained,
+    pauseAndResume,
+    volumeSteps,
     presetIds: () => LimitrSettings.PRESET_ORDER.slice(),
     userAgent: () => navigator.userAgent
   };

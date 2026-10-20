@@ -247,6 +247,7 @@
       attachedCount++;
       sources.push(source);
       engine.resetAnalysis();
+      followSiteVolume(el);
       reportStatus();
       syncTranscriber();
     } catch (e) {
@@ -287,6 +288,24 @@
     }
     return result;
   };
+
+  // The site's own volume reaches the engine before the guard: a change there is a plain gain,
+  // not louder or quieter content. And new media starts with a fresh idea of normal.
+  const siteVolume = new WeakMap();
+  function followSiteVolume(el) {
+    siteVolume.set(el, el.muted ? 0 : el.volume);
+    el.addEventListener('volumechange', () => {
+      const before = siteVolume.get(el);
+      const now = el.muted ? 0 : el.volume;
+      siteVolume.set(el, now);
+      // Only when this player is the one playing through the engine
+      const playing = sources.filter(s => isAudible(s.mediaElement)).length;
+      if (engine && before > 0 && now > 0 && playing <= 1) engine.shiftAnalysis(20 * Math.log10(now / before));
+    });
+    for (const type of ['loadstart', 'emptied']) {
+      el.addEventListener(type, () => { if (engine) engine.resetAnalysis(); });
+    }
+  }
 
   // Listen on the element itself: detached and shadow-DOM players don't reach window listeners
   function trackUnreachable(el) {

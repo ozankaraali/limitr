@@ -19,8 +19,10 @@
 ## What it does
 
 Limitr learns how loud the stream normally is and pulls anything that jumps well above that back
-down within milliseconds, before the loud part reaches your ears. Pick a preset, turn the volume
-where you like it, and leave it running.
+down within milliseconds, before the loud part reaches your ears. A yelling fit stays tamed for as
+long as it lasts. A stream that is louder than the preset's comfortable level is turned down to it,
+smoothly. Quieter sound, like a streamer who starts whispering, is left alone. Set the volume once,
+where quiet talking is easy to hear, and leave it running.
 
 The popup shows a live loudness trace: purple is what you hear, gold is what Limitr shaved off, and
 the dashed line is where taming starts. It counts the spikes it caught and how hard it cut the
@@ -31,9 +33,9 @@ needs you (the popup says what to do).
 | Preset | What it does |
 |--------|--------------|
 | Off | Audio plays exactly as the site sends it |
-| Gentle | Steps in only when something is far louder than the talking around it |
-| Stream | Pulls alerts, blerps and sudden yelling back to a few dB above normal talking |
-| Sleep | Quiet and even: spikes barely rise above normal, every stream sits at one level, softer highs |
+| Gentle | Steps in only when something is far louder than the talking around it; only very loud streams are turned down |
+| Stream | Pulls alerts, blerps and sudden yelling back to a few dB above normal talking; loud streams come down to one comfortable level |
+| Sleep | Quiet and even: spikes barely rise above normal, every stream sits at one low level (quiet ones are lifted a little), softer highs |
 | Movie | Tames explosions and music stings, leaves dialog alone |
 | 90s TV | Narrow, warm broadcast sound with a little tape hiss (pair it with the CRT look) |
 
@@ -46,52 +48,75 @@ You can save your own presets on the Fine-tune screen.
   on-device translator. On Chrome and Edge you can switch on a larger, more accurate model that
   runs on the graphics card (410 MB, off by default).
 - **Remove background noise:** RNNoise, running locally
-- **Even out levels:** slowly brings every stream to the same normal loudness
 - **Fine-tune:** spike guard, peak limiter, tone (low/high cut and a 5-band EQ), a classic
   compressor, tape hiss, a mono fix and a CRT video look
 
 ## Results
 
 Measured by `tests/run-engine-tests.js`, which renders a synthetic stream through the real engine
-in Chromium and Firefox (both give the same numbers). The stream is talking at −24 LUFS with a
-sudden yell, an alert chime and a clap. Figures are loudness above normal talking.
+in Chromium and Firefox (both give the same numbers): talking with a sudden yell, an alert chime
+and a clap, and a 20 s yelling fit. Spike figures are loudness above normal talking, for a stream
+at −24 LUFS. They stay within a few tenths of a dB of these at every source level from −36 LUFS
+(a quiet podcast) to −10 LUFS (a loud Twitch stream).
 
-| Preset | Normal talking | Yell | Alert | Clap | Output peak |
-|--------|---------------:|-----:|------:|-----:|------------:|
-| Off | unchanged | +13.5 dB | +16.7 dB | +8.2 dB | as sent |
-| Gentle | unchanged (0.0 dB) | +10.0 dB | +8.6 dB | +5.0 dB | −1.0 dBFS |
-| Stream | unchanged (−0.1 dB) | +6.0 dB | +3.5 dB | +1.7 dB | −7.4 dBFS |
-| Movie | unchanged (0.0 dB) | +7.8 dB | +5.6 dB | +2.7 dB | −4.3 dBFS |
-| 90s TV | 4.8 dB quieter | +6.2 dB | +5.2 dB | +2.9 dB | −12.0 dBFS |
-| Sleep | 6.9 dB quieter | +4.5 dB | +1.4 dB | +0.6 dB | −14.1 dBFS |
+| Preset | Yell | Alert | Clap | 20 s yelling fit, 8 s in | Output peak |
+|--------|-----:|------:|-----:|-------------------------:|------------:|
+| Off | +13.5 dB | +16.7 dB | +8.2 dB | +10.7 dB | as sent |
+| Gentle | +11.0 dB | +10.7 dB | +6.8 dB | +9.6 dB | −1.5 dBFS |
+| Stream | +6.3 dB | +5.4 dB | +3.0 dB | +5.0 dB | −7.0 dBFS |
+| Movie | +9.3 dB | +8.6 dB | +5.3 dB | +7.9 dB | −3.7 dBFS |
+| 90s TV | +6.8 dB | +7.5 dB | +3.5 dB | | −10.9 dBFS |
+| Sleep | +4.6 dB | +3.3 dB | +1.5 dB | +2.8 dB | −11.5 dBFS |
+
+Where normal talking ends up, by how loud the stream is:
+
+| Preset | Comfortable level | Quiet stream (−30 LUFS) | −24 LUFS | Loud stream (−10 LUFS) |
+|--------|------------------:|------------------------:|---------:|-----------------------:|
+| Gentle | −14 LUFS | unchanged | unchanged | −13.9 LUFS |
+| Stream | −20 LUFS | unchanged | unchanged | −19.8 LUFS |
+| Movie | −18 LUFS | unchanged | unchanged | −17.8 LUFS |
+| Sleep | −28 LUFS | −28.1 LUFS (lifted) | −28.0 LUFS | −28.0 LUFS |
+
+90s TV is −20 LUFS too, but its own tone and compressor shape the sound on purpose. While the
+stream plays normally, the guard stays idle: it doesn't touch plain talking at any level.
 
 The guard lets go 0.4 to 2.6 seconds after a spike ends, depending on the preset. Turning the
 Limitr volume up or down changes how loud everything is and nothing else: the tests check that
 the slider moves normal talking by exactly the same number of dB, and that spikes are tamed the
 same at −12 dB (and at +6 dB in Stream and Sleep). Near full scale the limiter only ever makes
 spikes smaller. With Limitr turned off, the audio is bit-for-bit what the site sent. The Off
-preset adds only a constant 15 ms delay.
+preset adds only a constant 25 ms delay.
 
 ## How it works
 
 ```
 source → [mono fix] → [noise removal] → [low cut → EQ → high cut] → [compressor]
-       → spike guard (adaptive, 10 ms lookahead) → brickwall limiter (5 ms lookahead) → volume → output
+       → spike guard + comfortable level (20 ms lookahead) → [tape hiss] → volume
+       → brickwall limiter (5 ms lookahead) → output
 ```
 
-Stages in brackets are optional. Volume comes last, so the guard always judges the stream itself:
-spikes are tamed the same at every volume, and the slider only changes how loud it all is. The
-limiter's ceiling moves with the volume and never goes past 0 dBFS.
+Stages in brackets are optional. Gains (the volume and the compressor's makeup) come after the
+guard, so it always judges the stream itself: spikes are tamed the same at every volume, and the
+slider only changes how loud it all is. The tape hiss joins after the guard so it's never mistaken
+for the stream. The limiter's ceiling moves with the volume and never goes past 0 dBFS.
 
 **Spike guard** (an AudioWorklet, `lib/dsp-worklet.js`):
 
-1. Measures loudness the way broadcast meters do: K-weighted, in 400 ms windows.
-2. Takes "normal" to be the 75th percentile of the last 20 seconds of non-silent audio, so a pause
-   or a single yell doesn't move it.
-3. Anything louder than normal plus the preset's headroom (3 to 9 dB), or above the preset's
-   ceiling, is pulled back down. The 10 ms lookahead lets the gain drop before the jump
-   reaches the output.
-4. A brickwall limiter after it, also with lookahead, makes sure no sample goes over the ceiling.
+1. Measures loudness the way broadcast meters do (K-weighted), three ways at once: a fast reading
+   for hits, a 50 ms one for the start of a sustained sound, and a 400 ms one for what the ear
+   hears. Each is compared after taking off the crest it normally has on this stream, so all
+   three speak the same LUFS as the threshold.
+2. Takes "normal" to be the median loudness of the last 20 seconds of non-silent audio. A jump of
+   more than 3 dB only becomes the new normal after it has lasted the preset's memory (15 s for
+   Gentle, 30 s for Movie, 60 s for Stream, 5 minutes for Sleep), so a yelling fit stays a spike.
+   Coming back to the stream's familiar level is always allowed, so a quiet BRB screen doesn't
+   leave the voice ducked.
+3. Anything louder than normal plus the preset's headroom (2.5 to 9 dB) is pulled back down. The
+   20 ms lookahead lets the gain drop before the jump reaches the output.
+4. The comfortable level turns the stream's normal loudness down to the preset's level within
+   about a second when it's louder, and leaves quieter streams alone (Sleep lifts them by up to
+   6 dB). A new video starts fresh, and the site's own volume slider acts like a plain gain.
+5. A brickwall limiter at the end, also with lookahead, makes sure no sample goes over the ceiling.
 
 **Compressor without the hidden boost:** Web Audio's `DynamicsCompressorNode` applies automatic
 makeup gain that can't be turned off: +15.3 dB at −30 dB / 12:1. Limitr cancels it exactly, to
@@ -107,6 +132,16 @@ within 0.001 dB in both Chromium and Firefox, so the compressor never makes quie
   and Web Audio games. Chrome only allows this after you open the extension on the tab, so capture
   starts when you open the popup there. Fullscreen video stays inside the window while a tab is
   captured, and each captured tab gets its own volume.
+
+## What's new in 2.1
+
+An independent audit of the maths and a review of the chain design, both measured on streams from
+−36 to −10 LUFS, found the 2.0 guard working against itself on louder streams. YouTube plays
+around −14 LUFS, and there 2.0 turned normal talking down 5–7 dB and rode it constantly. 2.1
+replaces the guard's fixed ceiling with a comfortable level per preset, and holds a yelling fit
+down instead of accepting it after 6–8 s. On louder streams the guard now stays idle on normal
+talking. Tape hiss and compressor makeup no longer fight the guard, and the spike counter and
+"biggest cut" now report what you heard.
 
 ## What's new in 2.0
 

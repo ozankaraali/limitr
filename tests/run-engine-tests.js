@@ -115,6 +115,25 @@ async function checkLegacyUpgrade() {
   check('changed tone means no preset is shown as selected', preset === null, String(preset));
 }
 
+// 2.0 settings: the guard and comfortable level work differently now, so they come from the preset
+async function checkUpgradeFrom20() {
+  const S = globalThis.LimitrSettings;
+  console.log('\nUpgrade from 2.0');
+  const old = {
+    volume: -4, guardEnabled: true, guardHeadroom: 5, guardCeiling: -16, guardRatio: 12, guardAttack: 3,
+    guardHold: 200, guardRelease: 1000, levelEnabled: false, levelTarget: -24, levelMaxBoost: 6,
+    toneEnabled: true, eq2Gain: 3
+  };
+  const area = { get: async () => ({ limitrSettings: old, limitrPreset: 'stream' }) };
+  const { settings } = await S.load(area);
+  const stream = S.PRESETS.stream.settings;
+  check('the guard and comfortable level come from the preset',
+    settings.guardMemory === stream.guardMemory && settings.levelEnabled === stream.levelEnabled &&
+    settings.levelTarget === stream.levelTarget && settings.guardHeadroom === stream.guardHeadroom,
+    JSON.stringify({ memory: settings.guardMemory, level: settings.levelEnabled, target: settings.levelTarget }));
+  check('volume and tone stay', settings.volume === -4 && settings.toneEnabled && settings.eq2Gain === 3);
+}
+
 async function runIn(browserType, port) {
   // Offline rendering needs neither the GPU nor the speakers
   // Off the GPU and silent. Chromium: fake audio output device, so the speakers are never opened.
@@ -162,7 +181,7 @@ async function runIn(browserType, port) {
   const bypass = await page.evaluate(() => bench.bypassExact());
   check(`disabled = bit-exact passthrough (max diff ${bypass.maxDiff})`, bypass.maxDiff === 0);
   const off = await page.evaluate(() => bench.offTransparent());
-  check(`"Off" preset = pure delay (${off.latencyMs} ms latency, max diff ${off.maxDiff.toExponential(2)})`, off.maxDiff < 1e-6 && off.latencyMs < 20);
+  check(`"Off" preset = pure delay (${off.latencyMs} ms latency, max diff ${off.maxDiff.toExponential(2)})`, off.maxDiff < 1e-6 && off.latencyMs <= 25);
 
   console.log('\nSpike guard on a synthetic stream (talking at -24 LUFS, yell +14, alert +16, clap +12)');
   const rows = [];
@@ -184,6 +203,106 @@ async function runIn(browserType, port) {
       check(`${id}: normal talking untouched (|gain| ≤ 0.5 dB)`, Math.abs(r.normalGainDb) <= 0.5);
       check(`${id}: recovers within 3 s after the yell`, r.recoverySeconds !== null && r.recoverySeconds <= 3);
     }
+  }
+
+  console.log('\nSpike guard at real source levels (YouTube plays near -14 LUFS, loud streams near -10)');
+  const LEVELS = [-36, -30, -24, -18, -14, -10];
+  const sweep = async (id, overrides = {}) => {
+    const rows = [];
+    for (const level of LEVELS) {
+      rows.push({ level, ...(await page.evaluate(([p, o, l]) => bench.scenario(p, o, { sourceDb: l }), [id, overrides, level])) });
+    }
+    return rows;
+  };
+  const perLevel = (rows, pick) => rows.map(r => `${r.level}: ${pick(r)}`).join(', ');
+  for (const id of ['gentle', 'stream', 'movie', 'tv90s']) {
+    const exp = PRESET_EXPECTATIONS[id];
+    const comfortable = globalThis.LimitrSettings.PRESETS[id].settings.levelTarget;
+    const rows = await sweep(id);
+    if (id !== 'tv90s') {
+      // 90s TV's own compressor shapes loud sources on purpose; the guard must still stay idle
+      const quieter = rows.filter(r => r.level <= comfortable - 6);
+      check(`${id}: streams quieter than ${comfortable} LUFS are untouched`, quieter.every(r => Math.abs(r.normalGainDb) <= 0.5),
+        perLevel(quieter, r => r.normalGainDb));
+      const louder = rows.filter(r => r.level >= comfortable + 4);
+      if (louder.length) {
+        const outs = louder.map(r => r.normalOutLufs);
+        check(`${id}: louder streams come out at the comfortable level`,
+          outs.every(v => v <= comfortable + 0.5 && v >= comfortable - 3) && Math.max(...outs) - Math.min(...outs) <= 1.5,
+          perLevel(louder, r => r.normalOutLufs));
+      }
+    }
+    check(`${id}: guard idle during plain talking at every level`, rows.every(r => r.guardBusy <= 0.1),
+      perLevel(rows, r => r.guardBusy));
+    check(`${id}: yell and alert held at every level`,
+      rows.every(r => r.events.yell.outAboveNormal <= exp.maxYellAbove && r.events.alert.outAboveNormal <= exp.maxAlertAbove),
+      perLevel(rows, r => `${r.events.yell.outAboveNormal}/${r.events.alert.outAboveNormal}`));
+    if (id !== 'tv90s') {
+      // The clap is short and may stay under the counter's 3 dB; the yell and the alert must count
+      check(`${id}: counts the yell and the alert at every level`, rows.every(r => r.spikes >= 2 && r.spikes <= 3),
+        perLevel(rows, r => r.spikes));
+    }
+    check(`${id}: alert onset doesn't slip through the lookahead`, rows.every(r => r.alertOnsetLeakDb <= 1),
+      perLevel(rows, r => r.alertOnsetLeakDb));
+  }
+
+  console.log('\nSleep: every stream at one comfortable level, quiet ones lifted a little, spikes held');
+  const sleepRows = await sweep('sleep');
+  const sleepTarget = (await page.evaluate(() => bench.scenario('sleep'))).normalOutLufs;
+  check('sleep: -24 to -10 sources all come out at the same level',
+    sleepRows.filter(r => r.level >= -24).every(r => Math.abs(r.normalOutLufs - sleepTarget) <= 1.5),
+    perLevel(sleepRows, r => r.normalOutLufs));
+  const quiet = sleepRows.find(r => r.level === -36);
+  const maxBoost = globalThis.LimitrSettings.PRESETS.sleep.settings.levelMaxBoost;
+  check('sleep: a quiet stream is lifted, at most by its maximum boost', quiet.normalGainDb > 1 && quiet.normalGainDb <= maxBoost + 0.5,
+    `+${quiet.normalGainDb} dB`);
+  check('sleep: yell and alert held at every level',
+    sleepRows.every(r => r.events.yell.outAboveNormal <= PRESET_EXPECTATIONS.sleep.maxYellAbove &&
+      r.events.alert.outAboveNormal <= PRESET_EXPECTATIONS.sleep.maxAlertAbove),
+    perLevel(sleepRows, r => `${r.events.yell.outAboveNormal}/${r.events.alert.outAboveNormal}`));
+  check('sleep: counts the yell and the alert at every level', sleepRows.every(r => r.spikes >= 2 && r.spikes <= 3),
+    perLevel(sleepRows, r => r.spikes));
+  check('sleep: guard idle during plain talking at every level', sleepRows.every(r => r.guardBusy <= 0.1),
+    perLevel(sleepRows, r => r.guardBusy));
+
+  console.log('\nA loud stretch stays tamed for as long as the preset remembers normal');
+  for (const [id, holdsFor15] of [['gentle', false], ['movie', true], ['stream', true], ['sleep', true]]) {
+    const limit = PRESET_EXPECTATIONS[id].maxYellAbove;
+    for (const sourceDb of [-30, -14]) {
+      const r = await page.evaluate(([p, l]) => bench.sustained(p, { sourceDb: l }), [id, sourceDb]);
+      const ok = r.at8 <= limit + 1 && (!holdsFor15 || r.at15 <= limit + 1);
+      check(`${id} at ${sourceDb} LUFS: 20 s of yelling (+${r.inAbove} dB) held${holdsFor15 ? ' 15 s in' : ' 8 s in'}`, ok,
+        `+${r.at8} dB at 8 s, +${r.at15} dB at 15 s`);
+    }
+  }
+
+  console.log('\nThings that used to fight the guard');
+  for (const [id, overrides] of [['tv90s', {}], ['stream', { noiseLevel: 0.01, noiseType: 'pink' }]]) {
+    const r = await page.evaluate(([p, o]) => bench.pauseAndResume(p, o), [id, overrides]);
+    check(`${id}${overrides.noiseLevel ? ' + hiss' : ''}: talking comes back at its level after a 30 s pause`,
+      Math.abs(r.after - r.before) <= 1.5, `${r.before} dB before, ${r.after} dB after`);
+  }
+  const plainGain = { compressorEnabled: true, compThreshold: 0, compRatio: 1, compKnee: 0 };
+  const noMakeup = await page.evaluate(o => bench.scenario('stream', o, { sourceDb: -14 }), { ...plainGain, compMakeup: 0 });
+  const makeup6 = await page.evaluate(o => bench.scenario('stream', o, { sourceDb: -14 }), { ...plainGain, compMakeup: 6 });
+  const delivered = makeup6.normalOutLufs - noMakeup.normalOutLufs;
+  check('compressor makeup +6 dB delivers +6 dB on a loud source', Math.abs(delivered - 6) <= 0.5, `${delivered.toFixed(1)} dB`);
+  // Mid-render changes need OfflineAudioContext.suspend(), which Firefox doesn't have; the
+  // worklet doing the work is the same in both
+  for (const id of browserType.name() === 'chromium' ? ['gentle', 'sleep'] : []) {
+    const r = await page.evaluate(p => bench.volumeSteps(p, -14), id);
+    check(`${id}: moving the volume while the limiter works never passes 0 dBFS`, r.outputPeakDbfs <= 0.01, `${r.outputPeakDbfs} dBFS`);
+  }
+
+  console.log('\nMeters');
+  const offRun = await page.evaluate(() => bench.scenario('off'));
+  check('"Taming starts here" is hidden when the guard is off', offRun.thresholdShown === false);
+  for (const sourceDb of [-24, -14]) {
+    const r = await page.evaluate(l => bench.scenario('stream', {}, { sourceDb: l }), sourceDb);
+    // What the spike itself lost, on top of any comfortable-level cut that applies to everything
+    const heard = Math.max(...Object.values(r.events).map(e => e.tamedBy)) + r.normalGainDb;
+    check(`"biggest cut" matches what was heard (stream at ${sourceDb} LUFS)`, Math.abs(r.maxSpikeDb - heard) <= 2.5,
+      `shows ${r.maxSpikeDb.toFixed(1)} dB, heard ${heard.toFixed(1)} dB`);
   }
 
   console.log('\nVolume is a plain gain after the guard: louder or quieter, taming stays the same');
@@ -216,6 +335,38 @@ async function runIn(browserType, port) {
   const status = await pageScript.evaluate(() => window.pageStatus);
   check('player attaches once a slow-starting AudioContext runs, with no second click',
     status && status.attached === 1 && status.waitingForGesture === 0, JSON.stringify(status));
+
+  // The site's own volume reaches Limitr before the guard: changing it must act like a plain gain,
+  // and a new video must start with a fresh idea of normal
+  const pageMeters = () => pageScript.evaluate(() => new Promise(resolve => {
+    const id = Math.random();
+    const onMessage = e => {
+      if (e.data && e.data.source === 'limitr-page' && e.data.type === 'meters' && e.data.id === id) {
+        window.removeEventListener('message', onMessage);
+        resolve(e.data.meters);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    window.postMessage({ source: 'limitr-bridge', type: 'get-meters', id }, '*');
+  }));
+  await pageScript.waitForTimeout(1500);
+  const before = await pageMeters();
+  await pageScript.evaluate(() => { document.getElementById('player').volume = 0.5; });
+  await pageScript.waitForTimeout(300);
+  const after = await pageMeters();
+  const shifted = after.baselineDb - before.baselineDb;
+  check('the site halving its player volume moves normal by -6 dB at once', Math.abs(shifted + 6.02) <= 0.5,
+    `${shifted.toFixed(2)} dB`);
+  await pageScript.evaluate(() => {
+    const player = document.getElementById('player');
+    player.volume = 1;
+    player.src = player.src;
+    player.play();
+  });
+  await pageScript.waitForTimeout(150);
+  const fresh = await pageMeters();
+  check('new media starts with a fresh idea of normal', fresh.spikes === 0 && Math.abs(fresh.baselineDb + 23) < 0.01,
+    JSON.stringify({ normal: fresh.baselineDb, spikes: fresh.spikes }));
 
   if (browserType.name() === 'chromium') {
     // A player the page routes through its own Web Audio graph can't be reached. Once the page
@@ -272,6 +423,7 @@ async function runIn(browserType, port) {
   checkCaptionPrefs();
   checkCaptionResampler();
   await checkLegacyUpgrade();
+  await checkUpgradeFrom20();
   const { server, port } = await startStaticServer();
   try {
     for (const type of [chromium, firefox]) {

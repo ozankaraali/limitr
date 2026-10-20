@@ -413,7 +413,7 @@ function selectRow(key, label, options) {
 // Line icons for the Fine-tune sections, keyed by section title
 const SECTION_ICONS = {
   'Spike guard': '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M8.5 12.5c1-1.6 2-1.6 3 0s2 1.6 3 0"/>',
-  'Even out levels': '<path d="M4 8h16M4 16h16"/><circle cx="9" cy="8" r="2.2"/><circle cx="15" cy="16" r="2.2"/>',
+  'Comfortable level': '<path d="M4 8h16M4 16h16"/><circle cx="9" cy="8" r="2.2"/><circle cx="15" cy="16" r="2.2"/>',
   'Peak limiter': '<path d="M4 6h16"/><path d="M4 18c3 0 3-8 6-8s3 8 6 8"/>',
   'Tone': '<path d="M5 20V4M12 20V4M19 20V4"/><circle cx="5" cy="14" r="2"/><circle cx="12" cy="8" r="2"/><circle cx="19" cy="16" r="2"/>',
   'Compressor': '<path d="M4 12h4l2-5 4 10 2-5h4"/>',
@@ -424,10 +424,9 @@ const GROUPS = [
   {
     title: 'Spike guard',
     toggle: 'guardEnabled',
-    note: 'Learns how loud the stream normally is and pulls sudden jumps back down. Works the same at any volume.',
+    note: 'Learns how loud the stream normally is and pulls sudden jumps back down, including a long yelling fit. Works the same at any volume.',
     controls: [
       ['guardHeadroom', 'Allow above normal', fmt.dbPlain],
-      ['guardCeiling', 'Never louder than (at 0 dB volume)', fmt.lufs],
       ['guardRatio', 'Strength', fmt.ratio],
       ['guardAttack', 'Reaction time', fmt.ms],
       ['guardHold', 'Hold before recovering', fmt.ms],
@@ -435,12 +434,13 @@ const GROUPS = [
     ]
   },
   {
-    title: 'Even out levels',
+    title: 'Comfortable level',
     toggle: 'levelEnabled',
-    note: 'Slowly moves every stream toward the same normal loudness.',
+    note: 'A stream louder than this is turned down to it, smoothly. Quieter streams are left alone.',
     controls: [
-      ['levelTarget', 'Normal loudness', fmt.lufs],
-      ['levelMaxBoost', 'Most it may raise a quiet stream', fmt.dbPlain]
+      ['levelTarget', 'Comfortable level', fmt.lufs],
+      ['levelMaxCut', 'Most it may turn down', fmt.dbPlain],
+      ['levelMaxBoost', 'Lift quiet streams by up to', fmt.dbPlain]
     ]
   },
   {
