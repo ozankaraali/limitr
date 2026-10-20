@@ -1,91 +1,39 @@
 #!/usr/bin/env node
+// Builds dist/firefox: same code, Firefox manifest (no Chrome-only tab capture / offscreen).
 
 const fs = require('fs/promises');
 const path = require('path');
+const { ROOT, outputDir, copyExtension } = require('./tools/extension-files');
 
-const rootDir = __dirname;
-const outDir = path.join(rootDir, 'dist', 'firefox');
-const skippedRootEntries = new Set([
-  '.claude',
-  '.git',
-  '.playwright-mcp',
-  'dist',
-  'node_modules'
-]);
-const skippedFirefoxDirectories = new Set(['tests']);
-const skippedFirefoxFiles = new Set([
-  'build-firefox.js',
-  'icons/generate-icons.html',
-  'icons/genicons.js',
-  'offscreen.html',
-  'offscreen.js'
-]);
+// --test adds a small agent the Firefox E2E test drives (never ship that build).
+// --out=DIR builds elsewhere, so linting doesn't overwrite a dist/firefox that Firefox has loaded.
+const testBuild = process.argv.includes('--test');
 
-function toRelativePath(filePath) {
-  return path.relative(rootDir, filePath).split(path.sep).join('/');
-}
-
-async function copyDirectory(sourceDir, targetDir, isRoot = false) {
-  await fs.mkdir(targetDir, { recursive: true });
-  const entries = await fs.readdir(sourceDir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    if (isRoot && skippedRootEntries.has(entry.name)) continue;
-    if (entry.name === '.DS_Store' || entry.name.endsWith('.csv')) continue;
-
-    const sourcePath = path.join(sourceDir, entry.name);
-    const targetPath = path.join(targetDir, entry.name);
-    const relativePath = toRelativePath(sourcePath);
-    if (skippedFirefoxFiles.has(relativePath)) continue;
-
-    if (entry.isDirectory()) {
-      if (skippedFirefoxDirectories.has(relativePath)) continue;
-      await copyDirectory(sourcePath, targetPath);
-    } else if (entry.isFile()) {
-      await fs.copyFile(sourcePath, targetPath);
-    }
-  }
-}
-
-async function writeFirefoxManifest() {
-  const manifestPath = path.join(rootDir, 'manifest.json');
-  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-
-  manifest.permissions = manifest.permissions.filter(
-    permission => permission !== 'tabCapture' && permission !== 'offscreen'
-  );
+async function writeFirefoxManifest(outDir) {
+  const manifest = JSON.parse(await fs.readFile(path.join(ROOT, 'manifest.json'), 'utf8'));
+  manifest.permissions = manifest.permissions.filter(p => p !== 'tabCapture' && p !== 'offscreen');
   manifest.background = {
-    scripts: ['background.js'],
+    scripts: manifest.background.scripts,
     preferred_environment: ['document']
   };
-  manifest.web_accessible_resources = [
-    {
-      resources: [
-        'lib/noise-suppressor-worklet.js',
-        'lib/peak-guard-worklet.js',
-        'lib/rnnoise.wasm',
-        'lib/transformers.min.js',
-        'lib/transcriber.js',
-        'lib/ort.bundle.min.mjs',
-        'lib/ort-wasm-simd-threaded.jsep.wasm',
-        'lib/ort-wasm-simd-threaded.jsep.mjs',
-        'lib/transcriber-capture-worklet.js'
-      ],
-      matches: ['<all_urls>']
-    }
-  ];
-
-  await fs.writeFile(
-    path.join(outDir, 'manifest.json'),
-    `${JSON.stringify(manifest, null, 2)}\n`
-  );
+  if (testBuild) {
+    manifest.background.scripts.push('tests/firefox-test-hook.js');
+    manifest.content_scripts.push({
+      matches: ['http://127.0.0.1/*'],
+      js: ['tests/firefox-test-agent.js'],
+      run_at: 'document_start'
+    });
+  }
+  await fs.writeFile(path.join(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 async function main() {
-  await fs.rm(outDir, { recursive: true, force: true });
-  await copyDirectory(rootDir, outDir, true);
-  await writeFirefoxManifest();
-  console.log(`Firefox build written to ${path.relative(rootDir, outDir)}`);
+  const outDir = outputDir(testBuild ? 'firefox-test' : 'firefox');
+  await copyExtension(outDir, {
+    testFiles: testBuild ? ['tests/firefox-test-agent.js', 'tests/firefox-test-hook.js'] : []
+  });
+  await writeFirefoxManifest(outDir);
+  console.log(`Firefox build written to ${path.relative(ROOT, outDir)}`);
   console.log(`Load this file in Firefox: ${path.join(outDir, 'manifest.json')}`);
 }
 

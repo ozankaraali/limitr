@@ -1,699 +1,153 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
+  <title>Limitr</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <div class="header-brand">
-        <img src="icons/icon32.png" alt="Limitr" class="header-icon">
-        <h1>Limitr</h1>
-      </div>
-      <div class="header-controls">
-        <div class="status" id="status">
-          <span class="status-dot"></span>
-          <span class="status-text">Off</span>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" id="enabled">
-          <span class="slider"></span>
+  <main class="popup" id="popup">
+    <section class="screen" data-screen="main">
+      <header class="masthead">
+        <svg class="mark" viewBox="0 0 100 100" width="26" height="26" aria-hidden="true">
+          <path fill="currentColor" d="M14.00,50.00 L14.75,47.97 L15.50,45.95 L16.25,43.95 L17.00,41.98 L17.75,40.04 L18.50,38.14 L19.25,36.29 L20.00,34.50 L20.75,32.78 L21.50,31.13 L22.25,29.56 L23.00,28.08 L23.75,26.69 L24.50,25.41 L25.25,24.22 L26.00,23.15 L26.75,22.20 L27.50,21.36 L28.25,20.65 L29.00,20.06 L29.75,19.60 L30.50,19.27 L31.25,19.07 L32.00,19.00 L32.75,19.07 L33.50,19.27 L34.25,19.60 L35.00,20.06 L35.75,20.65 L36.50,21.36 L37.25,22.20 L38.00,23.15 L38.75,24.22 L39.50,25.41 L40.25,26.69 L41.00,28.08 L41.75,29.56 L42.50,31.13 L43.25,32.78 L44.00,34.50 L44.75,36.29 L45.50,38.14 L46.25,40.04 L47.00,41.98 L47.75,43.95 L48.50,45.95 L49.25,47.97 L50.00,50.00 Z M50.00,50.00 L50.75,52.03 L51.50,54.05 L52.25,56.05 L53.00,58.02 L53.75,59.96 L54.50,61.86 L55.25,63.71 L56.00,65.50 L56.75,67.22 L57.50,68.87 L58.25,70.44 L59.00,71.92 L59.75,73.31 L60.50,74.59 L61.25,75.78 L62.00,76.85 L62.75,77.80 L63.50,78.64 L64.25,79.35 L65.00,79.94 L65.75,80.40 L66.50,80.73 L67.25,80.93 L68.00,81.00 L68.75,80.93 L69.50,80.73 L70.25,80.40 L71.00,79.94 L71.75,79.35 L72.50,78.64 L73.25,77.80 L74.00,76.85 L74.75,75.78 L75.50,74.59 L76.25,73.31 L77.00,71.92 L77.75,70.44 L78.50,68.87 L79.25,67.22 L80.00,65.50 L80.75,63.71 L81.50,61.86 L82.25,59.96 L83.00,58.02 L83.75,56.05 L84.50,54.05 L85.25,52.03 L86.00,50.00 Z"/>
+          <rect fill="currentColor" x="9" y="48.2" width="82" height="3.6" rx="1.8"/>
+        </svg>
+        <h1 class="wordmark">Limitr</h1>
+        <label class="power" title="Turn Limitr on or off everywhere">
+          <input type="checkbox" id="power" role="switch">
+          <span class="power-track"><span class="power-thumb"></span></span>
+          <span class="power-label" id="powerLabel">Off</span>
         </label>
+      </header>
+
+      <p class="status" id="status" aria-live="polite"></p>
+
+      <div class="trace" role="img" aria-label="Loudness over the last few seconds">
+        <canvas id="trace" width="656" height="144"></canvas>
       </div>
-    </header>
+      <p class="caught" id="traceCaption"></p>
 
-    <div class="mode-row">
-      <span class="mode-label crt-label" id="crtLabel" title="CRT visual effect: scanlines, vignette, color shift">CRT</span>
-      <label class="toggle small">
-        <input type="checkbox" id="crtToggle">
-        <span class="slider"></span>
-      </label>
-      <span class="mode-divider">|</span>
-      <span class="mode-label exclusive-mode" id="mixerModeLabel" title="Exclusive Mode: tab-level capture and multi-tab mixing. No fullscreen support.">Exclusive</span>
-      <label class="toggle small">
-        <input type="checkbox" id="mixerModeToggle">
-        <span class="slider"></span>
-      </label>
-      <span class="mode-divider">|</span>
-      <span class="mode-label" id="modeLabel">Simple</span>
-      <label class="toggle small">
-        <input type="checkbox" id="modeToggle">
-        <span class="slider"></span>
-      </label>
-    </div>
+      <div class="preset-grid" id="presetGrid" role="radiogroup" aria-label="Presets"></div>
+      <div class="chip-row" id="presetChips" aria-label="Your presets" hidden></div>
+      <p class="preset-explainer" id="presetExplainer"></p>
 
-    <div class="mode-info" id="modeInfo">
-      <span class="mode-badge regular" id="modeBadge">Regular Mode</span>
-      <span class="mode-note" id="modeNote">Fullscreen compatible</span>
-    </div>
-
-    <div class="meters-row">
-      <div class="meter-container meter-flex">
-        <label>Gain Reduction</label>
-        <div class="meter">
-          <div class="meter-fill" id="reductionMeter"></div>
-          <span class="meter-value" id="reductionValue">0 dB</span>
-        </div>
-      </div>
-      <div class="meter-container meter-lufs">
-        <label>LUFS</label>
-        <div class="meter lufs-meter">
-          <div class="meter-fill lufs-fill" id="lufsMeter"></div>
-          <span class="meter-value" id="lufsValue">--</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Presets (generated dynamically from popup.js presetUI) -->
-    <div class="presets-section">
-      <div class="presets-grid" id="presetsGrid"></div>
-    </div>
-
-    <!-- Simple Mode Controls -->
-    <div id="simpleControls" class="controls">
-      <div class="control-group">
-        <div class="control-header">
-          <label for="outputGainSimple">Output Volume</label>
-          <span class="value" id="outputGainSimpleValue">0 dB</span>
-        </div>
-        <input type="range" id="outputGainSimple" min="-24" max="24" value="0" step="1">
+      <div class="volume-row">
+        <label for="volume">Volume</label>
+        <input type="range" id="volume">
+        <output id="volumeValue" for="volume"></output>
       </div>
 
-      <!-- AI Noise Suppression -->
-      <div class="simple-anc-row" id="simpleAncRow">
-        <div class="control-header simple-toggle-row">
-          <label>AI Noise Suppression</label>
-          <span class="noise-suppression-label" id="noiseSuppressionLabelSimple">Off</span>
-          <label class="toggle small">
-            <input type="checkbox" id="noiseSuppressionToggleSimple">
-            <span class="slider"></span>
+      <ul class="quick-toggles">
+        <li>
+          <label class="toggle-row">
+            <span class="toggle-text">
+              <span>Remove background noise</span>
+              <small id="denoiseNote">Fans, keyboards, hiss</small>
+            </span>
+            <input type="checkbox" id="denoiseEnabled" role="switch">
+            <span class="switch" aria-hidden="true"></span>
           </label>
-        </div>
-        <div class="control-note">RNNoise AI noise cleanup</div>
-      </div>
-
-      <!-- Video Transcriber -->
-      <div class="simple-anc-row" id="simpleTranscriberRow">
-        <div class="control-header simple-toggle-row">
-          <label>Video Transcriber</label>
-          <span class="transcriber-label" id="transcriberLabelSimple">Off</span>
-          <label class="toggle small">
-            <input type="checkbox" id="transcriberToggleSimple">
-            <span class="slider"></span>
+        </li>
+        <li class="captions-row">
+          <label class="toggle-row">
+            <span class="toggle-text">
+              <span>Live captions</span>
+              <small id="captionsNote">Runs on your computer. The first time downloads a speech model.</small>
+            </span>
+            <button type="button" class="chip-button" id="captionsChip" hidden></button>
+            <input type="checkbox" id="captions" role="switch">
+            <span class="switch" aria-hidden="true"></span>
           </label>
-        </div>
-        <div class="control-note">Moonshine AI captions</div>
-        <div class="transcriber-output" id="transcriberOutputSimple" style="display: none;">
-          <div class="transcriber-text" id="transcriberTextSimple"></div>
-        </div>
-      </div>
+        </li>
+      </ul>
 
-      <!-- Mono Fix (works in both modes) -->
-      <div class="simple-feature-row">
-        <div class="control-header">
-          <label>Mono Fix</label>
-          <label class="toggle small">
-            <input type="checkbox" id="monoMixToggleSimple">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="control-note">Fix single-channel audio</div>
-      </div>
-    </div>
+      <nav class="nav-rows" aria-label="More settings">
+        <button type="button" class="nav-row" data-open="finetune">Fine-tune</button>
+        <button type="button" class="nav-row" data-open="listening">How Limitr listens</button>
+      </nav>
+    </section>
 
-    <!-- Advanced Mode Controls -->
-    <div id="advancedControls" class="controls" style="display: none;">
-      <!-- AI Features -->
-      <div class="exclusive-features-group collapsible-section" id="exclusiveFeaturesGroup">
-        <div class="exclusive-features-header section-header">
-          <span>Exclusive Features</span>
-          <span class="exclusive-badge" id="exclusiveBadge">Core Features Available</span>
-        </div>
-
-        <div class="section-body">
-          <!-- AI Noise Suppression -->
-          <div class="control-section-label noise-suppression-header">
-            <span>AI Noise Suppression</span>
-            <label class="toggle small">
-              <input type="checkbox" id="noiseSuppressionToggle">
-              <span class="slider"></span>
-            </label>
-            <span class="noise-suppression-label" id="noiseSuppressionLabel">Off</span>
-          </div>
-          <div class="control-note" id="noiseSuppressionNote">
-            RNNoise AI removes background noise (keyboard, fan, etc.)
-          </div>
-
-          <!-- Auto-Gain (AGC) -->
-          <div class="control-section-label auto-gain-header">
-            <span>Auto-Gain (AGC)</span>
-            <label class="toggle small">
-              <input type="checkbox" id="autoGainToggle">
-              <span class="slider"></span>
-            </label>
-            <span class="auto-gain-label" id="autoGainLabel">Off</span>
-          </div>
-          <div class="control-group">
-            <div class="control-header">
-              <label for="autoGainTarget">Target Level</label>
-              <span class="value" id="autoGainTargetValue">-16 dB</span>
-            </div>
-            <input type="range" id="autoGainTarget" min="-30" max="-6" value="-16" step="1">
-          </div>
-          <div class="control-group">
-            <div class="control-header">
-              <label for="autoGainSpeed">AGC Speed</label>
-            </div>
-            <select id="autoGainSpeed" class="dropdown">
-              <option value="slow">Slow (Smooth, gentle)</option>
-              <option value="normal" selected>Normal (Balanced)</option>
-              <option value="fast">Fast (Anti-scream)</option>
-            </select>
-          </div>
-
-          <!-- Video Transcriber (Moonshine) -->
-          <div class="control-section-label transcriber-header">
-            <span>Video Transcriber</span>
-            <label class="toggle small">
-              <input type="checkbox" id="transcriberToggle">
-              <span class="slider"></span>
-            </label>
-            <span class="transcriber-label" id="transcriberLabel">Off</span>
-          </div>
-          <div class="control-note" id="transcriberNote">
-            Moonshine AI — live captions from tab audio
-          </div>
-          <div class="transcriber-output" id="transcriberOutput" style="display: none;">
-            <div class="transcriber-text" id="transcriberText"></div>
-          </div>
-
-          <!-- Noise Gate -->
-          <div class="control-section-label noise-gate-header">
-            <span>Noise Gate</span>
-            <label class="toggle small">
-              <input type="checkbox" id="gateToggle">
-              <span class="slider"></span>
-            </label>
-            <span class="noise-gate-label" id="gateLabel">Off</span>
-          </div>
-          <div class="control-note">
-            Silences hiss/noise in quiet sections
-          </div>
-          <div class="control-group">
-            <div class="control-header">
-              <label for="gateThreshold">Threshold</label>
-              <span class="value" id="gateThresholdValue">-50 dB</span>
-            </div>
-            <input type="range" id="gateThreshold" min="-80" max="-20" value="-50" step="1">
-          </div>
-          <div class="control-group">
-            <div class="control-header">
-              <label for="gateHold">Hold</label>
-              <span class="value" id="gateHoldValue">100 ms</span>
-            </div>
-            <input type="range" id="gateHold" min="0" max="500" value="100" step="10">
-          </div>
-          <div class="control-group">
-            <div class="control-header">
-              <label for="gateRelease">Release</label>
-              <span class="value" id="gateReleaseValue">200 ms</span>
-            </div>
-            <input type="range" id="gateRelease" min="50" max="1000" value="200" step="10">
-          </div>
-
-          <!-- Audio Ducking -->
-          <div class="control-section-label ducking-header">
-            <span>Audio Ducking</span>
-            <label class="toggle small">
-              <input type="checkbox" id="duckingToggle">
-              <span class="slider"></span>
-            </label>
-            <span class="ducking-label" id="duckingLabel">Off</span>
-          </div>
-          <div class="control-note">
-            Lowers music/SFX when speech is detected
-          </div>
-          <div class="control-group">
-            <div class="control-header">
-              <label for="duckingThreshold">Speech Threshold</label>
-              <span class="value" id="duckingThresholdValue">-35 dB</span>
-            </div>
-            <input type="range" id="duckingThreshold" min="-60" max="-10" value="-35" step="1">
-          </div>
-          <div class="control-group">
-            <div class="control-header">
-              <label for="duckingAmount">Duck Amount</label>
-              <span class="value" id="duckingAmountValue">-12 dB</span>
-            </div>
-            <input type="range" id="duckingAmount" min="-24" max="0" value="-12" step="1">
-          </div>
-          <div class="control-group">
-            <div class="control-header">
-              <label for="duckingRelease">Release</label>
-              <span class="value" id="duckingReleaseValue">300 ms</span>
-            </div>
-            <input type="range" id="duckingRelease" min="50" max="1000" value="300" step="10">
-          </div>
-        </div>
-      </div>
-
-      <!-- Output Volume (always visible, most used control) -->
-      <div class="control-group output-volume-group">
-        <div class="control-header">
-          <label for="outputGain">Output Volume</label>
-          <span class="value" id="outputGainValue">0 dB</span>
-        </div>
-        <input type="range" id="outputGain" min="-24" max="24" value="0" step="1">
-      </div>
-
-      <!-- Mono Fix (works in both Regular and Exclusive modes) -->
-      <div class="control-section-label mono-mix-header">
-        <span>Mono Fix</span>
-        <span class="mono-mix-label" id="monoMixLabel">Off</span>
-        <label class="toggle small">
-          <input type="checkbox" id="monoMixToggle">
-          <span class="slider"></span>
+    <section class="screen" data-screen="captions" hidden>
+      <header class="screen-head">
+        <button type="button" class="back" aria-label="Back to Limitr">&larr;</button>
+        <h2>Live captions</h2>
+      </header>
+      <div class="screen-body">
+        <label class="select-row">
+          <span>Language</span>
+          <select id="captionsLanguage"></select>
         </label>
+        <label class="select-row">
+          <span>Translate to</span>
+          <select id="captionsTranslate"></select>
+        </label>
+        <label class="toggle-row" hidden>
+          <span class="toggle-text">
+            <span>Larger model for other languages</span>
+            <small>More accurate. A 410 MB download that runs on the graphics card.</small>
+          </span>
+          <input type="checkbox" id="captionsLargeModel" role="switch">
+          <span class="switch" aria-hidden="true"></span>
+        </label>
+        <p class="group-note" id="captionsHint" hidden></p>
+        <button type="button" class="button quiet" id="translationDownload" hidden></button>
+        <ol class="transcript" id="transcript" aria-live="polite" hidden></ol>
       </div>
+    </section>
 
-      <!-- Limiter (works in both Regular and Exclusive modes) -->
-      <div class="collapsible-section" id="limiterSection">
-        <div class="control-section-label limiter-header section-header">
-          <span>Limiter</span>
-          <label class="toggle small">
-            <input type="checkbox" id="limiterToggle" checked>
-            <span class="slider"></span>
+    <section class="screen" data-screen="finetune" hidden>
+      <header class="screen-head">
+        <button type="button" class="back" aria-label="Back to Limitr">&larr;</button>
+        <h2>Fine-tune</h2>
+      </header>
+      <div class="live-strip">
+        <canvas id="miniTrace" width="656" height="80"></canvas>
+        <p class="caught mini" id="miniCaught"></p>
+        <p class="mini-preset" id="miniPreset"></p>
+      </div>
+      <div class="screen-body">
+        <div id="fineTuneBody"></div>
+        <section class="saved-presets" id="savedPresets" tabindex="-1" aria-label="Your presets">
+          <h3>Your presets</h3>
+          <ul id="savedPresetList"></ul>
+          <form id="savePresetForm" hidden>
+            <input type="text" id="presetName" maxlength="24" placeholder="Name this preset" required>
+            <button type="submit" class="button">Save</button>
+            <button type="button" class="button quiet" id="cancelPreset">Cancel</button>
+          </form>
+          <button type="button" class="button quiet" id="savePresetButton">Save these settings as a preset</button>
+        </section>
+      </div>
+    </section>
+
+    <section class="screen" data-screen="listening" hidden>
+      <header class="screen-head">
+        <button type="button" class="back" aria-label="Back to Limitr">&larr;</button>
+        <h2>How Limitr listens</h2>
+      </header>
+      <div class="screen-body">
+        <div class="mode-choice" role="radiogroup" aria-label="How Limitr listens">
+          <label class="mode-option">
+            <input type="radio" name="mode" value="page">
+            <span class="mode-title">Inside the page</span>
+            <small>Works in every browser and in fullscreen. Some protected players can't be reached.</small>
           </label>
-          <span class="limiter-label active" id="limiterLabel">On</span>
-        </div>
-        <div class="section-body">
-          <div class="control-group">
-            <div class="control-header">
-              <label for="limiterThreshold">Ceiling</label>
-              <span class="value" id="limiterThresholdValue">-1 dB</span>
-            </div>
-            <input type="range" id="limiterThreshold" min="-30" max="0" value="-1" step="0.5">
-          </div>
-          <div class="control-group soft-clip-group">
-            <div class="control-header">
-              <label>Soft Clip</label>
-              <label class="toggle small">
-                <input type="checkbox" id="softClipToggle">
-                <span class="slider"></span>
-              </label>
-            </div>
-          </div>
-          <div class="control-group" id="softClipDriveGroup">
-            <div class="control-header">
-              <label for="softClipDrive">Drive</label>
-              <span class="value" id="softClipDriveValue">0 dB</span>
-            </div>
-            <input type="range" id="softClipDrive" min="0" max="12" value="0" step="1">
-          </div>
-        </div>
-      </div>
-
-      <div class="collapsible-section" id="compressorSection">
-        <div class="control-section-label compressor-header section-header">
-          <span>Compressor</span>
-          <label class="toggle small">
-            <input type="checkbox" id="compressorToggle" checked>
-            <span class="slider"></span>
+          <label class="mode-option" id="captureOption">
+            <input type="radio" name="mode" value="capture">
+            <span class="mode-title">Whole tab</span>
+            <small id="captureNote">Catches every sound, including protected video. Starts on a tab when you open Limitr there. Fullscreen stays inside the window.</small>
           </label>
-          <span class="compressor-label active" id="compressorLabel">On</span>
         </div>
-        <div class="section-body">
-          <div class="control-group">
-            <div class="control-header">
-              <label for="threshold">Threshold</label>
-              <span class="value" id="thresholdValue">-24 dB</span>
-            </div>
-            <input type="range" id="threshold" min="-60" max="0" value="-24" step="1">
-          </div>
-
-          <div class="control-group">
-            <div class="control-header">
-              <label for="ratio">Ratio</label>
-              <span class="value" id="ratioValue">8:1</span>
-            </div>
-            <input type="range" id="ratio" min="1" max="20" value="8" step="0.5">
-          </div>
-
-          <div class="control-group">
-            <div class="control-header">
-              <label for="knee">Knee</label>
-              <span class="value" id="kneeValue">12 dB</span>
-            </div>
-            <input type="range" id="knee" min="0" max="40" value="12" step="1">
-          </div>
-
-          <div class="control-group">
-            <div class="control-header">
-              <label for="attack">Attack</label>
-              <span class="value" id="attackValue">5 ms</span>
-            </div>
-            <input type="range" id="attack" min="0" max="100" value="5" step="1">
-          </div>
-
-          <div class="control-group">
-            <div class="control-header">
-              <label for="release">Release</label>
-              <span class="value" id="releaseValue">100 ms</span>
-            </div>
-            <input type="range" id="release" min="10" max="1000" value="100" step="10">
-          </div>
+        <div class="mixer" id="mixer" hidden>
+          <h3 class="mixer-title">Tabs Limitr is listening to</h3>
+          <ul id="mixerList"></ul>
         </div>
       </div>
+    </section>
+  </main>
 
-      <div class="collapsible-section" id="gainSection">
-        <div class="control-section-label gain-header section-header">
-          <span>Gain</span>
-          <label class="toggle small">
-            <input type="checkbox" id="gainToggle" checked>
-            <span class="slider"></span>
-          </label>
-          <span class="gain-label active" id="gainLabel">On</span>
-        </div>
-        <div class="section-body">
-          <div class="control-group">
-            <div class="control-header">
-              <label for="makeupGain">Makeup Gain</label>
-              <span class="value" id="makeupGainValue">0 dB</span>
-            </div>
-            <input type="range" id="makeupGain" min="-24" max="24" value="0" step="1">
-          </div>
-
-        </div>
-      </div>
-
-      <div class="collapsible-section" id="effectsSection">
-        <div class="control-section-label effects-header section-header">
-          <span>Effects</span>
-          <label class="toggle small">
-            <input type="checkbox" id="effectsToggle">
-            <span class="slider"></span>
-          </label>
-          <span class="effects-label" id="effectsLabel">Off</span>
-        </div>
-        <div class="section-body">
-          <div class="control-group">
-            <div class="control-header">
-              <label for="noiseLevel">Noise Amount</label>
-              <span class="value" id="noiseLevelValue">Off</span>
-            </div>
-            <input type="range" id="noiseLevel" min="0" max="0.3" value="0" step="0.01">
-          </div>
-
-          <div class="control-group">
-            <div class="control-header">
-              <label for="noiseType">Noise Type</label>
-            </div>
-            <select id="noiseType" class="dropdown">
-              <option value="brown">Brown (Cozy rumble)</option>
-              <option value="pink">Pink (Rain/CRT hum)</option>
-              <option value="white">White (Harsh static)</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <!-- Filters Section (Bass/Treble Cut) -->
-      <div class="collapsible-section" id="filtersSection">
-        <div class="control-section-label filters-header section-header">
-          <span>Filters</span>
-          <label class="toggle small">
-            <input type="checkbox" id="filtersToggle">
-            <span class="slider"></span>
-          </label>
-          <span class="filters-label" id="filtersLabel">Off</span>
-        </div>
-        <div class="section-body">
-          <div class="control-group">
-            <div class="control-header">
-              <label for="bassCutFreq">Bass Cut (Highpass)</label>
-              <span class="value" id="bassCutFreqValue">Off</span>
-            </div>
-            <input type="range" id="bassCutFreq" min="0" max="400" value="0" step="10">
-          </div>
-
-          <div class="control-group">
-            <div class="control-header">
-              <label for="trebleCutFreq">Treble Cut (Lowpass)</label>
-              <span class="value" id="trebleCutFreqValue">Off</span>
-            </div>
-            <input type="range" id="trebleCutFreq" min="4000" max="22050" value="22050" step="100">
-          </div>
-        </div>
-      </div>
-
-      <!-- 5-Band Parametric EQ Section -->
-      <div class="collapsible-section collapsed" id="eqSection">
-        <div class="control-section-label eq-header section-header">
-          <span>5-Band EQ</span>
-          <label class="toggle small">
-            <input type="checkbox" id="eqToggle">
-            <span class="slider"></span>
-          </label>
-          <span class="eq-label" id="eqLabel">Off</span>
-        </div>
-
-        <div class="section-body" id="eqControls">
-        <!-- EQ Canvas Visualization -->
-        <div class="eq-canvas-container">
-          <canvas id="eqCanvas" width="268" height="100"></canvas>
-          <div class="eq-legend">
-            <span class="eq-legend-item band1">1</span>
-            <span class="eq-legend-item band2">2</span>
-            <span class="eq-legend-item band3">3</span>
-            <span class="eq-legend-item band4">4</span>
-            <span class="eq-legend-item band5">5</span>
-          </div>
-        </div>
-
-        <!-- EQ Band 1 -->
-        <div class="eq-band">
-          <div class="eq-band-header">
-            <span class="eq-band-label band1">Band 1</span>
-            <select id="eq1Type" class="dropdown-small">
-              <option value="highpass">Highpass</option>
-              <option value="lowshelf">Low Shelf</option>
-              <option value="peaking">Bell</option>
-            </select>
-          </div>
-          <div class="eq-band-controls">
-            <div class="eq-control">
-              <label>Freq</label>
-              <input type="range" id="eq1Freq" min="20" max="500" value="80" step="1">
-              <span class="value" id="eq1FreqValue">80 Hz</span>
-            </div>
-            <div class="eq-control">
-              <label>Gain</label>
-              <input type="range" id="eq1Gain" min="-12" max="12" value="0" step="1">
-              <span class="value" id="eq1GainValue">0 dB</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- EQ Band 2 -->
-        <div class="eq-band">
-          <div class="eq-band-header">
-            <span class="eq-band-label band2">Band 2</span>
-            <select id="eq2Type" class="dropdown-small">
-              <option value="lowshelf">Low Shelf</option>
-              <option value="peaking" selected>Bell</option>
-              <option value="notch">Notch</option>
-            </select>
-          </div>
-          <div class="eq-band-controls">
-            <div class="eq-control">
-              <label>Freq</label>
-              <input type="range" id="eq2Freq" min="100" max="1000" value="250" step="5">
-              <span class="value" id="eq2FreqValue">250 Hz</span>
-            </div>
-            <div class="eq-control">
-              <label>Gain</label>
-              <input type="range" id="eq2Gain" min="-12" max="12" value="0" step="1">
-              <span class="value" id="eq2GainValue">0 dB</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- EQ Band 3 -->
-        <div class="eq-band">
-          <div class="eq-band-header">
-            <span class="eq-band-label band3">Band 3</span>
-            <select id="eq3Type" class="dropdown-small">
-              <option value="peaking" selected>Bell</option>
-              <option value="notch">Notch</option>
-            </select>
-          </div>
-          <div class="eq-band-controls">
-            <div class="eq-control">
-              <label>Freq</label>
-              <input type="range" id="eq3Freq" min="500" max="4000" value="1000" step="10">
-              <span class="value" id="eq3FreqValue">1.0k</span>
-            </div>
-            <div class="eq-control">
-              <label>Gain</label>
-              <input type="range" id="eq3Gain" min="-12" max="12" value="0" step="1">
-              <span class="value" id="eq3GainValue">0 dB</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- EQ Band 4 -->
-        <div class="eq-band">
-          <div class="eq-band-header">
-            <span class="eq-band-label band4">Band 4</span>
-            <select id="eq4Type" class="dropdown-small">
-              <option value="peaking" selected>Bell</option>
-              <option value="highshelf">High Shelf</option>
-              <option value="notch">Notch</option>
-            </select>
-          </div>
-          <div class="eq-band-controls">
-            <div class="eq-control">
-              <label>Freq</label>
-              <input type="range" id="eq4Freq" min="2000" max="10000" value="4000" step="50">
-              <span class="value" id="eq4FreqValue">4.0k</span>
-            </div>
-            <div class="eq-control">
-              <label>Gain</label>
-              <input type="range" id="eq4Gain" min="-12" max="12" value="0" step="1">
-              <span class="value" id="eq4GainValue">0 dB</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- EQ Band 5 -->
-        <div class="eq-band">
-          <div class="eq-band-header">
-            <span class="eq-band-label band5">Band 5</span>
-            <select id="eq5Type" class="dropdown-small">
-              <option value="highshelf" selected>High Shelf</option>
-              <option value="peaking">Bell</option>
-              <option value="lowpass">Lowpass</option>
-            </select>
-          </div>
-          <div class="eq-band-controls">
-            <div class="eq-control">
-              <label>Freq</label>
-              <input type="range" id="eq5Freq" min="5000" max="20000" value="12000" step="100">
-              <span class="value" id="eq5FreqValue">12.0k</span>
-            </div>
-            <div class="eq-control">
-              <label>Gain</label>
-              <input type="range" id="eq5Gain" min="-12" max="12" value="0" step="1">
-              <span class="value" id="eq5GainValue">0 dB</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      </div>
-
-      <!-- Multiband Compressor Section -->
-      <div class="collapsible-section collapsed" id="multibandSection">
-        <div class="control-section-label multiband-header section-header">
-          <span>Multiband Compressor</span>
-          <label class="toggle small">
-            <input type="checkbox" id="multibandToggle">
-            <span class="slider"></span>
-          </label>
-          <span class="multiband-label" id="multibandLabel">Off</span>
-        </div>
-
-        <div class="section-body" id="multibandControls">
-        <!-- Crossover Frequencies (2 crossovers for 3 bands) -->
-        <div class="multiband-crossovers">
-          <div class="control-group half">
-            <div class="control-header">
-              <label for="crossover1">Sub/Mid</label>
-              <span class="value" id="crossover1Value">200 Hz</span>
-            </div>
-            <input type="range" id="crossover1" min="80" max="500" value="200" step="10">
-          </div>
-          <div class="control-group half">
-            <div class="control-header">
-              <label for="crossover2">Mid/High</label>
-              <span class="value" id="crossover2Value">3.0k Hz</span>
-            </div>
-            <input type="range" id="crossover2" min="1000" max="8000" value="3000" step="100">
-          </div>
-        </div>
-
-        <!-- Per-Band Thresholds (3 bands) -->
-        <div class="multiband-thresholds">
-          <div class="control-group third">
-            <div class="control-header">
-              <label for="subThreshold" class="band-label sub">Sub</label>
-              <span class="value" id="subThresholdValue">-20 dB</span>
-            </div>
-            <input type="range" id="subThreshold" min="-60" max="0" value="-20" step="1">
-          </div>
-          <div class="control-group third">
-            <div class="control-header">
-              <label for="midThreshold" class="band-label mid">Mid</label>
-              <span class="value" id="midThresholdValue">-24 dB</span>
-            </div>
-            <input type="range" id="midThreshold" min="-60" max="0" value="-24" step="1">
-          </div>
-          <div class="control-group third">
-            <div class="control-header">
-              <label for="highThreshold" class="band-label high">High</label>
-              <span class="value" id="highThresholdValue">-24 dB</span>
-            </div>
-            <input type="range" id="highThreshold" min="-60" max="0" value="-24" step="1">
-          </div>
-        </div>
-
-        <!-- Per-Band Gains (3 bands) -->
-        <div class="multiband-gains">
-          <div class="control-group third">
-            <div class="control-header">
-              <label for="subGain" class="band-label sub">Sub</label>
-              <span class="value" id="subGainValue">0 dB</span>
-            </div>
-            <input type="range" id="subGain" min="-12" max="12" value="0" step="1">
-          </div>
-          <div class="control-group third">
-            <div class="control-header">
-              <label for="midGain" class="band-label mid">Mid</label>
-              <span class="value" id="midGainValue">0 dB</span>
-            </div>
-            <input type="range" id="midGain" min="-12" max="12" value="0" step="1">
-          </div>
-          <div class="control-group third">
-            <div class="control-header">
-              <label for="highGain" class="band-label high">High</label>
-              <span class="value" id="highGainValue">0 dB</span>
-            </div>
-            <input type="range" id="highGain" min="-12" max="12" value="0" step="1">
-          </div>
-        </div>
-      </div>
-      </div>
-    </div>
-
-    <!-- Other Tabs Mixer -->
-    <div class="mixer-section">
-      <button class="mixer-toggle" id="mixerToggle">
-        <span class="mixer-toggle-icon">&#9658;</span>
-        <span>Other Tabs with Audio</span>
-        <span class="media-count" id="mediaCount">0</span>
-      </button>
-      <div class="mixer-panel" id="mixerPanel" style="display: none;">
-        <div class="mixer-list" id="mixerList">
-          <div class="mixer-empty">No tabs playing audio</div>
-        </div>
-      </div>
-    </div>
-
-    <footer>
-      <span class="footer-text">Limitr - Ozan Karaali</span>
-    </footer>
-  </div>
-
+  <script src="lib/settings.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

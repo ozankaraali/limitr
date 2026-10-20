@@ -1,564 +1,478 @@
-// Limitr Background
-// Orchestrates audio capture and processing via offscreen document
+// Limitr background — Chrome service worker / Firefox background page.
+// Page mode needs nothing from here: content scripts read settings straight from storage.
+// This script handles tab capture mode (Chrome), captions, icons and install-time chores.
 
 if (typeof browser !== 'undefined') {
   globalThis.chrome = browser;
 }
-
-const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
-const EXCLUSIVE_UNSUPPORTED_ERROR = 'Exclusive mode requires Chrome offscreen/tabCapture APIs. Use Regular mode in this browser.';
-let creatingOffscreenDocument = null;
-
-function hasExclusiveModeSupport() {
-  const offscreenApi = chrome['offscreen'];
-  const tabCaptureApi = chrome['tabCapture'];
-
-  return Boolean(
-    offscreenApi?.['createDocument'] &&
-    tabCaptureApi?.['getMediaStreamId']
-  );
+if (typeof importScripts === 'function' && !globalThis.LimitrSettings) {
+  importScripts('lib/settings.js');
 }
 
-// Firefox MV3 runs background as a document (preferred_environment: "document"),
-// which means we can host the transcriber here — same realm as its deps, no
-// cross-realm instanceof issues that plague content-script dynamic imports.
-// Chrome's background is a service worker, so it uses the offscreen document
-// instead. Feature-detect rather than browser-sniff.
-const hostsTranscriberInBackground =
-  !chrome.offscreen?.createDocument && typeof window !== 'undefined';
+const S = globalThis.LimitrSettings;
+const KEYS = S.STORAGE_KEYS;
+const OFFSCREEN_PATH = 'offscreen.html';
 
-let backgroundTranscriberPromise = null;
+const ICON_SIZES = [16, 32, 48, 128];
+const iconSet = state => Object.fromEntries(ICON_SIZES.map(size => [size, `icons/toolbar-${state}-${size}.png`]));
+const ICONS = {
+  off: iconSet('off'),
+  on: iconSet('on'),
+  working: iconSet('working'),
+  attention: iconSet('attention')
+};
 
-async function ensureBackgroundTranscriber() {
-  if (!hostsTranscriberInBackground) return null;
-  if (!backgroundTranscriberPromise) {
-    backgroundTranscriberPromise = (async () => {
-      // Let transcriber.js broadcast to both the popup (via runtime) and the
-      // active tab (via tabs) — background's own sendMessage doesn't loopback,
-      // so we relay explicitly.
+const LEGACY_KEYS = [
+  'limitrCurrentSettings', 'limitrFallbackSettings', 'limitrGlobalEnabled', 'limitrMixerMode',
+  'limitrPendingPreset', 'limitrDefaults', 'limitrAdvancedMode', 'limitrCollapseState',
+  'limitrCustomPresets'
+];
+
+function captureSupported() {
+  return Boolean(chrome.offscreen?.createDocument && chrome.tabCapture?.getMediaStreamId);
+}
+
+function isRestrictedUrl(url) {
+  return !url || !/^(https?|file):/.test(url);
+}
+
+// ---------- icons ----------
+// Gray: off. Purple: on. Gold: working on this tab. Red: playing unprotected, needs the user.
+const tabIconStates = new Map();   // tabId -> last icon state (read by tests)
+const tabFrames = new Map();       // tabId -> Map(frameId -> { attached, waitingForGesture, playingSkipped })
+const capturedTabs = new Set();
+const captureFailures = new Set();
+let globalEnabled = true;
+
+// Off beats everything; then working (anything processed), then attention, then on
+function iconStateFor(tabId) {
+  if (!globalEnabled) return 'off';
+  const frames = [...(tabFrames.get(tabId) || new Map()).values()];
+  if (capturedTabs.has(tabId) || frames.some(f => f.attached > 0)) return 'working';
+  // An unreachable player only needs the user where Whole-tab capture exists to fix it
+  const unreachable = captureSupported() && frames.some(f => f.playingSkipped > 0);
+  if (captureFailures.has(tabId) || unreachable || frames.some(f => f.waitingForGesture > 0)) return 'attention';
+  return 'on';
+}
+
+function updateTabIcon(tabId) {
+  setTabIcon(tabId, iconStateFor(tabId));
+}
+
+function updateAllTabIcons() {
+  const tabs = [...tabFrames.keys(), ...capturedTabs, ...captureFailures, ...tabIconStates.keys()];
+  for (const tabId of new Set(tabs)) updateTabIcon(tabId);
+}
+
+// What a tab without an icon of its own shows: the global icon
+const defaultIconState = () => (globalEnabled ? 'on' : 'off');
+
+// The global icon outlives the service worker, so a worker that merely restarted leaves it alone
+// unless it changed (remembered in storage.session). Install, update and browser startup reset
+// the icon, so those always set it.
+const GLOBAL_ICON_KEY = 'limitrGlobalIcon';
+const sessionArea = chrome.storage.session;
+
+async function refreshGlobalIcon(always = false) {
+  const [{ enabled }, session] = await Promise.all([
+    S.load(chrome.storage.local),
+    sessionArea ? sessionArea.get(GLOBAL_ICON_KEY).catch(() => ({})) : {}
+  ]);
+  globalEnabled = enabled;
+  const iconState = defaultIconState();
+  if (!always && session[GLOBAL_ICON_KEY] === iconState) return;
+  await chrome.action.setIcon({ path: ICONS[iconState] });
+  if (sessionArea) await sessionArea.set({ [GLOBAL_ICON_KEY]: iconState }).catch(() => {});
+}
+
+// Every frame of every page reports in, and each setIcon makes the service worker fetch and
+// decode four PNGs, so only changes go out. A tab with no record shows the global icon; a page
+// with nothing to show never reports, so it costs nothing.
+function setTabIcon(tabId, iconState) {
+  if (tabIconStates.get(tabId) === iconState) return;
+  tabIconStates.set(tabId, iconState);
+  Promise.resolve(chrome.action.setIcon({ tabId, path: ICONS[iconState] })).catch(() => {});
+}
+
+// ---------- offscreen document (Chrome tab capture + captions) ----------
+let creatingOffscreen = null;
+
+async function hasOffscreen() {
+  if (!chrome.offscreen?.createDocument) return false;
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL(OFFSCREEN_PATH)]
+  });
+  return contexts.length > 0;
+}
+
+async function ensureOffscreen() {
+  if (await hasOffscreen()) return;
+  if (!creatingOffscreen) {
+    creatingOffscreen = chrome.offscreen.createDocument({
+      url: OFFSCREEN_PATH,
+      // AUDIO_PLAYBACK alone gets the document closed after 30 s of silence (a paused captured
+      // tab, or captions in page mode). WORKERS — the caption model runs ONNX Runtime workers —
+      // has no such limit.
+      reasons: ['USER_MEDIA', 'AUDIO_PLAYBACK', 'WORKERS'],
+      justification: 'Process captured tab audio and run live captions locally'
+    }).finally(() => { creatingOffscreen = null; });
+  }
+  await creatingOffscreen;
+}
+
+function toOffscreen(message) {
+  return chrome.runtime.sendMessage({ ...message, target: 'offscreen' });
+}
+
+// ---------- tab capture ----------
+const captureJobs = new Map();
+
+async function capturedTabIds() {
+  if (!(await hasOffscreen())) return [];
+  const response = await toOffscreen({ action: 'capture-list' });
+  return (response?.tabs || []).map(t => t.tabId);
+}
+
+function captureTab(tabId) {
+  if (!captureSupported()) return Promise.reject(new Error('Tab capture is not available in this browser'));
+  if (captureJobs.has(tabId)) return captureJobs.get(tabId);
+
+  const job = (async () => {
+    await ensureOffscreen();
+    if ((await capturedTabIds()).includes(tabId)) return;
+    const state = await S.load(chrome.storage.local);
+    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    const response = await toOffscreen({
+      action: 'capture-start', tabId, streamId, settings: state.settings, enabled: state.enabled
+    });
+    if (!response?.success) throw new Error(response?.error || 'Capture failed');
+    // Page-mode engines in this tab step aside so audio isn't processed twice
+    await chrome.tabs.sendMessage(tabId, { action: 'limitr-capture-state', captured: true }).catch(() => {});
+    capturedTabs.add(tabId);
+    captureFailures.delete(tabId);
+    updateTabIcon(tabId);
+    // Captions running from page audio move over to the captured stream
+    if ((await captionsStatus(tabId)).active) {
+      await toOffscreen({ action: 'captions-start', tabId, prefs: await loadCaptionPrefs() });
+    }
+  })().finally(() => captureJobs.delete(tabId));
+
+  captureJobs.set(tabId, job);
+  return job;
+}
+
+async function releaseTab(tabId) {
+  const hadCaptions = (await captionsStatus(tabId)).active;
+  if (await hasOffscreen()) await toOffscreen({ action: 'capture-stop', tabId });
+  await chrome.tabs.sendMessage(tabId, { action: 'limitr-capture-state', captured: false }).catch(() => {});
+  capturedTabs.delete(tabId);
+  updateTabIcon(tabId);
+  // Stopping the capture also stopped its captions; carry on from page audio
+  if (hadCaptions) await startCaptions(tabId).catch(() => {});
+}
+
+async function releaseAll() {
+  for (const tabId of await capturedTabIds()) await releaseTab(tabId);
+}
+
+async function autoCapture(tabId) {
+  const state = await S.load(chrome.storage.local);
+  if (!state.enabled || state.mode !== 'capture' || !captureSupported()) return;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab || isRestrictedUrl(tab.url)) return;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await captureTab(tabId);
+      return;
+    } catch (error) {
+      // Page mode keeps working in this tab if capture isn't allowed
+      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  // Only turns the icon red if page mode isn't protecting anything here either
+  noteCaptureFailure(tabId);
+}
+
+// Red asks the user to act, so browser pages (where nothing can be done) never turn red
+async function noteCaptureFailure(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab || isRestrictedUrl(tab.url)) return;
+  captureFailures.add(tabId);
+  updateTabIcon(tabId);
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.audible === true) autoCapture(tabId);
+  if (changeInfo.status !== 'loading') return;
+  // 'loading' also fires for same-page navigations (history.pushState), where the browser keeps
+  // the tab's icon and the frames keep their players. So the icon shown is unknown from here, and
+  // frames that are still there are asked to report again; a new page's frames start at nothing.
+  tabIconStates.delete(tabId);
+  if (tabFrames.has(tabId) || captureFailures.has(tabId) || capturedTabs.has(tabId)) {
+    tabFrames.delete(tabId);
+    captureFailures.delete(tabId);
+    updateTabIcon(tabId);
+    Promise.resolve(chrome.tabs.sendMessage(tabId, { action: 'limitr-report-status' })).catch(() => {});
+  }
+});
+
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  tabFrames.delete(tabId);
+  capturedTabs.delete(tabId);
+  captureFailures.delete(tabId);
+  tabIconStates.delete(tabId);
+  if (await hasOffscreen()) {
+    await toOffscreen({ action: 'capture-stop', tabId }).catch(() => {});
+    await toOffscreen({ action: 'captions-stop', tabId }).catch(() => {});
+  }
+  if (transcriberInBackground && backgroundTranscriber) (await backgroundTranscriber).stop(tabId);
+});
+
+// ---------- captions host: offscreen in Chrome, this background page in Firefox ----------
+const transcriberInBackground = !chrome.offscreen?.createDocument && typeof window !== 'undefined';
+let backgroundTranscriber = null;
+// Caption audio still in flight right after Off must not restart captions
+const captionsStoppedAt = new Map();
+const recentlyStopped = tabId => Date.now() - (captionsStoppedAt.get(tabId) || 0) < 3000;
+const restartingCaptions = new Set();
+
+async function loadCaptionPrefs() {
+  const stored = await chrome.storage.local.get(KEYS.captions);
+  return S.normalizeCaptions(stored[KEYS.captions], chrome.i18n?.getUILanguage?.() || navigator.language);
+}
+
+function ensureBackgroundTranscriber() {
+  if (!backgroundTranscriber) {
+    backgroundTranscriber = (async () => {
+      // Background pages don't receive their own runtime messages, so relay explicitly
       window.LimitrExtensionRuntime = {
         getURL: path => chrome.runtime.getURL(path),
         sendMessage: payload => {
           chrome.runtime.sendMessage(payload).catch(() => {});
-          if (payload?.tabId != null) {
-            chrome.tabs.sendMessage(payload.tabId, payload).catch(() => {});
-          }
+          if (payload?.tabId != null) chrome.tabs.sendMessage(payload.tabId, payload).catch(() => {});
         }
       };
       await import(chrome.runtime.getURL('lib/transcriber.js'));
       return window.LimitrTranscriber;
     })();
   }
-  return backgroundTranscriberPromise;
+  return backgroundTranscriber;
 }
 
-// Default settings
-const defaults = {
-  enabled: true,
-  threshold: -18,
-  ratio: 6,
-  knee: 10,
-  attack: 5,
-  release: 100,
-  makeupGain: 0,
-  outputGain: 0,
-  peakGuardEnabled: false,
-  peakGuardThreshold: -6,
-  peakGuardLookahead: 8,
-  peakGuardRelease: 120,
-  bassCutFreq: 0,
-  trebleCutFreq: 22050,
-  monoMixEnabled: false,
-  noiseLevel: 0,
-  noiseType: 'brown'
-};
-
-function isGloballyEnabled(value) {
-  return value !== false;
+function decodePcm(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const int16 = new Int16Array(bytes.buffer);
+  const float32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 0x8000;
+  return float32;
 }
 
-async function getStoredSettingsForTab(tabId) {
-  const storageKey = `tabSettings_${tabId}`;
-  const stored = await chrome.storage.local.get([
-    storageKey,
-    'limitrCurrentSettings',
-    'limitrFallbackSettings',
-    'limitrGlobalEnabled'
-  ]);
-
-  return {
-    ...(stored.limitrFallbackSettings || {}),
-    ...(stored.limitrCurrentSettings || {}),
-    ...(stored[storageKey] || {}),
-    enabled: isGloballyEnabled(stored.limitrGlobalEnabled)
-  };
+// Audio only flows while a tab wants captions, so audio for a tab the transcriber doesn't
+// know means this background page was suspended and restarted: pick captions back up.
+async function receiveCaptionAudio(tabId, pcm) {
+  if (recentlyStopped(tabId)) return;
+  const transcriber = await ensureBackgroundTranscriber();
+  if (transcriber.isActive(tabId)) {
+    transcriber.pushAudio(tabId, decodePcm(pcm));
+  } else if (!restartingCaptions.has(tabId)) {
+    restartingCaptions.add(tabId);
+    loadCaptionPrefs()
+      .then(prefs => transcriber.startExternal(tabId, prefs))
+      .catch(() => {})
+      .finally(() => restartingCaptions.delete(tabId));
+  }
 }
 
-// Check if offscreen document exists
-async function hasOffscreenDocument() {
-  if (!hasExclusiveModeSupport()) {
-    return false;
+async function startCaptions(tabId) {
+  captionsStoppedAt.delete(tabId);
+  const prefs = await loadCaptionPrefs();
+  let response;
+  if (transcriberInBackground) {
+    const transcriber = await ensureBackgroundTranscriber();
+    await transcriber.startExternal(tabId, prefs);
+    response = { success: true };
+  } else {
+    await ensureOffscreen();
+    response = await toOffscreen({ action: 'captions-start', tabId, prefs });
   }
-
-  const offscreenUrl = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH);
-  if (chrome.runtime?.getContexts) {
-    const contexts = await chrome.runtime.getContexts({
-      contextTypes: ['OFFSCREEN_DOCUMENT'],
-      documentUrls: [offscreenUrl]
-    });
-    return contexts.length > 0;
+  // Every frame remembers this, so players that attach later stream audio too
+  if (response?.success) {
+    await chrome.tabs.sendMessage(tabId, { action: 'limitr-captions', enabled: true }).catch(() => {});
   }
-
-  if (typeof clients !== 'undefined') {
-    const matchedClients = await clients.matchAll();
-    return matchedClients.some(client => client.url === offscreenUrl);
-  }
-
-  return false;
+  return response;
 }
 
-// Create offscreen document if it doesn't exist
-async function ensureOffscreenDocument() {
-  if (!hasExclusiveModeSupport()) {
-    throw new Error(EXCLUSIVE_UNSUPPORTED_ERROR);
+async function stopCaptions(tabId) {
+  captionsStoppedAt.set(tabId, Date.now());
+  await chrome.tabs.sendMessage(tabId, { action: 'limitr-captions', enabled: false }).catch(() => {});
+  if (transcriberInBackground) {
+    if (backgroundTranscriber) (await backgroundTranscriber).stop(tabId);
+  } else if (await hasOffscreen()) {
+    await toOffscreen({ action: 'captions-stop', tabId });
   }
-
-  if (await hasOffscreenDocument()) {
-    return;
-  }
-
-  if (!creatingOffscreenDocument) {
-    creatingOffscreenDocument = chrome['offscreen']['createDocument']({
-      url: OFFSCREEN_DOCUMENT_PATH,
-      reasons: ['USER_MEDIA', 'AUDIO_PLAYBACK'],
-      justification: 'Audio processing and playback for tab capture'
-    }).finally(() => {
-      creatingOffscreenDocument = null;
-    });
-  }
-
-  await creatingOffscreenDocument;
+  return { success: true };
 }
 
-// Initialize audio capture for a tab
-async function initAudioCapture(tabId) {
-  // Ensure offscreen document exists
-  await ensureOffscreenDocument();
+async function captionsStatus(tabId) {
+  if (transcriberInBackground) {
+    if (!backgroundTranscriber) return { active: false, loading: false };
+    const t = await backgroundTranscriber;
+    return { active: t.isActive(tabId), loading: t.isModelLoading(), session: t.sessionInfo(tabId) };
+  }
+  if (!(await hasOffscreen())) return { active: false, loading: false };
+  return toOffscreen({ action: 'captions-status', tabId });
+}
 
-  // Check if tab already has audio processing
-  const hasAudioResponse = await chrome.runtime.sendMessage({
-    target: 'offscreen',
-    action: 'has-audio',
-    tabId
-  });
+// ---------- messages ----------
+function respond(promise, sendResponse) {
+  promise.then(sendResponse, error => sendResponse({ success: false, error: error.message }));
+  return true;
+}
 
-  if (hasAudioResponse.hasAudio) {
-    // Already capturing this tab
-    const stateResponse = await chrome.runtime.sendMessage({
-      target: 'offscreen',
-      action: 'get-state',
-      tabId
-    });
-    const settings = stateResponse.state?.settings || defaults;
-    const storedSettings = await getStoredSettingsForTab(tabId);
-    if (settings.enabled !== storedSettings.enabled) {
-      await chrome.runtime.sendMessage({
-        target: 'offscreen',
-        action: 'set-enabled',
-        tabId,
-        enabled: storedSettings.enabled
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || message.target === 'offscreen') return false;
+
+  switch (message.action) {
+    // From content bridges
+    case 'limitr-frame-hello':
+      if (!sender.tab) return false;
+      return respond(Promise.all([capturedTabIds(), captionsStatus(sender.tab.id)]).then(([ids, captions]) => ({
+        captured: ids.includes(sender.tab.id),
+        captions: Boolean(captions && captions.active)
+      })), sendResponse);
+    case 'limitr-status': {
+      if (!sender.tab) return false;
+      const tabId = sender.tab.id;
+      if (!tabFrames.has(tabId)) tabFrames.set(tabId, new Map());
+      tabFrames.get(tabId).set(sender.frameId || 0, {
+        attached: message.attached || 0,
+        waitingForGesture: message.waitingForGesture || 0,
+        playingSkipped: message.playingSkipped || 0
       });
-      settings.enabled = storedSettings.enabled;
+      updateTabIcon(tabId);
+      return false;
     }
-    return settings;
+    case 'limitr-transcriber-audio':
+      // Firefox hosts captions here; Chrome's offscreen document handles this message itself
+      if (transcriberInBackground && sender.tab) receiveCaptionAudio(sender.tab.id, message.pcm);
+      return false;
+
+    // From the offscreen document
+    case 'limitr-capture-ended':
+      releaseTab(message.tabId);
+      return false;
+    case 'transcription-result':
+    case 'transcription-status':
+      // Forward to the tab so the caption overlay can render it
+      if (message.tabId != null && !sender.tab) chrome.tabs.sendMessage(message.tabId, message).catch(() => {});
+      return false;
   }
 
-  // Get media stream ID for the tab
-  // tabCapture redirects the tab's audio to the captured stream,
-  // so no muting is needed — the tab audio is already taken over.
-  const mediaStreamId = await chrome['tabCapture']['getMediaStreamId']({
-    targetTabId: tabId
-  });
+  if (message.target !== 'background') return false;
 
-  const settings = await getStoredSettingsForTab(tabId);
-
-  // Send to offscreen document to create audio chain
-  const response = await chrome.runtime.sendMessage({
-    target: 'offscreen',
-    action: 'init-audio',
-    tabId,
-    mediaStreamId,
-    settings
-  });
-
-  if (!response.success) {
-    throw new Error(response.error || 'Failed to initialize audio');
+  switch (message.action) {
+    case 'get-capabilities':
+      sendResponse({ capture: captureSupported() });
+      return false;
+    case 'capture-tab':
+      return respond(captureTab(message.tabId).then(() => ({ success: true }), async error => {
+        await noteCaptureFailure(message.tabId);
+        throw error;
+      }), sendResponse);
+    case 'release-tab':
+      return respond(releaseTab(message.tabId).then(() => ({ success: true })), sendResponse);
+    case 'capture-list':
+      return respond((async () => {
+        if (!(await hasOffscreen())) return { tabs: [] };
+        const { tabs = [] } = await toOffscreen({ action: 'capture-list' });
+        const withInfo = await Promise.all(tabs.map(async t => {
+          const tab = await chrome.tabs.get(t.tabId).catch(() => null);
+          return tab ? { ...t, title: tab.title, favIconUrl: tab.favIconUrl, audible: tab.audible } : null;
+        }));
+        return { tabs: withInfo.filter(Boolean) };
+      })(), sendResponse);
+    case 'capture-volume':
+      return respond(toOffscreen({ action: 'capture-volume', tabId: message.tabId, volumeDb: message.volumeDb }), sendResponse);
+    case 'capture-meters':
+      return respond((async () => {
+        if (!(await hasOffscreen())) return { meters: null };
+        return toOffscreen({ action: 'capture-meters', tabId: message.tabId });
+      })(), sendResponse);
+    case 'captions-start':
+      return respond(startCaptions(message.tabId), sendResponse);
+    case 'captions-stop':
+      return respond(stopCaptions(message.tabId), sendResponse);
+    case 'captions-status':
+      return respond(captionsStatus(message.tabId), sendResponse);
+    case 'captions-prefs':
+      // The offscreen document has no storage access; it asks when restarting captions
+      return respond(loadCaptionPrefs(), sendResponse);
   }
+  return false;
+});
 
-  return response.settings;
-}
-
-// Update settings for a tab
-async function updateTabSettings(tabId, settings) {
-  await ensureOffscreenDocument();
-
-  const response = await chrome.runtime.sendMessage({
-    target: 'offscreen',
-    action: 'update-settings',
-    tabId,
-    settings
-  });
-
-  // Save settings for this tab
-  await chrome.storage.local.set({ [`tabSettings_${tabId}`]: settings });
-
-  return response.success;
-}
-
-// Enable/disable processing for a tab
-async function setTabEnabled(tabId, enabled) {
-  await ensureOffscreenDocument();
-
-  const response = await chrome.runtime.sendMessage({
-    target: 'offscreen',
-    action: 'set-enabled',
-    tabId,
-    enabled
-  });
-
-  return response.success;
-}
-
-// Get current state for a tab
-async function getTabState(tabId) {
-  if (!(await hasOffscreenDocument())) {
-    return null;
+// ---------- settings changes ----------
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== 'local') return;
+  if (KEYS.settings in changes || KEYS.enabled in changes) {
+    const state = await S.load(chrome.storage.local);
+    if (await hasOffscreen()) {
+      toOffscreen({ action: 'capture-settings', settings: state.settings, enabled: state.enabled }).catch(() => {});
+    }
+    if (KEYS.enabled in changes) {
+      refreshGlobalIcon();
+      globalEnabled = state.enabled;
+      updateAllTabIcons();
+    }
   }
+  if (KEYS.mode in changes && changes[KEYS.mode].newValue === 'page') {
+    captureFailures.clear();
+    updateAllTabIcons();
+    releaseAll();
+  }
+  if (KEYS.captions in changes) {
+    const prefs = await loadCaptionPrefs();
+    if (transcriberInBackground) {
+      if (backgroundTranscriber) (await backgroundTranscriber).configure(prefs);
+    } else if (await hasOffscreen()) {
+      toOffscreen({ action: 'captions-config', prefs }).catch(() => {});
+    }
+  }
+});
 
-  const response = await chrome.runtime.sendMessage({
-    target: 'offscreen',
-    action: 'get-state',
-    tabId
-  });
-
-  return response.state;
+// ---------- install / update ----------
+async function migrateStorage() {
+  const stored = await chrome.storage.local.get(null);
+  const state = await S.load(chrome.storage.local);
+  const updates = {};
+  if (!stored[KEYS.settings]) updates[KEYS.settings] = state.settings;
+  if (typeof stored[KEYS.enabled] !== 'boolean') updates[KEYS.enabled] = state.enabled;
+  if (!stored[KEYS.mode]) updates[KEYS.mode] = captureSupported() ? state.mode : 'page';
+  if (!stored[KEYS.preset] && !stored[KEYS.settings]) updates[KEYS.preset] = state.preset || S.DEFAULT_PRESET;
+  if (stored.limitrCustomPresets && !stored[KEYS.customPresets]) {
+    updates[KEYS.customPresets] = S.migrateLegacyCustomPresets(stored.limitrCustomPresets);
+  }
+  await chrome.storage.local.set(updates);
+  const stale = Object.keys(stored).filter(key => LEGACY_KEYS.includes(key) || key.startsWith('tabSettings_'));
+  if (stale.length) await chrome.storage.local.remove(stale);
 }
 
-// Get all tabs currently playing audio
-async function getAudibleTabs() {
-  const tabs = await chrome.tabs.query({ audible: true });
-  return tabs.map(tab => ({
-    id: tab.id,
-    title: tab.title,
-    url: tab.url,
-    favIconUrl: tab.favIconUrl
+// Declared content scripts only run on page loads, so wire up tabs that are already open
+async function injectIntoOpenTabs() {
+  const tabs = await chrome.tabs.query({});
+  await Promise.allSettled(tabs.filter(tab => !isRestrictedUrl(tab.url)).map(async tab => {
+    const target = { tabId: tab.id, allFrames: true };
+    await chrome.scripting.executeScript({ target, files: ['lib/settings.js', 'content-bridge.js'] });
+    await chrome.scripting.executeScript({ target, world: 'MAIN', files: ['lib/engine.js', 'content-audio.js'] });
   }));
 }
 
-// Get tabs with active audio processing
-async function getProcessingTabs() {
-  if (!(await hasOffscreenDocument())) {
-    return [];
-  }
-
-  const response = await chrome.runtime.sendMessage({
-    target: 'offscreen',
-    action: 'get-active-tabs'
-  });
-
-  return response.tabIds || [];
-}
-
-// Clean up when tab is closed
-chrome.tabs.onRemoved.addListener(async (tabId) => {
-  if (await hasOffscreenDocument()) {
-    await chrome.runtime.sendMessage({
-      target: 'offscreen',
-      action: 'cleanup-tab',
-      tabId
-    });
-  }
-
-  // Clean up stored settings
-  await chrome.storage.local.remove([`tabSettings_${tabId}`]);
-
-  // Clear badge if no more tabs are being processed
-  const remainingTabs = await getProcessingTabs();
-  if (remainingTabs.length === 0) {
-    updateBadge(false);
-  }
-});
-
-// React to global enabled toggle from popup
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local') return;
-  if (changes.limitrGlobalEnabled) {
-    if (!changes.limitrGlobalEnabled.newValue) {
-      disableActiveProcessing().catch(error => {
-        console.log('[Limitr] Failed to disable active processing:', error.message);
-      });
-      updateBadge(false);
-    }
-  }
-});
-
-async function disableActiveProcessing() {
-  const tabs = await chrome.tabs.query({});
-  const tabIds = new Set([
-    ...autoInjectedTabs,
-    ...tabs.map(tab => tab.id).filter(tabId => tabId !== undefined)
-  ]);
-
-  await Promise.allSettled(Array.from(tabIds, tabId =>
-    chrome.tabs.sendMessage(tabId, {
-      action: 'fallback-update-settings',
-      settings: { enabled: false }
-    })
-  ));
-
-  if (await hasOffscreenDocument()) {
-    const tabIds = await getProcessingTabs();
-    await Promise.allSettled(tabIds.map(tabId =>
-      chrome.runtime.sendMessage({
-        target: 'offscreen',
-        action: 'set-enabled',
-        tabId,
-        enabled: false
-      })
-    ));
-  }
-}
-
-// Handle messages from popup
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.target === 'offscreen') {
-    // Pass through to offscreen document
-    return;
-  }
-
-  // Forward transcription results from offscreen to popup and content scripts
-  if (message.action === 'transcription-result' || message.action === 'transcription-status') {
-    // Forward to the tab's content script for subtitle overlay
-    if (message.tabId) {
-      chrome.tabs.sendMessage(message.tabId, message).catch(() => {});
-    }
-    // No response needed — fire-and-forget broadcast
-    return;
-  }
-
-  // Firefox-hosted transcriber: content-bridge forwards regular-mode transcriber
-  // actions here because the content-script sandbox can't safely run the module.
-  if (hostsTranscriberInBackground && message.action?.startsWith('bg-transcriber-')) {
-    const { action, tabId, audio } = message;
-    if (action === 'bg-transcriber-audio') {
-      ensureBackgroundTranscriber().then(t => t?.pushAudio(tabId, audio)).catch(() => {});
-      return;
-    }
-    (async () => {
-      try {
-        const transcriber = await ensureBackgroundTranscriber();
-        if (!transcriber) throw new Error('Background transcriber unavailable');
-        if (action === 'bg-transcriber-start') {
-          await transcriber.startExternal(tabId);
-          sendResponse({ success: true });
-        } else if (action === 'bg-transcriber-stop') {
-          transcriber.stop(tabId);
-          sendResponse({ success: true });
-        } else if (action === 'bg-transcriber-status') {
-          sendResponse({
-            active: transcriber.isActive(tabId),
-            ready: transcriber.isReady(),
-            loading: transcriber.isModelLoading()
-          });
-        }
-      } catch (error) {
-        sendResponse({ success: false, error: error.message });
-      }
-    })();
-    return true;
-  }
-
-  if (message.target !== 'background') {
-    return;
-  }
-
-  switch (message.action) {
-    case 'get-capabilities': {
-      sendResponse({ success: true, exclusiveMode: hasExclusiveModeSupport() });
-      return;
-    }
-
-    case 'init-capture': {
-      initAudioCapture(message.tabId)
-        .then(async (settings) => {
-          const activeTabs = await getProcessingTabs();
-          updateBadge(activeTabs.length > 0);
-          sendResponse({ success: true, settings });
-        })
-        .catch(async (error) => {
-          const activeTabs = await getProcessingTabs();
-          updateBadge(activeTabs.length > 0);
-          sendResponse({ success: false, error: error.message });
-        });
-      return true;
-    }
-
-    case 'update-settings': {
-      updateTabSettings(message.tabId, message.settings)
-        .then(success => sendResponse({ success }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
-    }
-
-    case 'set-enabled': {
-      setTabEnabled(message.tabId, message.enabled)
-        .then(success => sendResponse({ success }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
-    }
-
-    case 'get-state': {
-      getTabState(message.tabId)
-        .then(state => sendResponse({ success: true, state }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
-    }
-
-    case 'get-audible-tabs': {
-      getAudibleTabs()
-        .then(tabs => sendResponse({ success: true, tabs }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
-    }
-
-    case 'get-processing-tabs': {
-      getProcessingTabs()
-        .then(tabIds => sendResponse({ success: true, tabIds }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
-    }
-
-    case 'set-tab-volume': {
-      // Forward to offscreen document AND save to tab settings
-      const tabId = message.tabId;
-      const volume = message.volume;
-
-      ensureOffscreenDocument()
-        .then(async () => {
-          // Update the volume in the audio chain
-          await chrome.runtime.sendMessage({
-            target: 'offscreen',
-            action: 'set-volume',
-            tabId,
-            volume
-          });
-
-          // Also save to tab settings so it persists when switching tabs
-          const stored = await chrome.storage.local.get([`tabSettings_${tabId}`]);
-          const settings = stored[`tabSettings_${tabId}`] || { ...defaults };
-          settings.outputGain = volume;
-          await chrome.storage.local.set({ [`tabSettings_${tabId}`]: settings });
-
-          return { success: true };
-        })
-        .then(response => sendResponse({ success: response?.success || false }))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
-    }
-
-    case 'get-all-volumes': {
-      // Get volumes from offscreen document
-      hasOffscreenDocument()
-        .then(exists => {
-          if (!exists) return { volumes: {} };
-          return chrome.runtime.sendMessage({
-            target: 'offscreen',
-            action: 'get-all-volumes'
-          });
-        })
-        .then(response => sendResponse({ success: true, volumes: response?.volumes || {} }))
-        .catch(error => sendResponse({ success: false, volumes: {} }));
-      return true;
-    }
-
-    case 'start-transcription': {
-      ensureOffscreenDocument()
-        .then(() => chrome.runtime.sendMessage({
-          target: 'offscreen',
-          action: 'start-transcription',
-          tabId: message.tabId
-        }))
-        .then(response => sendResponse(response))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
-    }
-
-    case 'stop-transcription': {
-      ensureOffscreenDocument()
-        .then(() => chrome.runtime.sendMessage({
-          target: 'offscreen',
-          action: 'stop-transcription',
-          tabId: message.tabId
-        }))
-        .then(response => sendResponse(response))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
-    }
-
-    case 'get-transcription-status': {
-      hasOffscreenDocument()
-        .then(exists => {
-          if (!exists) return { active: false, ready: false, loading: false };
-          return chrome.runtime.sendMessage({
-            target: 'offscreen',
-            action: 'get-transcription-status',
-            tabId: message.tabId
-          });
-        })
-        .then(response => sendResponse(response))
-        .catch(() => sendResponse({ active: false, ready: false, loading: false }));
-      return true;
-    }
-
-    case 'cleanup-tab': {
-      // Forward cleanup to offscreen document and remove stored settings
-      const tabId = message.tabId;
-      hasOffscreenDocument()
-        .then(async (exists) => {
-          if (exists) {
-            await chrome.runtime.sendMessage({
-              target: 'offscreen',
-              action: 'cleanup-tab',
-              tabId
-            });
-          }
-          // Remove stored settings for this tab
-          await chrome.storage.local.remove([`tabSettings_${tabId}`]);
-          // Update icon to reflect remaining active tabs
-          const remaining = await getProcessingTabs();
-          updateBadge(remaining.length > 0);
-          return { success: true };
-        })
-        .then(response => sendResponse(response))
-        .catch(error => sendResponse({ success: false, error: error.message }));
-      return true;
-    }
-  }
-});
-
-// Context menu: right-click extension icon -> Debug Harness
 async function createContextMenus() {
-  if (typeof browser !== 'undefined') {
-    await chrome.contextMenus.removeAll();
-  } else {
-    await new Promise(resolve => chrome.contextMenus.removeAll(resolve));
-  }
-
-  chrome.contextMenus.create({
-    id: 'limitr-debug-harness',
-    title: 'Debug Harness',
-    contexts: ['action']
-  });
+  await Promise.resolve(chrome.contextMenus.removeAll()).catch(() => {});
+  chrome.contextMenus.create({ id: 'limitr-debug-harness', title: 'Debug Harness', contexts: ['action'] });
 }
 
 chrome.contextMenus.onClicked.addListener((info) => {
@@ -567,271 +481,13 @@ chrome.contextMenus.onClicked.addListener((info) => {
   }
 });
 
-// Initialize on install
-chrome.runtime.onInstalled.addListener(async (details) => {
-  if (details.reason === 'install') {
-    await chrome.storage.local.set({ limitrDefaults: defaults });
-    console.log('[Limitr] Extension installed');
-  }
+chrome.runtime.onInstalled.addListener(async () => {
+  await migrateStorage();
   await createContextMenus();
-  // Set gray icon on install/update (inactive by default)
-  updateBadge(false);
+  await refreshGlobalIcon(true);
+  injectIntoOpenTabs();
 });
 
-// --- Auto-activation: process tabs without needing to open the popup ---
-
-// Track which tabs have been auto-injected (simple mode) to avoid duplicates
-const autoInjectedTabs = new Set();
-
-// Icon paths for each state
-const ICONS = {
-  // Gold — active in exclusive (mixer) mode
-  exclusive: {
-    16: 'icons/icon16-active.png',
-    32: 'icons/icon32-active.png',
-    48: 'icons/icon48-active.png',
-    128: 'icons/icon128-active.png'
-  },
-  // Purple — active in regular (non-exclusive) mode
-  regular: {
-    16: 'icons/icon16.png',
-    32: 'icons/icon32.png',
-    48: 'icons/icon48.png',
-    128: 'icons/icon128.png'
-  },
-  // Gray — inactive/disabled
-  inactive: {
-    16: 'icons/icon16-gray.png',
-    32: 'icons/icon32-gray.png',
-    48: 'icons/icon48-gray.png',
-    128: 'icons/icon128-gray.png'
-  }
-};
-
-// Update the toolbar icon to reflect active/inactive state and mode
-async function updateBadge(active) {
-  if (!active) {
-    chrome.action.setIcon({ path: ICONS.inactive });
-    return;
-  }
-  const stored = await chrome.storage.local.get(['limitrMixerMode']);
-  const iconSet = stored.limitrMixerMode && hasExclusiveModeSupport() ? ICONS.exclusive : ICONS.regular;
-  chrome.action.setIcon({ path: iconSet });
-}
-
-// Inject content scripts (bridge + audio) and send settings.
-// Shared by autoActivateSimple and earlyInjectContentScript.
-async function injectContentScripts(tabId) {
-  // Read storage before injecting so global Off never creates page audio hooks.
-  const stored = await chrome.storage.local.get([
-    'limitrFallbackSettings',
-    'limitrCurrentSettings',
-    'limitrGlobalEnabled'
-  ]);
-  if (!isGloballyEnabled(stored.limitrGlobalEnabled)) {
-    return false;
-  }
-
-  // Inject bridge in ISOLATED world (for chrome.runtime messaging)
-  // and content-audio.js in MAIN world (for reliable Web Audio API access)
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: ['content-bridge.js']
-  });
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    files: ['content-audio.js']
-  });
-  autoInjectedTabs.add(tabId);
-
-  // Use the user's actual settings from storage, with exclusive-only features disabled
-  let settings;
-  if (stored.limitrCurrentSettings) {
-    settings = { ...defaults, ...stored.limitrCurrentSettings, enabled: true };
-  } else {
-    settings = { ...defaults, ...(stored.limitrFallbackSettings || {}), enabled: true };
-  }
-  // Disable exclusive-only features for fallback
-  settings.autoGainEnabled = false;
-  settings.noiseSuppressionEnabled = false;
-  settings.gateEnabled = false;
-  settings.duckingEnabled = false;
-
-  try {
-    await chrome.tabs.sendMessage(tabId, {
-      action: 'fallback-update-settings',
-      settings
-    });
-  } catch (e) {
-    // Content script may not be ready yet — it will use stored settings
-  }
-
-  return true;
-}
-
-// Check if content script is already running in a tab
-async function isContentScriptActive(tabId) {
-  try {
-    const response = await chrome.tabs.sendMessage(tabId, { action: 'fallback-ping' });
-    if (response && response.active) {
-      autoInjectedTabs.add(tabId);
-      return true;
-    }
-  } catch (e) {
-    // Not injected
-  }
-  return false;
-}
-
-// Auto-activate on a tab (simple mode: inject content script)
-async function autoActivateSimple(tabId) {
-  const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
-  if (!isGloballyEnabled(stored.limitrGlobalEnabled)) {
-    chrome.action.setIcon({ path: ICONS.inactive, tabId });
-    return;
-  }
-
-  if (autoInjectedTabs.has(tabId)) {
-    // Already injected — just ensure icon is correct
-    chrome.action.setIcon({ path: ICONS.regular, tabId });
-    return;
-  }
-
-  if (await isContentScriptActive(tabId)) {
-    chrome.action.setIcon({ path: ICONS.regular, tabId });
-    return;
-  }
-
-  try {
-    const injected = await injectContentScripts(tabId);
-    if (injected) {
-      chrome.action.setIcon({ path: ICONS.regular, tabId });
-      console.log(`[Limitr] Auto-injected simple mode on tab ${tabId}`);
-    }
-  } catch (error) {
-    console.log(`[Limitr] Could not auto-inject on tab ${tabId}:`, error.message);
-  }
-}
-
-// Pre-inject the content script on page load so MutationObserver catches
-// video/audio elements as soon as they're added to the DOM.
-// This is lightweight — the script does nothing if no media is found.
-async function earlyInjectContentScript(tabId) {
-  const stored = await chrome.storage.local.get(['limitrGlobalEnabled']);
-  if (!isGloballyEnabled(stored.limitrGlobalEnabled)) return;
-  if (autoInjectedTabs.has(tabId)) return;
-  if (await isContentScriptActive(tabId)) return;
-
-  try {
-    await injectContentScripts(tabId);
-    console.log(`[Limitr] Early-injected content script on tab ${tabId}`);
-  } catch (e) {
-    // Normal for restricted pages
-  }
-}
-
-// Try to auto-activate on a tab based on current settings
-async function tryAutoActivate(tabId) {
-  try {
-    const stored = await chrome.storage.local.get(['limitrGlobalEnabled', 'limitrMixerMode']);
-    if (!isGloballyEnabled(stored.limitrGlobalEnabled)) return;
-
-    // Get tab info to validate it's a real page (not chrome://, etc.)
-    const tab = await chrome.tabs.get(tabId);
-    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') ||
-        tab.url.startsWith('about:') || tab.url.startsWith('edge://')) {
-      return;
-    }
-
-    if (stored.limitrMixerMode && hasExclusiveModeSupport()) {
-      // Exclusive mode: tabCapture via offscreen document.
-      // MV3's getMediaStreamId does NOT require a user gesture (unlike MV2's capture()).
-      // Retry once after a short delay if first attempt fails (tab may not be fully ready).
-      let exclusiveOk = false;
-      for (let attempt = 0; attempt < 2 && !exclusiveOk; attempt++) {
-        try {
-          if (attempt > 0) await new Promise(r => setTimeout(r, 1000));
-          await initAudioCapture(tabId);
-          const activeTabs = await getProcessingTabs();
-          if (activeTabs.includes(tabId)) {
-            exclusiveOk = true;
-            chrome.action.setIcon({ path: ICONS.exclusive, tabId });
-            // Disable the early-injected content script so it doesn't double-process
-            try {
-              await chrome.tabs.sendMessage(tabId, {
-                action: 'fallback-update-settings',
-                settings: { enabled: false }
-              });
-            } catch (e) {}
-            console.log(`[Limitr] Auto-activated exclusive mode on tab ${tabId} (attempt ${attempt + 1})`);
-          }
-        } catch (e) {
-          console.log(`[Limitr] Exclusive attempt ${attempt + 1} failed for tab ${tabId}: ${e.message}`);
-        }
-      }
-
-      if (!exclusiveOk) {
-        // Exclusive failed after retries — fall back to simple mode
-        console.log(`[Limitr] Exclusive autoinit failed for tab ${tabId}, falling back to simple`);
-        await autoActivateSimple(tabId);
-      }
-    } else {
-      if (stored.limitrMixerMode) {
-        console.log('[Limitr] Exclusive mode is unavailable in this browser, using regular mode');
-      }
-      await autoActivateSimple(tabId);
-    }
-  } catch (error) {
-    console.log(`[Limitr] Autoinit error on tab ${tabId}: ${error.message}, falling back to simple`);
-    try {
-      await autoActivateSimple(tabId);
-    } catch (e) {
-      console.log(`[Limitr] Simple fallback also failed on tab ${tabId}:`, e.message);
-    }
-  }
-}
-
-// Listen for tabs that start playing audio
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.audible === true) {
-    tryAutoActivate(tabId);
-  }
-
-  // Inject content script early on page load so it's ready when video appears.
-  // Sites like Kick load the page first, then the video stream later.
-  // The content script's MutationObserver will catch the video element as soon
-  // as it's added to the DOM, so processing starts the moment audio begins.
-  if (changeInfo.status === 'complete' && tab.url &&
-      !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') &&
-      !tab.url.startsWith('about:') && !tab.url.startsWith('edge://')) {
-    earlyInjectContentScript(tabId);
-  }
-});
-
-// Clean up auto-injected tracking when tab is closed
-chrome.tabs.onRemoved.addListener((tabId) => {
-  autoInjectedTabs.delete(tabId);
-});
-
-// On startup, restore badge state based on active processing tabs
-async function restoreBadgeState() {
-  const stored = await chrome.storage.local.get(['limitrGlobalEnabled', 'limitrMixerMode']);
-  if (!isGloballyEnabled(stored.limitrGlobalEnabled)) {
-    updateBadge(false);
-    return;
-  }
-
-  if (stored.limitrMixerMode && hasExclusiveModeSupport()) {
-    const activeTabs = await getProcessingTabs();
-    updateBadge(activeTabs.length > 0);
-  } else {
-    // For simple mode, check if any injected tabs exist
-    // Badge will update on next auto-activation
-    updateBadge(false);
-  }
-}
-
-restoreBadgeState();
-
-console.log('[Limitr] Background loaded');
+chrome.runtime.onStartup?.addListener(() => refreshGlobalIcon(true));
+refreshGlobalIcon();
+capturedTabIds().then(ids => ids.forEach(id => capturedTabs.add(id))).catch(() => {});

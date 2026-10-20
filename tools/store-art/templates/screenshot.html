@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="base.css">
+  <style>
+    body { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 72px; padding: 0 96px 0 104px; }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 36px; }
+    .brand .mark { width: 40px; height: 40px; }
+    .brand span { font-size: 26px; font-weight: 700; }
+    h1 { margin: 0; max-width: 14ch; font-size: 58px; line-height: 1.08; font-weight: 700; letter-spacing: -0.02em; }
+    p { margin: 22px 0 0; max-width: 30ch; color: var(--muted); font-size: 24px; line-height: 1.45; }
+    .popup { width: 400px; }
+  </style>
+</head>
+<body>
+  <div>
+    <div class="brand"><svg class="mark" viewBox="0 0 100 100"><use href="#wave"/></svg><span>Limitr</span></div>
+    <h1 id="headline"></h1>
+    <p id="sub"></p>
+  </div>
+  <img class="popup" id="shot" alt="">
+  <script>
+    const q = new URLSearchParams(location.search);
+    document.documentElement.dataset.theme = q.get('theme') || 'night';
+    document.getElementById('headline').textContent = q.get('headline');
+    document.getElementById('sub').textContent = q.get('sub');
+    document.getElementById('shot').src = `../../../docs/assets/${q.get('image')}`;
+  </script>
+</body>
+</html>

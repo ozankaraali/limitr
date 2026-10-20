@@ -8,7 +8,7 @@
   if (window.__limitrTranscribeInjected) return;
   window.__limitrTranscribeInjected = true;
 
-  const MAX_LINES = 3;
+  const MAX_LINES = 2;
   const FADE_DELAY_MS = 8000;
 
   let isEnabled = false;
@@ -20,7 +20,8 @@
   // video -> { overlay, updatePosition }
   const overlays = new Map();
 
-  // Rolling transcript lines (shared across all video overlays)
+  // Rolling transcript lines (shared across all video overlays): { id, text }.
+  // The sentence being spoken arrives several times as it grows; same id = same line.
   let lines = [];
 
   // ── Styles ──────────────────────────────────────────────────────
@@ -164,16 +165,24 @@
   // ── Render transcript text into all video overlays ──────────────
 
   function renderLines() {
-    const text = lines.join('\n');
+    const text = lines.map(line => line.text).join('\n');
     overlays.forEach(({ textEl, overlay }) => {
       textEl.textContent = text;
       textEl.style.opacity = text ? '1' : '0';
     });
   }
 
-  function showSubtitle(text) {
-    lines.push(text);
-    while (lines.length > MAX_LINES) lines.shift();
+  // Shows the translation when there is one; the popup keeps the original
+  function showSubtitle(result) {
+    const text = result.translation || result.text;
+    if (!text) return;
+    const existing = result.segmentId != null && lines.find(line => line.id === result.segmentId);
+    if (existing) {
+      existing.text = text;
+    } else {
+      lines.push({ id: result.segmentId, text });
+      while (lines.length > MAX_LINES) lines.shift();
+    }
     renderLines();
 
     // Reset fade timer
@@ -212,7 +221,7 @@
   chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'transcription-result') {
       if (!isEnabled) enable();
-      showSubtitle(message.result.text);
+      showSubtitle(message.result);
     }
 
     if (message.action === 'transcription-status') {

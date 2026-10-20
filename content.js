@@ -188,12 +188,11 @@ video.limitr-crt-video {
       } else {
         disable();
       }
-      chrome.storage.local.set({ crtVisualEnabled: message.enabled });
       sendResponse({ success: true });
     } else if (message.action === 'get-crt-visual') {
       sendResponse({ enabled: isEnabled });
     }
-    return true;
+    return false;
   });
 
   // Script is injected on-demand, so enable immediately when injected

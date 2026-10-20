@@ -1,0 +1,27 @@
+{
+  "name": "limitr",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Browser extension that tames sudden loud spikes for night and sleep listening",
+  "license": "MIT",
+  "scripts": {
+    "test": "node tests/run-engine-tests.js && node tests/run-extension-tests.js",
+    "test:engine": "node tests/run-engine-tests.js",
+    "test:e2e": "node tests/run-extension-tests.js",
+    "test:captions": "node tests/run-captions-tests.js --idle",
+    "test:firefox": "node build-firefox.js --test && node tests/run-firefox-tests.js",
+    "build:chrome": "node build-chrome.js",
+    "build:firefox": "node build-firefox.js",
+    "release": "node tools/release.js",
+    "lint:firefox": "node build-firefox.js --out=dist/firefox-lint && web-ext lint --source-dir dist/firefox-lint",
+    "screenshots": "node tests/run-extension-tests.js --screenshots=docs/assets",
+    "icons": "node icons/build-icons.js",
+    "store-art": "node tests/run-extension-tests.js --screenshots=docs/assets && node tools/store-art/render.js"
+  },
+  "devDependencies": {
+    "@huggingface/transformers": "3.8.1",
+    "playwright": "1.58.1",
+    "puppeteer-core": "^24.43.1",
+    "web-ext": "^10.8.0"
+  }
+}

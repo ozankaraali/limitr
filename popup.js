@@ -1,2673 +1,1268 @@
-// Limitr Popup - TabCapture Version
-// Communicates with service worker for per-tab audio processing
+// Limitr popup. Settings live in chrome.storage; every tab's content scripts and the
+// capture engine follow storage changes, so the popup only ever writes settings.
 
 if (typeof browser !== 'undefined') {
   globalThis.chrome = browser;
 }
 
-// Default settings - matches offscreen.js and content-audio.js
-const defaults = {
+const S = globalThis.LimitrSettings;
+const K = S.STORAGE_KEYS;
+const $ = id => document.getElementById(id);
+
+const EXPLAINERS = {
+  off: 'Audio plays exactly as the site sends it.',
+  gentle: 'Steps in only when something is far louder than the talking around it.',
+  stream: 'Pulls alerts, blerps and sudden yelling back to a few dB above normal talking.',
+  sleep: 'Keeps everything quiet and even with softer highs. Spikes barely rise above normal.',
+  movie: 'Tames explosions and music stings and leaves dialog alone.',
+  tv90s: 'Narrow, warm broadcast sound with a little tape hiss.'
+};
+
+// Line icons for the factory presets (24 px grid, stroked with currentColor)
+const PRESET_ICONS = {
+  off: '<path d="M12 3v8"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/>',
+  gentle: '<path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14z"/><path d="M5 19l7-7"/>',
+  stream: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/>',
+  sleep: '<path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10z"/>',
+  movie: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M7.5 5v14M16.5 5v14M3.5 9.5h4M3.5 14.5h4M16.5 9.5h4M16.5 14.5h4"/>',
+  tv90s: '<rect x="3.5" y="7" width="17" height="13" rx="2.5"/><path d="M8.5 3.5L12 7l3.5-3.5"/>'
+};
+
+// Builds the icon from the constants above: flat, self-closing shapes with quoted attributes
+function lineIcon(markup, className) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', className);
+  for (const [, tag, attrs] of markup.matchAll(/<(\w+)([^>]*?)\/>/g)) {
+    const shape = document.createElementNS(NS, tag);
+    for (const [, name, value] of attrs.matchAll(/([\w-]+)="([^"]*)"/g)) shape.setAttribute(name, value);
+    svg.append(shape);
+  }
+  return svg;
+}
+
+const HISTORY_POINTS = 150;          // ~10 s at the meter poll rate
+const METER_INTERVAL_MS = 66;
+const STATUS_INTERVAL_MS = 1500;
+const TRACE_RANGE = [-54, -6];       // LUFS shown on the trace
+
+const state = {
+  tabId: null,
+  restricted: false,
+  settings: S.normalize(null),
   enabled: true,
-  outputGain: 0,
-
-  // Global compressor
-  compressorEnabled: true,
-  threshold: -18,
-  ratio: 6,
-  knee: 10,
-  attack: 5,
-  release: 100,
-  makeupGain: 0,
-  gainEnabled: true,
-
-  // 3-Band Multiband Compressor
-  multibandEnabled: false,
-  crossover1: 200,
-  crossover2: 3000,
-  subThreshold: -20,
-  subRatio: 8,
-  subGain: 0,
-  midThreshold: -24,
-  midRatio: 4,
-  midGain: 0,
-  highThreshold: -24,
-  highRatio: 6,
-  highGain: 0,
-
-  // 5-Band Parametric EQ
-  eqEnabled: false,
-  eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-  eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-  eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-  eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
-  eq5Freq: 12000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
-
-  // Filters (independent bass/treble cut)
-  bassCutFreq: 0,       // 0 = off, otherwise highpass Hz (e.g., 80, 120, 200)
-  trebleCutFreq: 22050, // 22050 = off, otherwise lowpass Hz (e.g., 8000, 12000)
-  filtersEnabled: false,
-
-  // AI Noise Suppression (RNNoise)
-  noiseSuppressionEnabled: false,
-
-  // Soft clipper (smooth peak taming)
-  softClipEnabled: false,
-  softClipDrive: 0,
-
-  // Lookahead peak guard (hidden safety stage for streamer scream presets)
-  peakGuardEnabled: false,
-  peakGuardThreshold: -6,
-  peakGuardLookahead: 8,
-  peakGuardRelease: 120,
-
-  // Limiter (brick wall, prevents clipping)
-  limiterEnabled: true,
-  limiterThreshold: -1,
-
-  // Auto-Gain (AGC - automatic level control)
-  autoGainEnabled: false,
-  autoGainTarget: -16,
-  autoGainSpeed: 'normal',
-
-  // Limiter timing
-  limiterAttack: 1,
-  limiterRelease: 100,
-
-  // Noise Gate (silences hiss in quiet gaps — Exclusive only)
-  gateEnabled: false,
-  gateThreshold: -50,
-  gateHold: 100,
-  gateRelease: 200,
-
-  // Audio Ducking (speech-aware dynamic range — Exclusive only)
-  duckingEnabled: false,
-  duckingThreshold: -35,  // dB — speech detection threshold (RMS in 300-3kHz band)
-  duckingAmount: -12,     // dB — how much to reduce non-speech content
-  duckingRelease: 300,    // ms — how fast ducking releases after speech stops
-
-  // Mono-to-stereo fixer (duplicates single-channel audio to both channels)
-  monoMixEnabled: false,
-
-  // Effects
-  noiseLevel: 0,
-  noiseType: 'brown',
-  effectsEnabled: false
+  mode: 'page',
+  preset: null,
+  custom: {},
+  ui: { basePreset: S.DEFAULT_PRESET },
+  screen: 'main',
+  canCapture: false,
+  captured: false,
+  frameId: 0,
+  frameStatus: null,
+  history: [],
+  meters: null,
+  captions: 'off',
+  captionPrefs: S.normalizeCaptions(null, uiLanguage()),
+  crt: false
 };
 
-// Presets - designed for both Regular and Exclusive modes
-// Exclusive-only features (noiseSuppressionEnabled, autoGainEnabled, limiterEnabled)
-// will only activate in Exclusive mode but won't cause errors in Regular mode
-// Preset order: lightest → heaviest processing
-const presets = {
-  off: {
-    name: 'Off',
-    compressorEnabled: false,
-    multibandEnabled: false,
-    eqEnabled: false,
-    threshold: 0, ratio: 1, knee: 0, attack: 0, release: 0,
-    makeupGain: 0, gainEnabled: true,
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    limiterEnabled: false, limiterThreshold: -1,
-    limiterAttack: 1, limiterRelease: 100,
-    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    duckingEnabled: false, duckingThreshold: -35, duckingAmount: -12, duckingRelease: 300,
-    softClipEnabled: false, softClipDrive: 0,
-    peakGuardEnabled: false, peakGuardThreshold: -6, peakGuardLookahead: 8, peakGuardRelease: 120,
-    monoMixEnabled: false,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  music: {
-    name: 'Music',
-    // Light compression - preserve dynamics
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -20, ratio: 3, knee: 20, attack: 10, release: 200,
-    makeupGain: 0, gainEnabled: true,
-    // Subtle EQ enhancement
-    eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 2, eq1Q: 0.7, eq1Type: 'lowshelf',
-    eq2Freq: 100, eq2Gain: 1, eq2Q: 1.0, eq2Type: 'lowshelf',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 10000, eq5Gain: 1, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -1.5,
-    limiterAttack: 1, limiterRelease: 100,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  lofi: {
-    name: 'Lo-Fi',
-    // Gentle compression with soft knee and slow attack
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -25, ratio: 3, knee: 20, attack: 15, release: 200,
-    makeupGain: 0, gainEnabled: true,
-    // Warm bass boost + high-shelf rolloff
-    eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 3, eq1Q: 0.7, eq1Type: 'lowshelf',
-    eq2Freq: 200, eq2Gain: 2, eq2Q: 1.0, eq2Type: 'lowshelf',
-    eq3Freq: 1000, eq3Gain: 0, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -4, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 14000, filtersEnabled: true,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    limiterEnabled: true, limiterThreshold: -1,
-    limiterAttack: 1, limiterRelease: 100,
-    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
-    // Subtle brown noise for warmth
-    noiseLevel: 0.05, noiseType: 'brown', effectsEnabled: true
-  },
-  streamWatch: {
-    name: 'Stream Watch',
-    // Downward-only stream guard: catch shouts/alerts without lifting quiet parts.
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -20, ratio: 8, knee: 4, attack: 0.5, release: 180,
-    makeupGain: -4, gainEnabled: true,
-    // Reduce painful presence/sibilance where streamer screams usually live.
-    eqEnabled: true,
-    eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: -2, eq3Q: 1.2, eq3Type: 'peaking',
-    eq4Freq: 5500, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 9000, eq5Gain: -2, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -45, gateHold: 150, gateRelease: 250,
-    softClipEnabled: true, softClipDrive: 5,
-    peakGuardEnabled: true, peakGuardThreshold: -6, peakGuardLookahead: 8, peakGuardRelease: 120,
-    monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -6,
-    limiterAttack: 0.3, limiterRelease: 90,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false,
-    outputGain: -2
-  },
-  voiceFocus: {
-    name: 'Voice Focus',
-    // Single-band compression + EQ for voice clarity
-    // Compresses peaks, boosts speech frequencies, cuts rumble and sibilance
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -22, ratio: 5, knee: 10, attack: 3, release: 150,
-    makeupGain: 0, gainEnabled: true,
-    // Voice-focused EQ: cut rumble, boost presence, tame sibilance
-    eqEnabled: true,
-    eq1Freq: 80, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 200, eq2Gain: -3, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 2500, eq3Gain: 3, eq3Q: 1.5, eq3Type: 'peaking',
-    eq4Freq: 5000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 10000, eq5Gain: -2, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -2,
-    limiterAttack: 1, limiterRelease: 100,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  movie: {
-    name: 'Movie',
-    // Catch loud explosions/effects but leave dialog untouched
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -15, ratio: 5, knee: 10, attack: 3, release: 150,
-    // Light dialog clarity + tame rumble
-    eqEnabled: true,
-    eq1Freq: 40, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 200, eq2Gain: -2, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 2000, eq3Gain: 2, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 4000, eq4Gain: 0, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -20, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    // Audio ducking: lower music/SFX when dialog is detected (Exclusive mode)
-    duckingEnabled: true, duckingThreshold: -35, duckingAmount: -10, duckingRelease: 300,
-    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -3,
-    limiterAttack: 1, limiterRelease: 100,
-    makeupGain: 0, gainEnabled: true,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  bassTamer: {
-    name: 'Bass Tamer',
-    // Pure EQ-based bass reduction — no compression needed
-    compressorEnabled: false,
-    multibandEnabled: false,
-    threshold: -18, ratio: 4, knee: 8, attack: 5, release: 100,
-    makeupGain: 0, gainEnabled: true,
-    // Aggressive bass reduction via EQ
-    eqEnabled: true,
-    eq1Freq: 120, eq1Gain: -6, eq1Q: 0.7, eq1Type: 'lowshelf',
-    eq2Freq: 250, eq2Gain: -4, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 500, eq3Gain: -2, eq3Q: 1.0, eq3Type: 'peaking',
-    eq4Freq: 2000, eq4Gain: 1, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 8000, eq5Gain: 0, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -1,
-    limiterAttack: 1, limiterRelease: 100,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  tv90s: {
-    name: '90s TV',
-    // Moderate compression — 90s broadcast feel, not total squash
-    compressorEnabled: true,
-    multibandEnabled: false,
-    eqEnabled: false,
-    threshold: -20, ratio: 6, knee: 6, attack: 2, release: 100,
-    makeupGain: 0, gainEnabled: true,
-    // Classic narrow bandwidth
-    bassCutFreq: 200, trebleCutFreq: 8000, filtersEnabled: true,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -2,
-    limiterAttack: 1, limiterRelease: 100,
-    // Brown noise for that analog warmth
-    noiseLevel: 0.02, noiseType: 'brown', effectsEnabled: true
-  },
-  normalize: {
-    name: 'Normalize',
-    // AGC brings quiet content up to target level, light compression catches peaks
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -15, ratio: 3, knee: 15, attack: 10, release: 200,
-    makeupGain: 0, gainEnabled: true,
-    eqEnabled: false,
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: true, autoGainTarget: -16, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50, gateHold: 150, gateRelease: 250,
-    softClipEnabled: false, softClipDrive: 0, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -1,
-    limiterAttack: 1, limiterRelease: 100,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  nightMode: {
-    name: 'Night Mode',
-    // Single-band: compress everything uniformly, then turn volume down.
-    // Low threshold catches most of the dynamic range, high ratio flattens it.
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -24, ratio: 12, knee: 6, attack: 1, release: 200,
-    makeupGain: -12, gainEnabled: true,
-    eqEnabled: false,
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'normal',
-    gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 4, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -10,
-    limiterAttack: 0.5, limiterRelease: 80,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  },
-  comfyGuard: {
-    name: 'Comfy Guard',
-    // Downward-only vibe: aggressively tame peaks without lifting quiet parts.
-    // Fast attack catches jumpscares/screams, negative makeup keeps overall level calm.
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -24, ratio: 16, knee: 2, attack: 0.2, release: 220,
-    makeupGain: -9, gainEnabled: true,
-    eqEnabled: true,
-    // Gentle top-end trim to reduce painful transients
-    eq1Freq: 60, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 250, eq2Gain: 0, eq2Q: 1.0, eq2Type: 'peaking',
-    eq3Freq: 2800, eq3Gain: -3, eq3Q: 1.3, eq3Type: 'peaking',
-    eq4Freq: 5200, eq4Gain: -4, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 9000, eq5Gain: -4, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -22, autoGainSpeed: 'slow',
-    gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 8,
-    peakGuardEnabled: true, peakGuardThreshold: -8, peakGuardLookahead: 8, peakGuardRelease: 140,
-    monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -8,
-    limiterAttack: 0.2, limiterRelease: 100,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false,
-    outputGain: -4
-  },
-  antiScream: {
-    name: 'Anti-Scream',
-    // Maximum comfort ceiling without darkening the whole stream.
-    // Peak guard catches instant mic hits; EQ mostly removes rumble/mud.
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -16, ratio: 12, knee: 2, attack: 0.3, release: 120,
-    makeupGain: -7, gainEnabled: true,
-    eqEnabled: true,
-    eq1Freq: 110, eq1Gain: 0, eq1Q: 0.7, eq1Type: 'highpass',
-    eq2Freq: 220, eq2Gain: -3, eq2Q: 0.8, eq2Type: 'peaking',
-    eq3Freq: 3000, eq3Gain: -2, eq3Q: 1.2, eq3Type: 'peaking',
-    eq4Freq: 5600, eq4Gain: -3, eq4Q: 1.0, eq4Type: 'peaking',
-    eq5Freq: 10000, eq5Gain: -1, eq5Q: 0.7, eq5Type: 'highshelf',
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -10, autoGainSpeed: 'fast',
-    gateEnabled: false, gateThreshold: -50,
-    softClipEnabled: true, softClipDrive: 6,
-    peakGuardEnabled: true, peakGuardThreshold: -9, peakGuardLookahead: 10, peakGuardRelease: 140,
-    monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -9,
-    limiterAttack: 0.2, limiterRelease: 80,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false,
-    outputGain: -4
-  },
-  sleep: {
-    name: 'Sleep',
-    // Single-band: maximum compression + volume way down.
-    // Threshold at -26 catches almost everything, ratio 15 flattens it.
-    compressorEnabled: true,
-    multibandEnabled: false,
-    threshold: -26, ratio: 15, knee: 10, attack: 1, release: 250,
-    makeupGain: -16, gainEnabled: true,
-    eqEnabled: false,
-    bassCutFreq: 0, trebleCutFreq: 22050, filtersEnabled: false,
-    noiseSuppressionEnabled: false,
-    autoGainEnabled: false, autoGainTarget: -30, autoGainSpeed: 'slow',
-    gateEnabled: true, gateThreshold: -50, gateHold: 200, gateRelease: 300,
-    softClipEnabled: true, softClipDrive: 4, monoMixEnabled: false,
-    limiterEnabled: true, limiterThreshold: -12,
-    limiterAttack: 0.3, limiterRelease: 60,
-    noiseLevel: 0, noiseType: 'brown', effectsEnabled: false
-  }
+function uiLanguage() {
+  return (chrome.i18n && chrome.i18n.getUILanguage && chrome.i18n.getUILanguage()) || navigator.language;
+}
+
+// ---------- formatting ----------
+const MINUS = '−';
+const signed = v => (v > 0 ? `+${trim(v)}` : v < 0 ? `${MINUS}${trim(-v)}` : '0');
+const trim = v => (Math.round(v * 10) / 10).toString();
+const fmt = {
+  db: v => `${signed(v)} dB`,
+  dbPlain: v => `${trim(v)} dB`,
+  lufs: v => `${signed(v)} LUFS`,
+  ms: v => (v >= 1000 ? `${trim(v / 1000)} s` : `${trim(v)} ms`),
+  ratio: v => (v >= 20 ? 'Hard limit' : `${trim(v)}:1`),
+  hz: v => (v >= 1000 ? `${trim(v / 1000)} kHz` : `${Math.round(v)} Hz`),
+  lowCut: v => (v <= 20 ? 'Off' : fmt.hz(v)),
+  highCut: v => (v >= 20000 ? 'Off' : fmt.hz(v)),
+  hiss: v => (v <= 0 ? 'Off' : `${Math.round((v / 0.3) * 100)}%`),
+  q: v => trim(v)
 };
 
-// Display order — reorder here to change the UI, no need to touch presets object
-const presetOrder = [
-  'off', 'music', 'lofi', 'streamWatch',
-  'voiceFocus', 'movie', 'bassTamer', 'normalize',
-  'comfyGuard', 'antiScream', 'nightMode', 'sleep', 'tv90s'
-];
-
-// Preset UI metadata — descriptions and optional CSS class
-const presetUI = {
-  off:          { desc: 'No processing' },
-  music:        { desc: 'Preserve dynamics' },
-  lofi:         { desc: 'Warm & mellow' },
-  streamWatch:  { desc: 'Daily stream guard' },
-  voiceFocus:   { desc: 'Boost voice clarity', style: 'preset-featured' },
-  movie:        { desc: 'Tame action scenes' },
-  bassTamer:    { desc: 'Cut excess bass' },
-  normalize:    { desc: 'Boost quiet audio' },
-  comfyGuard:   { desc: 'Safer loud spikes', style: 'preset-safety' },
-  antiScream:   { desc: 'Hard comfort ceiling', style: 'preset-safety' },
-  nightMode:    { desc: 'Flatten & reduce' },
-  sleep:        { desc: 'Maximum quiet' },
-  tv90s:        { desc: 'Tap twice for TV+' }
-};
-
-// Custom presets (user-created, loaded from storage)
-let customPresets = {};
-
-// Render all preset buttons: factory + custom + ghost slots
-function renderPresetGrid() {
-  const grid = document.getElementById('presetsGrid');
-  if (!grid) return;
-  grid.innerHTML = '';
-
-  // Factory presets
-  for (const key of presetOrder) {
-    const preset = presets[key];
-    if (!preset) continue;
-    const ui = presetUI[key] || {};
-    const btn = document.createElement('button');
-    btn.className = 'preset-btn' + (ui.style ? ' ' + ui.style : '');
-    btn.dataset.preset = key;
-    btn.innerHTML =
-      '<span class="preset-name">' + preset.name + '</span>' +
-      '<span class="preset-desc">' + (ui.desc || '') + '</span>';
-    grid.appendChild(btn);
-  }
-
-  // Custom presets (user-created)
-  const customKeys = Object.keys(customPresets);
-  for (const key of customKeys) {
-    const cp = customPresets[key];
-    const btn = document.createElement('button');
-    btn.className = 'preset-btn preset-custom';
-    btn.dataset.preset = key;
-    btn.dataset.custom = 'true';
-    btn.innerHTML =
-      '<span class="preset-delete" title="Remove preset">&times;</span>' +
-      '<span class="preset-name">' + (cp.name || key) + '</span>' +
-      '<span class="preset-desc">Custom</span>';
-    grid.appendChild(btn);
-  }
-
-  // Ghost slots: fill current row + add one extra row when full
-  const totalUsed = presetOrder.length + customKeys.length;
-  const slotsInGrid = Math.ceil(totalUsed / 4) * 4;
-  const ghostCount = slotsInGrid > totalUsed ? slotsInGrid - totalUsed : 4;
-  for (let i = 0; i < ghostCount; i++) {
-    const ghost = document.createElement('button');
-    ghost.className = 'preset-btn preset-ghost';
-    ghost.title = 'Save current settings as preset';
-    ghost.innerHTML = '<span class="preset-ghost-icon">+</span>';
-    ghost.addEventListener('click', () => promptSaveCustomPreset());
-    grid.appendChild(ghost);
-  }
-
-  // Re-bind click handlers and refresh elements.presetBtns
-  rebindPresetButtons();
-}
-
-function rebindPresetButtons() {
-  const btns = document.querySelectorAll('.preset-btn:not(.preset-ghost)');
-  try { elements.presetBtns = btns; } catch (_) { /* elements not yet initialized */ }
-  btns.forEach(btn => {
-    // Remove old listeners by cloning (safe since we rebuild the grid)
-    btn.addEventListener('click', (e) => {
-      // Check if delete button was clicked
-      if (e.target.classList.contains('preset-delete')) {
-        e.stopPropagation();
-        deleteCustomPreset(btn.dataset.preset);
-        return;
-      }
-      applyPreset(btn.dataset.preset);
-    });
-  });
-}
-
-async function loadCustomPresets() {
-  const stored = await chrome.storage.local.get(['limitrCustomPresets']);
-  customPresets = stored.limitrCustomPresets || {};
-}
-
-async function saveCustomPresets() {
-  await chrome.storage.local.set({ limitrCustomPresets: customPresets });
-}
-
-function promptSaveCustomPreset() {
-  const name = prompt('Preset name:');
-  if (!name || !name.trim()) return;
-
-  const key = 'custom_' + Date.now();
-  const settings = {};
-  for (const k of presetKeys) {
-    settings[k] = currentSettings[k];
-  }
-  customPresets[key] = { name: name.trim(), ...settings };
-  saveCustomPresets();
-  renderPresetGrid();
-  updatePresetButtons();
-}
-
-function deleteCustomPreset(key) {
-  if (!customPresets[key]) return;
-  delete customPresets[key];
-  saveCustomPresets();
-  renderPresetGrid();
-  updatePresetButtons();
-}
-
-// Initial render (factory only — custom presets loaded async in init())
-renderPresetGrid();
-
-function getFallbackAgcBoost(targetDb) {
-  if (targetDb <= -24) return 6;
-  if (targetDb <= -20) return 4;
-  if (targetDb <= -18) return 3;
-  if (targetDb <= -16) return 2;
-  if (targetDb <= -12) return 1;
-  return 0;
-}
-
-function getEffectivePreset(presetName) {
-  const base = presets[presetName] || customPresets[presetName];
-  if (!base) return null;
-
-  const settings = { ...defaults, ...base };
-  let outputGainOffset = 0;
-  const outputGainOverride = Object.prototype.hasOwnProperty.call(base, 'outputGain')
-    ? base.outputGain
-    : null;
-
-  return { settings, outputGainOffset, outputGainOverride };
-}
-
-// Keys used for preset comparison
-const presetKeys = [
-  'compressorEnabled', 'multibandEnabled', 'eqEnabled', 'effectsEnabled', 'filtersEnabled', 'gainEnabled',
-  'threshold', 'ratio', 'knee', 'attack', 'release', 'makeupGain',
-  'noiseLevel', 'noiseType',
-  // Filters
-  'bassCutFreq', 'trebleCutFreq',
-  // Noise suppression
-  'noiseSuppressionEnabled',
-  // Soft Clipper
-  'softClipEnabled', 'softClipDrive',
-  // Hidden lookahead peak guard
-  'peakGuardEnabled', 'peakGuardThreshold', 'peakGuardLookahead', 'peakGuardRelease',
-  // Mono-to-Stereo fixer
-  'monoMixEnabled',
-  // Limiter & Auto-Gain
-  'limiterEnabled', 'limiterThreshold',
-  'autoGainEnabled', 'autoGainTarget', 'autoGainSpeed',
-  'limiterAttack', 'limiterRelease',
-  // Noise Gate
-  'gateEnabled', 'gateThreshold', 'gateHold', 'gateRelease',
-  // Audio Ducking
-  'duckingEnabled', 'duckingThreshold', 'duckingAmount', 'duckingRelease',
-  // Multiband
-  'crossover1', 'crossover2',
-  'subThreshold', 'subRatio', 'subGain',
-  'midThreshold', 'midRatio', 'midGain',
-  'highThreshold', 'highRatio', 'highGain',
-  // EQ
-  'eq1Freq', 'eq1Gain', 'eq1Q', 'eq1Type',
-  'eq2Freq', 'eq2Gain', 'eq2Q', 'eq2Type',
-  'eq3Freq', 'eq3Gain', 'eq3Q', 'eq3Type',
-  'eq4Freq', 'eq4Gain', 'eq4Q', 'eq4Type',
-  'eq5Freq', 'eq5Gain', 'eq5Q', 'eq5Type'
-];
-
-// State
-let elements = {};
-let currentTabId = null;
-let currentSettings = { ...defaults };
-let advancedMode = false;
-let isCapturing = false;
-let audibleTabs = [];
-let processingTabIds = [];
-let crtVisualEnabled = false;
-let mixerMode = false;
-let exclusiveModeSupported = true;
-let transcriberActive = false;
-let transcriberLoading = false;
-let collapseState = {
-  exclusive: false,
-  limiter: false,
-  compressor: false,
-  gain: false,
-  effects: false,
-  filters: false,
-  eq: true,
-  multiband: true
-};
-
-// Initialize
-async function init() {
-  elements = {
-    enabled: document.getElementById('enabled'),
-    status: document.getElementById('status'),
-    mixerModeToggle: document.getElementById('mixerModeToggle'),
-    mixerModeLabel: document.getElementById('mixerModeLabel'),
-    modeToggle: document.getElementById('modeToggle'),
-    modeLabel: document.getElementById('modeLabel'),
-    simpleControls: document.getElementById('simpleControls'),
-    advancedControls: document.getElementById('advancedControls'),
-    outputGainSimple: document.getElementById('outputGainSimple'),
-    outputGainSimpleValue: document.getElementById('outputGainSimpleValue'),
-    // Advanced controls
-    threshold: document.getElementById('threshold'),
-    thresholdValue: document.getElementById('thresholdValue'),
-    ratio: document.getElementById('ratio'),
-    ratioValue: document.getElementById('ratioValue'),
-    knee: document.getElementById('knee'),
-    kneeValue: document.getElementById('kneeValue'),
-    attack: document.getElementById('attack'),
-    attackValue: document.getElementById('attackValue'),
-    release: document.getElementById('release'),
-    releaseValue: document.getElementById('releaseValue'),
-    makeupGain: document.getElementById('makeupGain'),
-    makeupGainValue: document.getElementById('makeupGainValue'),
-    outputGain: document.getElementById('outputGain'),
-    outputGainValue: document.getElementById('outputGainValue'),
-    noiseLevel: document.getElementById('noiseLevel'),
-    noiseLevelValue: document.getElementById('noiseLevelValue'),
-    noiseType: document.getElementById('noiseType'),
-    reductionMeter: document.getElementById('reductionMeter'),
-    reductionValue: document.getElementById('reductionValue'),
-    // 3-Band Multiband controls
-    multibandToggle: document.getElementById('multibandToggle'),
-    multibandLabel: document.getElementById('multibandLabel'),
-    multibandControls: document.getElementById('multibandControls'),
-    crossover1: document.getElementById('crossover1'),
-    crossover1Value: document.getElementById('crossover1Value'),
-    crossover2: document.getElementById('crossover2'),
-    crossover2Value: document.getElementById('crossover2Value'),
-    subThreshold: document.getElementById('subThreshold'),
-    subThresholdValue: document.getElementById('subThresholdValue'),
-    midThreshold: document.getElementById('midThreshold'),
-    midThresholdValue: document.getElementById('midThresholdValue'),
-    highThreshold: document.getElementById('highThreshold'),
-    highThresholdValue: document.getElementById('highThresholdValue'),
-    subGain: document.getElementById('subGain'),
-    subGainValue: document.getElementById('subGainValue'),
-    midGain: document.getElementById('midGain'),
-    midGainValue: document.getElementById('midGainValue'),
-    highGain: document.getElementById('highGain'),
-    highGainValue: document.getElementById('highGainValue'),
-    // 5-Band EQ controls
-    eqToggle: document.getElementById('eqToggle'),
-    eqLabel: document.getElementById('eqLabel'),
-    eqControls: document.getElementById('eqControls'),
-    eqCanvas: document.getElementById('eqCanvas'),
-    // Per-band EQ controls (freq, gain, Q, type)
-    eq1Freq: document.getElementById('eq1Freq'),
-    eq1FreqValue: document.getElementById('eq1FreqValue'),
-    eq1Gain: document.getElementById('eq1Gain'),
-    eq1GainValue: document.getElementById('eq1GainValue'),
-    eq1Type: document.getElementById('eq1Type'),
-    eq2Freq: document.getElementById('eq2Freq'),
-    eq2FreqValue: document.getElementById('eq2FreqValue'),
-    eq2Gain: document.getElementById('eq2Gain'),
-    eq2GainValue: document.getElementById('eq2GainValue'),
-    eq2Type: document.getElementById('eq2Type'),
-    eq3Freq: document.getElementById('eq3Freq'),
-    eq3FreqValue: document.getElementById('eq3FreqValue'),
-    eq3Gain: document.getElementById('eq3Gain'),
-    eq3GainValue: document.getElementById('eq3GainValue'),
-    eq3Type: document.getElementById('eq3Type'),
-    eq4Freq: document.getElementById('eq4Freq'),
-    eq4FreqValue: document.getElementById('eq4FreqValue'),
-    eq4Gain: document.getElementById('eq4Gain'),
-    eq4GainValue: document.getElementById('eq4GainValue'),
-    eq4Type: document.getElementById('eq4Type'),
-    eq5Freq: document.getElementById('eq5Freq'),
-    eq5FreqValue: document.getElementById('eq5FreqValue'),
-    eq5Gain: document.getElementById('eq5Gain'),
-    eq5GainValue: document.getElementById('eq5GainValue'),
-    eq5Type: document.getElementById('eq5Type'),
-    // Bass/Treble Cut filters
-    bassCutFreq: document.getElementById('bassCutFreq'),
-    bassCutFreqValue: document.getElementById('bassCutFreqValue'),
-    trebleCutFreq: document.getElementById('trebleCutFreq'),
-    trebleCutFreqValue: document.getElementById('trebleCutFreqValue'),
-    // AI Noise Suppression
-    noiseSuppressionToggle: document.getElementById('noiseSuppressionToggle'),
-    noiseSuppressionLabel: document.getElementById('noiseSuppressionLabel'),
-    noiseSuppressionNote: document.getElementById('noiseSuppressionNote'),
-    // Simple mode ANC
-    noiseSuppressionToggleSimple: document.getElementById('noiseSuppressionToggleSimple'),
-    noiseSuppressionLabelSimple: document.getElementById('noiseSuppressionLabelSimple'),
-    simpleAncRow: document.getElementById('simpleAncRow'),
-    // Video Transcriber
-    transcriberToggle: document.getElementById('transcriberToggle'),
-    transcriberLabel: document.getElementById('transcriberLabel'),
-    transcriberNote: document.getElementById('transcriberNote'),
-    transcriberOutput: document.getElementById('transcriberOutput'),
-    transcriberText: document.getElementById('transcriberText'),
-    // Simple mode Transcriber
-    transcriberToggleSimple: document.getElementById('transcriberToggleSimple'),
-    transcriberLabelSimple: document.getElementById('transcriberLabelSimple'),
-    simpleTranscriberRow: document.getElementById('simpleTranscriberRow'),
-    transcriberOutputSimple: document.getElementById('transcriberOutputSimple'),
-    transcriberTextSimple: document.getElementById('transcriberTextSimple'),
-    // Compressor toggle
-    compressorToggle: document.getElementById('compressorToggle'),
-    compressorLabel: document.getElementById('compressorLabel'),
-    // Gain toggle
-    gainToggle: document.getElementById('gainToggle'),
-    gainLabel: document.getElementById('gainLabel'),
-    // Effects toggle
-    effectsToggle: document.getElementById('effectsToggle'),
-    effectsLabel: document.getElementById('effectsLabel'),
-    // Filters toggle
-    filtersToggle: document.getElementById('filtersToggle'),
-    filtersLabel: document.getElementById('filtersLabel'),
-    // Limiter
-    limiterToggle: document.getElementById('limiterToggle'),
-    limiterLabel: document.getElementById('limiterLabel'),
-    limiterThreshold: document.getElementById('limiterThreshold'),
-    limiterThresholdValue: document.getElementById('limiterThresholdValue'),
-    // Soft Clipper
-    softClipToggle: document.getElementById('softClipToggle'),
-    softClipDrive: document.getElementById('softClipDrive'),
-    softClipDriveValue: document.getElementById('softClipDriveValue'),
-    softClipDriveGroup: document.getElementById('softClipDriveGroup'),
-    // Mono-to-Stereo fixer
-    monoMixToggle: document.getElementById('monoMixToggle'),
-    monoMixLabel: document.getElementById('monoMixLabel'),
-    // Simple mode Mono Fix
-    monoMixToggleSimple: document.getElementById('monoMixToggleSimple'),
-    // Auto-Gain
-    autoGainToggle: document.getElementById('autoGainToggle'),
-    autoGainLabel: document.getElementById('autoGainLabel'),
-    autoGainTarget: document.getElementById('autoGainTarget'),
-    autoGainTargetValue: document.getElementById('autoGainTargetValue'),
-    autoGainSpeed: document.getElementById('autoGainSpeed'),
-    // Noise Gate
-    gateToggle: document.getElementById('gateToggle'),
-    gateLabel: document.getElementById('gateLabel'),
-    gateThreshold: document.getElementById('gateThreshold'),
-    gateThresholdValue: document.getElementById('gateThresholdValue'),
-    gateHold: document.getElementById('gateHold'),
-    gateHoldValue: document.getElementById('gateHoldValue'),
-    gateRelease: document.getElementById('gateRelease'),
-    gateReleaseValue: document.getElementById('gateReleaseValue'),
-    // Audio Ducking
-    duckingToggle: document.getElementById('duckingToggle'),
-    duckingLabel: document.getElementById('duckingLabel'),
-    duckingThreshold: document.getElementById('duckingThreshold'),
-    duckingThresholdValue: document.getElementById('duckingThresholdValue'),
-    duckingAmount: document.getElementById('duckingAmount'),
-    duckingAmountValue: document.getElementById('duckingAmountValue'),
-    duckingRelease: document.getElementById('duckingRelease'),
-    duckingReleaseValue: document.getElementById('duckingReleaseValue'),
-    // LUFS meter
-    lufsMeter: document.getElementById('lufsMeter'),
-    lufsValue: document.getElementById('lufsValue'),
-    presetBtns: document.querySelectorAll('.preset-btn'),
-    mixerToggle: document.getElementById('mixerToggle'),
-    mixerPanel: document.getElementById('mixerPanel'),
-    mixerList: document.getElementById('mixerList'),
-    mediaCount: document.getElementById('mediaCount'),
-    crtToggle: document.getElementById('crtToggle'),
-    crtLabel: document.getElementById('crtLabel'),
-    // Mode indicator
-    modeInfo: document.getElementById('modeInfo'),
-    modeBadge: document.getElementById('modeBadge'),
-    modeNote: document.getElementById('modeNote'),
-    // Exclusive features group
-    exclusiveFeaturesGroup: document.getElementById('exclusiveFeaturesGroup'),
-    exclusiveBadge: document.getElementById('exclusiveBadge'),
-    // Collapsible sections
-    limiterSection: document.getElementById('limiterSection'),
-    compressorSection: document.getElementById('compressorSection'),
-    gainSection: document.getElementById('gainSection'),
-    effectsSection: document.getElementById('effectsSection'),
-    filtersSection: document.getElementById('filtersSection'),
-    eqSection: document.getElementById('eqSection'),
-    multibandSection: document.getElementById('multibandSection')
+// ---------- theme ----------
+// Canvas drawings read the CSS theme tokens at draw time, so they follow light/dark switches
+function themeColors() {
+  const css = getComputedStyle(document.documentElement);
+  const token = name => css.getPropertyValue(name).trim();
+  return {
+    bg: token('--bg'),
+    raised: token('--raised'),
+    line: token('--line'),
+    text: token('--text'),
+    muted: token('--muted'),
+    accent: token('--accent'),
+    onAccent: token('--on-accent'),
+    spike: token('--spike')
   };
-
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  currentTabId = tab?.id;
-
-  const stored = await chrome.storage.local.get([
-    'limitrAdvancedMode',
-    'limitrMixerMode',
-    'limitrCollapseState',
-    'limitrGlobalEnabled',
-    'limitrFallbackSettings',
-    'limitrCurrentSettings'
-  ]);
-  advancedMode = stored.limitrAdvancedMode || false;
-  mixerMode = stored.limitrMixerMode || false;
-
-  const capabilities = await getCapabilities();
-  exclusiveModeSupported = capabilities.exclusiveMode;
-  if (!exclusiveModeSupported && mixerMode) {
-    mixerMode = false;
-    await chrome.storage.local.set({ limitrMixerMode: false });
-  }
-
-  // Restore global enabled state (default to true for first use)
-  const globalEnabled = stored.limitrGlobalEnabled !== undefined ? stored.limitrGlobalEnabled : true;
-  currentSettings = {
-    ...defaults,
-    ...(stored.limitrFallbackSettings || {}),
-    ...(stored.limitrCurrentSettings || {}),
-    enabled: globalEnabled
-  };
-  if (stored.limitrCollapseState) {
-    collapseState = { ...collapseState, ...stored.limitrCollapseState };
-  }
-
-  if (elements.mixerModeToggle) {
-    elements.mixerModeToggle.checked = mixerMode;
-    elements.mixerModeToggle.disabled = !exclusiveModeSupported;
-  }
-  if (elements.mixerModeLabel && !exclusiveModeSupported) {
-    elements.mixerModeLabel.title = 'Exclusive mode requires Chrome offscreen/tabCapture APIs. Regular mode works in Firefox.';
-  }
-
-  updateMixerAvailability();
-
-  if (mixerMode && currentSettings.enabled) {
-    const stateResponse = await sendToBackground({ action: 'get-state', tabId: currentTabId });
-    if (stateResponse.success && stateResponse.state) {
-      currentSettings = { ...defaults, ...stateResponse.state.settings };
-      isCapturing = true;
-    } else {
-      // Autoinit may have started regular mode — tell the content script to
-      // disconnect so exclusive capture gets a clean audio stream.
-      try {
-        await chrome.tabs.sendMessage(currentTabId, { action: 'fallback-update-settings', settings: { enabled: false } });
-      } catch (e) { /* no content script running */ }
-      await initCapture();
-    }
-  } else if (!mixerMode && currentSettings.enabled) {
-    await initFallbackCapture();
-  } else if (!mixerMode) {
-    await disableExistingFallbackCapture();
-  }
-
-  // Load custom presets and re-render grid (factory presets already rendered at load)
-  await loadCustomPresets();
-  renderPresetGrid();
-
-  // Reapply active preset if switching modes (Regular ↔ Exclusive)
-  const pendingStored = await chrome.storage.local.get(['limitrPendingPreset']);
-  if (pendingStored.limitrPendingPreset) {
-    const presetName = pendingStored.limitrPendingPreset;
-    const effectivePreset = getEffectivePreset(presetName);
-    if (effectivePreset) {
-      const savedOutputGain = currentSettings.outputGain;
-      const savedEnabled = currentSettings.enabled;
-      Object.assign(currentSettings, effectivePreset.settings);
-      // Only safety presets that explicitly define outputGain override the user's level.
-      currentSettings.outputGain = effectivePreset.outputGainOverride !== null
-        ? effectivePreset.outputGainOverride
-        : savedOutputGain;
-      currentSettings.enabled = savedEnabled;
-      updateTabSettings();
-    }
-    await chrome.storage.local.remove(['limitrPendingPreset']);
-  }
-
-  updateUI();
-  updateModeDisplay();
-  updateStatusIndicator();
-  setupEventListeners();
-  applyCollapseState();
-  setupCollapsibleSections();
-
-  try {
-    const crtResponse = await chrome.tabs.sendMessage(currentTabId, { action: 'get-crt-visual' });
-    if (crtResponse && crtResponse.enabled) {
-      crtVisualEnabled = true;
-      updateTvButtonState();
-    }
-  } catch (err) {}
-
-  await refreshAudibleTabs();
-  startReductionPolling();
-
-  // Restore transcriber state if active
-  if (currentTabId) {
-    try {
-      const status = mixerMode
-        ? await sendToBackground({
-            action: 'get-transcription-status',
-            tabId: currentTabId
-          })
-        : await chrome.tabs.sendMessage(currentTabId, {
-            action: 'fallback-get-transcription-status',
-            tabId: currentTabId
-          });
-      if (status.active) {
-        transcriberActive = true;
-        updateTranscriberUI('active', 'On');
-      } else if (status.loading) {
-        transcriberLoading = true;
-        updateTranscriberUI('loading', 'Loading...');
-      }
-    } catch (e) {}
-  }
 }
 
-async function sendToBackground(message) {
+// ---------- messaging ----------
+function toBackground(message) {
   return chrome.runtime.sendMessage({ ...message, target: 'background' });
 }
 
-async function getCapabilities() {
-  try {
-    const response = await sendToBackground({ action: 'get-capabilities' });
-    return { exclusiveMode: response?.exclusiveMode !== false };
-  } catch (e) {
-    return { exclusiveMode: true };
-  }
+// ---------- persistence ----------
+let saveTimer = null;
+function commitSettings() {
+  state.preset = S.matchPreset(state.settings, state.custom);
+  renderPresets();
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    chrome.storage.local.set({ [K.settings]: state.settings, [K.preset]: state.preset });
+  }, 40);
 }
 
-async function initCapture() {
-  if (!currentTabId) return false;
-
-  try {
-    const response = await sendToBackground({ action: 'init-capture', tabId: currentTabId });
-    if (response.success) {
-      isCapturing = true;
-      currentSettings = { ...defaults, ...response.settings };
-      updateUI();
-      return true;
-    } else {
-      console.error('Failed to init capture:', response.error);
-      return false;
-    }
-  } catch (error) {
-    console.error('Error initializing capture:', error);
-    return false;
-  }
+function saveUi() {
+  chrome.storage.local.set({ [K.ui]: state.ui });
 }
 
-async function initFallbackCapture() {
-  if (!currentTabId) return false;
-  if (!currentSettings.enabled) return disableExistingFallbackCapture();
-
-  try {
-    let alreadyInjected = false;
-    try {
-      const response = await chrome.tabs.sendMessage(currentTabId, { action: 'fallback-ping' });
-      if (response && response.active) {
-        alreadyInjected = true;
-        isCapturing = true;
-        if (response.settings) {
-          currentSettings = { ...defaults, ...response.settings };
-        }
-      }
-    } catch (e) {}
-
-    if (!alreadyInjected) {
-      // Inject bridge (ISOLATED) + audio processor (MAIN world)
-      await chrome.scripting.executeScript({
-        target: { tabId: currentTabId },
-        files: ['content-bridge.js']
-      });
-      await chrome.scripting.executeScript({
-        target: { tabId: currentTabId },
-        world: 'MAIN',
-        files: ['content-audio.js']
-      });
-      isCapturing = true;
-
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      const stored = await chrome.storage.local.get(['limitrFallbackSettings', 'limitrCurrentSettings']);
-      currentSettings = {
-        ...defaults,
-        ...(stored.limitrFallbackSettings || {}),
-        ...(stored.limitrCurrentSettings || {})
-      };
-
-      // Ensure the content script has the correct enabled state
-      currentSettings.enabled = (await chrome.storage.local.get(['limitrGlobalEnabled'])).limitrGlobalEnabled !== false;
-    }
-
-    currentSettings.duckingEnabled = false;
-    await updateFallbackSettings();
-
-    updateUI();
-    return true;
-  } catch (error) {
-    console.error('Error initializing fallback capture:', error);
-    return false;
-  }
+function setSetting(key, value) {
+  state.settings = S.normalize({ ...state.settings, [key]: value });
+  commitSettings();
 }
 
-async function disableExistingFallbackCapture() {
-  if (!currentTabId) return false;
-
-  try {
-    const response = await chrome.tabs.sendMessage(currentTabId, { action: 'fallback-ping' });
-    if (response && response.active) {
-      if (response.settings) {
-        currentSettings = { ...defaults, ...response.settings, enabled: false };
-      }
-      await chrome.tabs.sendMessage(currentTabId, {
-        action: 'fallback-update-settings',
-        settings: { enabled: false, duckingEnabled: false }
-      });
-    }
-  } catch (e) {}
-
-  isCapturing = false;
-  return false;
-}
-
-async function updateFallbackSettings() {
-  if (!currentTabId) return;
-
-  try {
-    await chrome.tabs.sendMessage(currentTabId, {
-      action: 'fallback-update-settings',
-      settings: { ...currentSettings, duckingEnabled: false }
-    });
-  } catch (err) {
-    console.error('Failed to update fallback settings:', err);
-  }
-}
-
-async function updateTabSettings() {
-  if (!currentTabId) return;
-
-  // Persist current settings so autoinit can use them for new tabs
-  chrome.storage.local.set({ limitrCurrentSettings: currentSettings });
-
-  if (!isCapturing) return;
-
-  if (mixerMode) {
-    await sendToBackground({
-      action: 'update-settings',
-      tabId: currentTabId,
-      settings: currentSettings
-    });
-  } else {
-    await updateFallbackSettings();
-  }
-}
-
-async function setEnabled(enabled) {
-  currentSettings.enabled = enabled;
-
-  // Persist global enabled state so background can auto-activate on new tabs
-  await chrome.storage.local.set({ limitrGlobalEnabled: enabled });
-
-  if (mixerMode) {
-    if (enabled && !isCapturing) {
-      await initCapture();
-    } else if (isCapturing) {
-      await sendToBackground({
-        action: 'set-enabled',
-        tabId: currentTabId,
-        enabled: enabled
-      });
-    }
-  } else {
-    if (enabled && !isCapturing) {
-      await initFallbackCapture();
-    } else if (isCapturing) {
-      await updateFallbackSettings();
-    }
-  }
-
-  updateStatusIndicator();
-}
-
-async function refreshAudibleTabs() {
-  try {
-    const response = await sendToBackground({ action: 'get-audible-tabs' });
-    if (response.success) {
-      audibleTabs = response.tabs;
-    }
-
-    const processingResponse = await sendToBackground({ action: 'get-processing-tabs' });
-    if (processingResponse.success) {
-      processingTabIds = processingResponse.tabIds;
-    }
-
-    const volumesResponse = await sendToBackground({ action: 'get-all-volumes' });
-    if (volumesResponse.success && volumesResponse.volumes) {
-      for (const [tabId, volume] of Object.entries(volumesResponse.volumes)) {
-        tabVolumes[parseInt(tabId)] = volume;
-      }
-    }
-
-    updateMixerList();
-  } catch (error) {
-    console.error('Error refreshing tabs:', error);
-  }
-}
-
-function updateUI() {
-  elements.enabled.checked = currentSettings.enabled;
-
-  // Section toggles
-  if (elements.compressorToggle) {
-    elements.compressorToggle.checked = currentSettings.compressorEnabled;
-  }
-  if (elements.compressorLabel) {
-    elements.compressorLabel.textContent = currentSettings.compressorEnabled ? 'On' : 'Off';
-    elements.compressorLabel.classList.toggle('active', currentSettings.compressorEnabled);
-  }
-  if (elements.gainToggle) {
-    elements.gainToggle.checked = currentSettings.gainEnabled;
-  }
-  if (elements.gainLabel) {
-    elements.gainLabel.textContent = currentSettings.gainEnabled ? 'On' : 'Off';
-    elements.gainLabel.classList.toggle('active', currentSettings.gainEnabled);
-  }
-  if (elements.effectsToggle) {
-    elements.effectsToggle.checked = currentSettings.effectsEnabled;
-  }
-  if (elements.effectsLabel) {
-    elements.effectsLabel.textContent = currentSettings.effectsEnabled ? 'On' : 'Off';
-    elements.effectsLabel.classList.toggle('active', currentSettings.effectsEnabled);
-  }
-  if (elements.filtersToggle) {
-    elements.filtersToggle.checked = currentSettings.filtersEnabled;
-  }
-  if (elements.filtersLabel) {
-    elements.filtersLabel.textContent = currentSettings.filtersEnabled ? 'On' : 'Off';
-    elements.filtersLabel.classList.toggle('active', currentSettings.filtersEnabled);
-  }
-
-  // Simple mode controls
-  if (elements.outputGainSimple) {
-    elements.outputGainSimple.value = currentSettings.outputGain;
-    elements.outputGainSimpleValue.textContent = formatGain(currentSettings.outputGain);
-  }
-
-  // Advanced controls
-  if (elements.threshold) {
-    elements.threshold.value = currentSettings.threshold;
-    elements.thresholdValue.textContent = `${currentSettings.threshold} dB`;
-  }
-  if (elements.ratio) {
-    elements.ratio.value = currentSettings.ratio;
-    elements.ratioValue.textContent = `${currentSettings.ratio}:1`;
-  }
-  if (elements.knee) {
-    elements.knee.value = currentSettings.knee;
-    elements.kneeValue.textContent = `${currentSettings.knee} dB`;
-  }
-  if (elements.attack) {
-    elements.attack.value = currentSettings.attack;
-    elements.attackValue.textContent = `${currentSettings.attack} ms`;
-  }
-  if (elements.release) {
-    elements.release.value = currentSettings.release;
-    elements.releaseValue.textContent = `${currentSettings.release} ms`;
-  }
-  if (elements.makeupGain) {
-    elements.makeupGain.value = currentSettings.makeupGain;
-    elements.makeupGainValue.textContent = `${currentSettings.makeupGain} dB`;
-  }
-  if (elements.outputGain) {
-    elements.outputGain.value = currentSettings.outputGain;
-    elements.outputGainValue.textContent = formatGain(currentSettings.outputGain);
-  }
-  if (elements.noiseLevel) {
-    elements.noiseLevel.value = currentSettings.noiseLevel;
-    elements.noiseLevelValue.textContent = formatNoiseLevel(currentSettings.noiseLevel);
-  }
-  if (elements.noiseType) {
-    elements.noiseType.value = currentSettings.noiseType || 'brown';
-  }
-
-  // 3-Band Multiband controls
-  if (elements.multibandToggle) {
-    elements.multibandToggle.checked = currentSettings.multibandEnabled;
-  }
-  if (elements.multibandLabel) {
-    elements.multibandLabel.textContent = currentSettings.multibandEnabled ? 'On' : 'Off';
-    elements.multibandLabel.classList.toggle('active', currentSettings.multibandEnabled);
-  }
-  // Multiband body visibility now handled by collapsible-section CSS
-  // Crossovers
-  if (elements.crossover1) {
-    elements.crossover1.value = currentSettings.crossover1;
-    elements.crossover1Value.textContent = `${currentSettings.crossover1} Hz`;
-  }
-  if (elements.crossover2) {
-    elements.crossover2.value = currentSettings.crossover2;
-    elements.crossover2Value.textContent = `${(currentSettings.crossover2 / 1000).toFixed(1)}k Hz`;
-  }
-  // Per-band thresholds
-  if (elements.subThreshold) {
-    elements.subThreshold.value = currentSettings.subThreshold;
-    elements.subThresholdValue.textContent = `${currentSettings.subThreshold} dB`;
-  }
-  if (elements.midThreshold) {
-    elements.midThreshold.value = currentSettings.midThreshold;
-    elements.midThresholdValue.textContent = `${currentSettings.midThreshold} dB`;
-  }
-  if (elements.highThreshold) {
-    elements.highThreshold.value = currentSettings.highThreshold;
-    elements.highThresholdValue.textContent = `${currentSettings.highThreshold} dB`;
-  }
-  // Per-band gains
-  if (elements.subGain) {
-    elements.subGain.value = currentSettings.subGain;
-    elements.subGainValue.textContent = formatGain(currentSettings.subGain);
-  }
-  if (elements.midGain) {
-    elements.midGain.value = currentSettings.midGain;
-    elements.midGainValue.textContent = formatGain(currentSettings.midGain);
-  }
-  if (elements.highGain) {
-    elements.highGain.value = currentSettings.highGain;
-    elements.highGainValue.textContent = formatGain(currentSettings.highGain);
-  }
-
-  // Bass/Treble Cut filters
-  if (elements.bassCutFreq) {
-    elements.bassCutFreq.value = currentSettings.bassCutFreq;
-    elements.bassCutFreqValue.textContent = currentSettings.bassCutFreq <= 20 ? 'Off' : `${currentSettings.bassCutFreq} Hz`;
-  }
-  if (elements.trebleCutFreq) {
-    elements.trebleCutFreq.value = currentSettings.trebleCutFreq;
-    const v = currentSettings.trebleCutFreq;
-    elements.trebleCutFreqValue.textContent = v >= 22050 ? 'Off' : v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v} Hz`;
-  }
-
-  // AI Noise Suppression
-  if (elements.noiseSuppressionToggle) {
-    elements.noiseSuppressionToggle.checked = currentSettings.noiseSuppressionEnabled;
-  }
-  if (elements.noiseSuppressionLabel) {
-    elements.noiseSuppressionLabel.textContent = currentSettings.noiseSuppressionEnabled ? 'On' : 'Off';
-    elements.noiseSuppressionLabel.classList.toggle('active', currentSettings.noiseSuppressionEnabled);
-  }
-  // Simple mode ANC sync
-  if (elements.noiseSuppressionToggleSimple) {
-    elements.noiseSuppressionToggleSimple.checked = currentSettings.noiseSuppressionEnabled;
-  }
-  if (elements.noiseSuppressionLabelSimple) {
-    elements.noiseSuppressionLabelSimple.textContent = currentSettings.noiseSuppressionEnabled ? 'On' : 'Off';
-    elements.noiseSuppressionLabelSimple.classList.toggle('active', currentSettings.noiseSuppressionEnabled);
-  }
-
-  // Limiter
-  if (elements.limiterToggle) {
-    elements.limiterToggle.checked = currentSettings.limiterEnabled;
-  }
-  if (elements.limiterLabel) {
-    elements.limiterLabel.textContent = currentSettings.limiterEnabled ? 'On' : 'Off';
-    elements.limiterLabel.classList.toggle('active', currentSettings.limiterEnabled);
-  }
-  if (elements.limiterThreshold) {
-    elements.limiterThreshold.value = currentSettings.limiterThreshold;
-    elements.limiterThresholdValue.textContent = `${currentSettings.limiterThreshold} dB`;
-  }
-
-  // Soft Clipper
-  if (elements.softClipToggle) {
-    elements.softClipToggle.checked = currentSettings.softClipEnabled;
-  }
-  if (elements.softClipDrive) {
-    elements.softClipDrive.value = currentSettings.softClipDrive || 0;
-    elements.softClipDriveValue.textContent = `${currentSettings.softClipDrive || 0} dB`;
-  }
-  if (elements.softClipDriveGroup) {
-    elements.softClipDriveGroup.style.display = currentSettings.softClipEnabled ? '' : 'none';
-  }
-
-  // Mono-to-Stereo fixer
-  if (elements.monoMixToggle) {
-    elements.monoMixToggle.checked = currentSettings.monoMixEnabled;
-  }
-  if (elements.monoMixToggleSimple) {
-    elements.monoMixToggleSimple.checked = currentSettings.monoMixEnabled;
-  }
-  if (elements.monoMixLabel) {
-    elements.monoMixLabel.textContent = currentSettings.monoMixEnabled ? 'On' : 'Off';
-    elements.monoMixLabel.classList.toggle('active', currentSettings.monoMixEnabled);
-  }
-
-  // Noise Gate
-  if (elements.gateToggle) {
-    elements.gateToggle.checked = currentSettings.gateEnabled;
-  }
-  if (elements.gateLabel) {
-    elements.gateLabel.textContent = currentSettings.gateEnabled ? 'On' : 'Off';
-    elements.gateLabel.classList.toggle('active', currentSettings.gateEnabled);
-  }
-  if (elements.gateThreshold) {
-    elements.gateThreshold.value = currentSettings.gateThreshold;
-    elements.gateThresholdValue.textContent = `${currentSettings.gateThreshold} dB`;
-  }
-  if (elements.gateHold) {
-    elements.gateHold.value = currentSettings.gateHold;
-    elements.gateHoldValue.textContent = `${currentSettings.gateHold} ms`;
-  }
-  if (elements.gateRelease) {
-    elements.gateRelease.value = currentSettings.gateRelease;
-    elements.gateReleaseValue.textContent = `${currentSettings.gateRelease} ms`;
-  }
-
-  // Audio Ducking
-  if (elements.duckingToggle) {
-    elements.duckingToggle.checked = currentSettings.duckingEnabled;
-  }
-  if (elements.duckingLabel) {
-    elements.duckingLabel.textContent = currentSettings.duckingEnabled ? 'On' : 'Off';
-    elements.duckingLabel.classList.toggle('active', currentSettings.duckingEnabled);
-  }
-  if (elements.duckingThreshold) {
-    elements.duckingThreshold.value = currentSettings.duckingThreshold;
-    elements.duckingThresholdValue.textContent = `${currentSettings.duckingThreshold} dB`;
-  }
-  if (elements.duckingAmount) {
-    elements.duckingAmount.value = currentSettings.duckingAmount;
-    elements.duckingAmountValue.textContent = `${currentSettings.duckingAmount} dB`;
-  }
-  if (elements.duckingRelease) {
-    elements.duckingRelease.value = currentSettings.duckingRelease;
-    elements.duckingReleaseValue.textContent = `${currentSettings.duckingRelease} ms`;
-  }
-
-  // Auto-Gain
-  if (elements.autoGainToggle) {
-    elements.autoGainToggle.checked = currentSettings.autoGainEnabled;
-  }
-  if (elements.autoGainLabel) {
-    elements.autoGainLabel.textContent = currentSettings.autoGainEnabled ? 'On' : 'Off';
-    elements.autoGainLabel.classList.toggle('active', currentSettings.autoGainEnabled);
-  }
-  if (elements.autoGainTarget) {
-    elements.autoGainTarget.value = currentSettings.autoGainTarget;
-    elements.autoGainTargetValue.textContent = `${currentSettings.autoGainTarget} dB`;
-  }
-  if (elements.autoGainSpeed) {
-    elements.autoGainSpeed.value = currentSettings.autoGainSpeed || 'normal';
-  }
-
-  // 5-Band EQ controls
-  if (elements.eqToggle) {
-    elements.eqToggle.checked = currentSettings.eqEnabled;
-  }
-  if (elements.eqLabel) {
-    elements.eqLabel.textContent = currentSettings.eqEnabled ? 'On' : 'Off';
-    elements.eqLabel.classList.toggle('active', currentSettings.eqEnabled);
-  }
-  // EQ body visibility now handled by collapsible-section CSS
-
-  // EQ band sliders
-  for (let i = 1; i <= 5; i++) {
-    const freqEl = elements[`eq${i}Freq`];
-    const freqValEl = elements[`eq${i}FreqValue`];
-    const gainEl = elements[`eq${i}Gain`];
-    const gainValEl = elements[`eq${i}GainValue`];
-    const typeEl = elements[`eq${i}Type`];
-
-    if (freqEl) {
-      freqEl.value = currentSettings[`eq${i}Freq`];
-      freqValEl.textContent = formatFreq(currentSettings[`eq${i}Freq`]);
-    }
-    if (gainEl) {
-      gainEl.value = currentSettings[`eq${i}Gain`];
-      gainValEl.textContent = formatGain(currentSettings[`eq${i}Gain`]);
-    }
-    if (typeEl) {
-      typeEl.value = currentSettings[`eq${i}Type`];
-    }
-  }
-
-  // Update EQ canvas
-  if (currentSettings.eqEnabled && elements.eqCanvas) {
-    drawEqCurve();
-  }
-
-  updatePresetButtons();
-}
-
-function formatGain(value) {
-  if (value > 0) return `+${value} dB`;
-  if (value < 0) return `${value} dB`;
-  return '0 dB';
-}
-
-function formatFreq(value) {
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(1)}k`;
-  }
-  return `${Math.round(value)} Hz`;
-}
-
-function formatNoiseLevel(value) {
-  if (value <= 0) return 'Off';
-  return `${Math.round(value * 100)}%`;
-}
-
-function updateModeDisplay() {
-  if (elements.modeToggle) elements.modeToggle.checked = advancedMode;
-  if (elements.modeLabel) elements.modeLabel.textContent = advancedMode ? 'Advanced' : 'Simple';
-  if (elements.simpleControls) elements.simpleControls.style.display = advancedMode ? 'none' : 'block';
-  if (elements.advancedControls) elements.advancedControls.style.display = advancedMode ? 'block' : 'none';
-
-  // Update mode indicator and exclusive features
-  updateExclusiveFeatureVisibility();
-}
-
-function updateExclusiveFeatureVisibility() {
-  // Update mode indicator badge
-  if (elements.modeBadge) {
-    if (mixerMode) {
-      elements.modeBadge.textContent = 'Exclusive';
-      elements.modeBadge.classList.remove('regular');
-      elements.modeBadge.classList.add('exclusive');
-    } else {
-      elements.modeBadge.textContent = 'Regular';
-      elements.modeBadge.classList.remove('exclusive');
-      elements.modeBadge.classList.add('regular');
-    }
-  }
-
-  if (elements.modeNote) {
-    if (!exclusiveModeSupported) {
-      elements.modeNote.textContent = 'Regular + core AI features';
-      elements.modeNote.classList.remove('exclusive');
-    } else if (mixerMode) {
-      elements.modeNote.textContent = 'AI Denoise • AGC • No fullscreen';
-      elements.modeNote.classList.add('exclusive');
-    } else {
-      elements.modeNote.textContent = 'Fullscreen compatible';
-      elements.modeNote.classList.remove('exclusive');
-    }
-  }
-
-  // Update exclusive features group
-  if (elements.exclusiveFeaturesGroup) {
-    elements.exclusiveFeaturesGroup.classList.toggle('unavailable', false);
-  }
-
-  // Update simple mode ANC row
-  if (elements.simpleAncRow) {
-    elements.simpleAncRow.classList.toggle('unavailable', false);
-  }
-
-  // Update simple mode transcriber row
-  if (elements.simpleTranscriberRow) {
-    elements.simpleTranscriberRow.classList.toggle('unavailable', false);
-  }
-
-  if (elements.exclusiveBadge) {
-    if (!exclusiveModeSupported) {
-      elements.exclusiveBadge.textContent = 'Core Features Available';
-      elements.exclusiveBadge.classList.remove('active');
-    } else if (mixerMode) {
-      elements.exclusiveBadge.textContent = 'Active';
-      elements.exclusiveBadge.classList.add('active');
-    } else {
-      elements.exclusiveBadge.textContent = 'Core Features Available';
-      elements.exclusiveBadge.classList.remove('active');
-    }
-  }
-
-  if (elements.transcriberToggle) elements.transcriberToggle.disabled = false;
-  if (elements.transcriberToggleSimple) elements.transcriberToggleSimple.disabled = false;
-}
-
-function updateMixerAvailability() {
-  const mixerSection = document.querySelector('.mixer-section');
-  if (mixerSection) {
-    if (!exclusiveModeSupported) {
-      mixerSection.classList.add('disabled');
-      mixerSection.title = 'Exclusive mode requires Chrome offscreen/tabCapture APIs';
-    } else if (mixerMode) {
-      mixerSection.classList.remove('disabled');
-      mixerSection.title = '';
-    } else {
-      mixerSection.classList.add('disabled');
-      mixerSection.title = 'Enable Mixer mode to control multiple tabs';
-    }
-  }
-}
-
-function updateStatusIndicator() {
-  const statusEl = elements.status;
-  const textEl = statusEl?.querySelector('.status-text');
-
-  if (currentSettings.enabled && isCapturing) {
-    statusEl?.classList.add('active');
-    if (textEl) textEl.textContent = mixerMode ? 'Mix' : 'On';
-  } else {
-    statusEl?.classList.remove('active');
-    if (textEl) textEl.textContent = 'Off';
-  }
-
-  updateIconBadge();
-}
-
-function updateIconBadge() {
-  const active = currentSettings.enabled && isCapturing;
-  let iconSet;
-  if (!active) {
-    iconSet = {
-      16: 'icons/icon16-gray.png',
-      32: 'icons/icon32-gray.png',
-      48: 'icons/icon48-gray.png',
-      128: 'icons/icon128-gray.png'
-    };
-  } else if (mixerMode) {
-    // Gold for exclusive mode
-    iconSet = {
-      16: 'icons/icon16-active.png',
-      32: 'icons/icon32-active.png',
-      48: 'icons/icon48-active.png',
-      128: 'icons/icon128-active.png'
-    };
-  } else {
-    // Purple for regular (non-exclusive) mode
-    iconSet = {
-      16: 'icons/icon16.png',
-      32: 'icons/icon32.png',
-      48: 'icons/icon48.png',
-      128: 'icons/icon128.png'
-    };
-  }
-  chrome.action.setIcon({ path: iconSet });
-}
-
-function updatePresetButtons() {
-  elements.presetBtns.forEach(btn => {
-    const presetName = btn.dataset.preset;
-    const effectivePreset = getEffectivePreset(presetName);
-    if (!effectivePreset) return;
-    const presetSettings = effectivePreset.settings;
-
-    const isActive = presetKeys.every(key => {
-      if (!(key in presetSettings)) return true;
-      return currentSettings[key] === presetSettings[key];
-    });
-    btn.classList.toggle('active', isActive);
-  });
-}
-
-let tabVolumes = {};
-
-function updateMixerList() {
-  if (!elements.mixerList) return;
-
-  const otherTabs = audibleTabs.filter(tab => tab.id !== currentTabId);
-
-  if (elements.mediaCount) {
-    elements.mediaCount.textContent = otherTabs.length;
-  }
-
-  if (otherTabs.length === 0) {
-    elements.mixerList.innerHTML = '<div class="mixer-empty">No other tabs playing audio</div>';
-    return;
-  }
-
-  const html = otherTabs.map(tab => {
-    const isProcessing = processingTabIds.includes(tab.id);
-    const statusClass = isProcessing ? 'playing' : '';
-    const favicon = tab.favIconUrl || 'icons/icon16.png';
-    const title = tab.title || 'Unknown tab';
-    const truncatedTitle = title.length > 35 ? title.substring(0, 32) + '...' : title;
-    const tabVolume = tabVolumes[tab.id] || 0;
-
-    return `
-      <div class="mixer-item" data-tab-id="${tab.id}">
-        <div class="mixer-item-header">
-          <img src="${favicon}" class="mixer-favicon" onerror="this.src='icons/icon16.png'">
-          <span class="mixer-name" title="${title}">${truncatedTitle}</span>
-          <span class="mixer-status ${statusClass}">${isProcessing ? '●' : '○'}</span>
-        </div>
-        <div class="mixer-volume">
-          <input type="range" class="mixer-slider" min="-24" max="12" value="${tabVolume}" step="1" data-tab-id="${tab.id}">
-          <span class="mixer-value">${formatGain(tabVolume)}</span>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  elements.mixerList.innerHTML = html;
-
-  elements.mixerList.querySelectorAll('.mixer-item-header').forEach(header => {
-    header.addEventListener('click', async () => {
-      const tabId = parseInt(header.parentElement.dataset.tabId);
-      await chrome.tabs.update(tabId, { active: true });
-      const tab = await chrome.tabs.get(tabId);
-      await chrome.windows.update(tab.windowId, { focused: true });
-    });
-  });
-
-  elements.mixerList.querySelectorAll('.mixer-slider').forEach(slider => {
-    slider.addEventListener('input', async (e) => {
-      const tabId = parseInt(e.target.dataset.tabId);
-      const volume = parseInt(e.target.value);
-      tabVolumes[tabId] = volume;
-      e.target.parentElement.querySelector('.mixer-value').textContent = formatGain(volume);
-
-      await sendToBackground({
-        action: 'set-tab-volume',
-        tabId,
-        volume
-      });
-    });
-
-    slider.addEventListener('click', (e) => e.stopPropagation());
-  });
-}
-
-function updateMeter(reductionDb) {
-  if (!elements.reductionMeter || !elements.reductionValue) return;
-  const percentage = Math.min(100, Math.max(0, (Math.abs(reductionDb) / 30) * 100));
-  elements.reductionMeter.style.width = `${percentage}%`;
-  elements.reductionValue.textContent = `${reductionDb.toFixed(1)} dB`;
-}
-
-function updateLufsMeter(lufs) {
-  if (!elements.lufsMeter || !elements.lufsValue) return;
-  if (!isFinite(lufs) || lufs < -60) {
-    elements.lufsMeter.style.width = '0%';
-    elements.lufsValue.textContent = '--';
-    return;
-  }
-  // Map LUFS range: -60 to 0 → 0% to 100%
-  const percentage = Math.min(100, Math.max(0, ((lufs + 60) / 60) * 100));
-  elements.lufsMeter.style.width = `${percentage}%`;
-  elements.lufsValue.textContent = `${lufs.toFixed(1)}`;
-}
-
-function applyCollapseState() {
-  const sections = {
-    exclusive: elements.exclusiveFeaturesGroup,
-    limiter: elements.limiterSection,
-    compressor: elements.compressorSection,
-    gain: elements.gainSection,
-    effects: elements.effectsSection,
-    filters: elements.filtersSection,
-    eq: elements.eqSection,
-    multiband: elements.multibandSection
-  };
-
-  Object.entries(sections).forEach(([key, el]) => {
-    if (el) el.classList.toggle('collapsed', collapseState[key]);
-  });
-}
-
-function setupCollapsibleSections() {
-  const sections = [
-    { id: 'exclusiveFeaturesGroup', key: 'exclusive' },
-    { id: 'limiterSection', key: 'limiter' },
-    { id: 'compressorSection', key: 'compressor' },
-    { id: 'gainSection', key: 'gain' },
-    { id: 'effectsSection', key: 'effects' },
-    { id: 'filtersSection', key: 'filters' },
-    { id: 'eqSection', key: 'eq' },
-    { id: 'multibandSection', key: 'multiband' }
+// ---------- presets ----------
+function presetEntries() {
+  return [
+    ...S.PRESET_ORDER.map(id => [id, S.PRESETS[id], false]),
+    ...Object.entries(state.custom).map(([id, p]) => [id, p, true])
   ];
-
-  sections.forEach(({ id, key }) => {
-    const section = document.getElementById(id);
-    if (!section) return;
-
-    const header = section.querySelector('.section-header');
-    if (!header) return;
-
-    header.addEventListener('click', (e) => {
-      // Don't collapse when clicking toggle or input elements
-      if (e.target.closest('.toggle') || e.target.closest('input')) return;
-
-      collapseState[key] = !collapseState[key];
-      section.classList.toggle('collapsed', collapseState[key]);
-      chrome.storage.local.set({ limitrCollapseState: collapseState });
-    });
-  });
 }
 
-function setupEventListeners() {
-  elements.enabled.addEventListener('change', (e) => {
-    setEnabled(e.target.checked);
+function applyPreset(id) {
+  state.settings = S.applyPreset(state.settings, id, state.custom);
+  state.ui.basePreset = id;
+  saveUi();
+  commitSettings();
+  renderControls();
+}
+
+function renderPresets() {
+  const grid = $('presetGrid');
+  grid.replaceChildren();
+  for (const id of S.PRESET_ORDER) {
+    const preset = S.PRESETS[id];
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'preset';
+    button.setAttribute('role', 'radio');
+    button.setAttribute('aria-checked', String(state.preset === id));
+    button.title = preset.desc || '';
+    button.append(lineIcon(PRESET_ICONS[id] || '', 'preset-icon'), preset.name);
+    button.addEventListener('click', () => applyPreset(id));
+    grid.append(button);
+  }
+  renderPresetChips();
+  renderMiniPreset();
+  renderSavedPresets();
+
+  const explainer = $('presetExplainer');
+  explainer.replaceChildren();
+  if (state.preset) {
+    explainer.textContent = EXPLAINERS[state.preset] || 'Your saved preset.';
+  } else {
+    const base = S.PRESETS[state.ui.basePreset] || state.custom[state.ui.basePreset];
+    explainer.append(base ? `Adjusted from ${base.name}. ` : 'Custom settings. ');
+    if (base) {
+      const reset = document.createElement('button');
+      reset.type = 'button';
+      reset.textContent = `Reset to ${base.name}`;
+      reset.addEventListener('click', () => applyPreset(state.ui.basePreset));
+      explainer.append(reset);
+    }
+  }
+}
+
+// Saved presets sit in one line of chips; whatever doesn't fit collapses into "+N"
+function renderPresetChips() {
+  const row = $('presetChips');
+  const entries = Object.entries(state.custom);
+  row.replaceChildren();
+  row.hidden = entries.length === 0;
+  if (!entries.length) return;
+
+  const chips = entries.map(([id, preset]) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.classList.toggle('on', state.preset === id);
+    const apply = document.createElement('button');
+    apply.type = 'button';
+    apply.className = 'chip-apply';
+    apply.textContent = preset.name;
+    apply.setAttribute('aria-pressed', String(state.preset === id));
+    apply.addEventListener('click', () => applyPreset(id));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'chip-remove';
+    remove.textContent = '\u00d7';
+    remove.setAttribute('aria-label', `Delete preset ${preset.name}`);
+    remove.addEventListener('click', () => deletePreset(id));
+    chip.append(apply, remove);
+    row.append(chip);
+    return chip;
   });
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'chip more';
+  more.hidden = true;
+  more.addEventListener('click', () => openScreen('finetune', 'savedPresets'));
+  row.append(more);
+  requestAnimationFrame(fitPresetChips);
+}
 
-  if (elements.modeToggle) {
-    elements.modeToggle.addEventListener('change', (e) => {
-      advancedMode = e.target.checked;
-      updateModeDisplay();
-      chrome.storage.local.set({ limitrAdvancedMode: advancedMode });
-    });
+// Hides chips from the end until the row fits, behind a "+N" chip. Only measurable while the main
+// screen is shown, so showScreen('main') calls it again.
+function fitPresetChips() {
+  const row = $('presetChips');
+  if (row.hidden || !row.clientWidth) return;
+  const chips = [...row.querySelectorAll('.chip:not(.more)')];
+  const more = row.querySelector('.chip.more');
+  chips.forEach(chip => { chip.hidden = false; });
+  more.hidden = true;
+  let hiddenCount = 0;
+  for (let i = chips.length - 1; i >= 0 && row.scrollWidth > row.clientWidth; i--) {
+    chips[i].hidden = true;
+    hiddenCount++;
+    more.hidden = false;
+    more.textContent = `+${hiddenCount}`;
+    more.setAttribute('aria-label', `${hiddenCount} more saved presets`);
   }
+}
 
-  if (elements.mixerModeToggle) {
-    elements.mixerModeToggle.addEventListener('change', async (e) => {
-      if (!exclusiveModeSupported) {
-        e.target.checked = false;
-        mixerMode = false;
-        return;
-      }
-
-      const newMixerMode = e.target.checked;
-
-      if (mixerMode && !newMixerMode) {
-        await sendToBackground({ action: 'cleanup-tab', tabId: currentTabId });
-      }
-
-      // Find the currently active preset so we can reapply it for the new mode
-      let activePreset = null;
-      if (elements.presetBtns) {
-        elements.presetBtns.forEach(btn => {
-          if (btn.classList.contains('active') && btn.dataset.preset !== 'off') {
-            activePreset = btn.dataset.preset;
-          }
-        });
-      }
-      if (activePreset) {
-        await chrome.storage.local.set({ limitrPendingPreset: activePreset });
-      }
-
-      await chrome.storage.local.set({ limitrMixerMode: newMixerMode });
-      window.location.reload();
-    });
+// Which preset Fine-tune is adjusting, shown in its live strip
+function renderMiniPreset() {
+  const el = $('miniPreset');
+  el.replaceChildren();
+  const current = S.PRESETS[state.preset] || state.custom[state.preset];
+  if (current) {
+    el.textContent = `${current.name} preset`;
+    return;
   }
-
-  if (elements.crtToggle) {
-    elements.crtToggle.addEventListener('change', (e) => {
-      setCrtVisual(e.target.checked);
-    });
+  const base = S.PRESETS[state.ui.basePreset] || state.custom[state.ui.basePreset];
+  el.append(base ? `Adjusted from ${base.name} \u00b7 ` : 'Custom settings');
+  if (base) {
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.textContent = 'Reset';
+    reset.addEventListener('click', () => applyPreset(state.ui.basePreset));
+    el.append(reset);
   }
+}
 
-  if (elements.mixerToggle) {
-    elements.mixerToggle.addEventListener('click', () => {
-      const panel = elements.mixerPanel;
-      const isExpanded = panel.style.display !== 'none';
-      panel.style.display = isExpanded ? 'none' : 'block';
-      elements.mixerToggle.classList.toggle('expanded', !isExpanded);
-      if (!isExpanded) refreshAudibleTabs();
-    });
+function renderSavedPresets() {
+  const list = $('savedPresetList');
+  list.replaceChildren();
+  const entries = Object.entries(state.custom);
+  if (!entries.length) {
+    const empty = document.createElement('li');
+    empty.className = 'empty';
+    empty.textContent = 'Nothing saved yet.';
+    list.append(empty);
+    return;
   }
-
-  // Simple mode controls
-  setupSlider('outputGainSimple', 'outputGain', 'outputGainSimpleValue', formatGain, false);
-
-  // Advanced controls
-  setupSlider('threshold', 'threshold', 'thresholdValue', v => `${v} dB`, true);
-  setupSlider('ratio', 'ratio', 'ratioValue', v => `${v}:1`, true);
-  setupSlider('knee', 'knee', 'kneeValue', v => `${v} dB`, true);
-  setupSlider('attack', 'attack', 'attackValue', v => `${v} ms`, true);
-  setupSlider('release', 'release', 'releaseValue', v => `${v} ms`, true);
-  setupSlider('makeupGain', 'makeupGain', 'makeupGainValue', v => `${v} dB`, true);
-  setupSlider('outputGain', 'outputGain', 'outputGainValue', formatGain, false);
-  setupSlider('noiseLevel', 'noiseLevel', 'noiseLevelValue', formatNoiseLevel, true);
-
-  if (elements.noiseType) {
-    elements.noiseType.addEventListener('change', (e) => {
-      currentSettings.noiseType = e.target.value;
-      updatePresetButtons();
-      updateTabSettings();
-    });
+  for (const [id, preset] of entries) {
+    const item = document.createElement('li');
+    const apply = document.createElement('button');
+    apply.type = 'button';
+    apply.className = 'saved-apply';
+    apply.textContent = preset.name;
+    apply.setAttribute('aria-pressed', String(state.preset === id));
+    apply.addEventListener('click', () => applyPreset(id));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'chip-remove';
+    remove.textContent = '\u00d7';
+    remove.setAttribute('aria-label', `Delete preset ${preset.name}`);
+    remove.addEventListener('click', () => deletePreset(id));
+    item.append(apply, remove);
+    list.append(item);
   }
+}
 
-  // Compressor toggle
-  if (elements.compressorToggle) {
-    elements.compressorToggle.addEventListener('change', (e) => {
-      currentSettings.compressorEnabled = e.target.checked;
-      if (e.target.checked && currentSettings.multibandEnabled) {
-        currentSettings.multibandEnabled = false;
-      }
-      if (elements.compressorSection) {
-        collapseState.compressor = !e.target.checked;
-        elements.compressorSection.classList.toggle('collapsed', collapseState.compressor);
-        chrome.storage.local.set({ limitrCollapseState: collapseState });
-      }
-      updateUI();
-      updateTabSettings();
-    });
+function deletePreset(id) {
+  delete state.custom[id];
+  chrome.storage.local.set({ [K.customPresets]: state.custom });
+  if (state.ui.basePreset === id) state.ui.basePreset = S.DEFAULT_PRESET;
+  commitSettings();
+}
+
+function savePreset(name) {
+  const id = `custom_${Date.now()}`;
+  const settings = { ...state.settings };
+  delete settings.volume;
+  state.custom[id] = { name, desc: 'Custom', settings };
+  chrome.storage.local.set({ [K.customPresets]: state.custom });
+  state.ui.basePreset = id;
+  saveUi();
+  commitSettings();
+}
+
+// ---------- sliders ----------
+const sliderBindings = [];
+
+function bindRange(input, output, key, format, mapping) {
+  const [min, max, step] = mapping ? [0, 1000, 1] : S.rangeFor(key);
+  input.min = min;
+  input.max = max;
+  input.step = step;
+  const toSlider = mapping ? mapping.toSlider : v => v;
+  const fromSlider = mapping ? mapping.fromSlider : v => v;
+  const paint = () => {
+    const value = state.settings[key];
+    input.value = toSlider(value);
+    input.style.setProperty('--fill', `${((toSlider(value) - min) / (max - min)) * 100}%`);
+    if (output) output.textContent = format(value);
+  };
+  input.addEventListener('input', () => {
+    setSetting(key, fromSlider(Number(input.value)));
+    paint();
+    if (key.startsWith('eq') || key === 'lowCut' || key === 'highCut') drawEqCurve();
+  });
+  sliderBindings.push(paint);
+  paint();
+}
+
+const logFreq = {
+  toSlider: f => Math.round(1000 * Math.log(f / 20) / Math.log(1000)),
+  fromSlider: v => Math.round(20 * Math.pow(1000, v / 1000))
+};
+
+function sliderRow(key, label, format, mapping) {
+  const row = document.createElement('div');
+  row.className = 'slider-row';
+  const id = `ctl-${key}`;
+  const labelEl = document.createElement('label');
+  labelEl.htmlFor = id;
+  labelEl.textContent = label;
+  const output = document.createElement('output');
+  output.htmlFor = id;
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.id = id;
+  row.append(labelEl, output, input);
+  bindRange(input, output, key, format, mapping);
+  return row;
+}
+
+const toggleBindings = [];
+
+function switchRow(key, label, note) {
+  const row = document.createElement('label');
+  row.className = 'toggle-row';
+  const text = document.createElement('span');
+  text.className = 'toggle-text';
+  const title = document.createElement('span');
+  title.textContent = label;
+  text.append(title);
+  if (note) {
+    const small = document.createElement('small');
+    small.textContent = note;
+    text.append(small);
   }
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.setAttribute('role', 'switch');
+  const sw = document.createElement('span');
+  sw.className = 'switch';
+  sw.setAttribute('aria-hidden', 'true');
+  row.append(text, input, sw);
+  input.addEventListener('change', () => {
+    setSetting(key, input.checked);
+    renderControls();
+  });
+  toggleBindings.push(() => { input.checked = Boolean(state.settings[key]); });
+  return row;
+}
 
-  // Gain toggle (controls makeup gain bypass)
-  if (elements.gainToggle) {
-    elements.gainToggle.addEventListener('change', (e) => {
-      currentSettings.gainEnabled = e.target.checked;
-      if (elements.gainSection) {
-        collapseState.gain = !e.target.checked;
-        elements.gainSection.classList.toggle('collapsed', collapseState.gain);
-        chrome.storage.local.set({ limitrCollapseState: collapseState });
-      }
-      updateUI();
-      updateTabSettings();
-    });
+function selectRow(key, label, options) {
+  const row = document.createElement('label');
+  row.className = 'select-row';
+  const text = document.createElement('span');
+  text.textContent = label;
+  const select = document.createElement('select');
+  for (const [value, name] of options) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = name;
+    select.append(option);
   }
+  select.addEventListener('change', () => {
+    setSetting(key, select.value);
+    if (key.startsWith('eq')) drawEqCurve();
+  });
+  toggleBindings.push(() => { select.value = state.settings[key]; });
+  row.append(text, select);
+  return row;
+}
 
-  // Effects toggle
-  if (elements.effectsToggle) {
-    elements.effectsToggle.addEventListener('change', (e) => {
-      currentSettings.effectsEnabled = e.target.checked;
-      if (elements.effectsSection) {
-        collapseState.effects = !e.target.checked;
-        elements.effectsSection.classList.toggle('collapsed', collapseState.effects);
-        chrome.storage.local.set({ limitrCollapseState: collapseState });
-      }
-      updateUI();
-      updateTabSettings();
-    });
+// ---------- fine-tune drawer ----------
+// Line icons for the Fine-tune sections, keyed by section title
+const SECTION_ICONS = {
+  'Spike guard': '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M8.5 12.5c1-1.6 2-1.6 3 0s2 1.6 3 0"/>',
+  'Even out levels': '<path d="M4 8h16M4 16h16"/><circle cx="9" cy="8" r="2.2"/><circle cx="15" cy="16" r="2.2"/>',
+  'Peak limiter': '<path d="M4 6h16"/><path d="M4 18c3 0 3-8 6-8s3 8 6 8"/>',
+  'Tone': '<path d="M5 20V4M12 20V4M19 20V4"/><circle cx="5" cy="14" r="2"/><circle cx="12" cy="8" r="2"/><circle cx="19" cy="16" r="2"/>',
+  'Compressor': '<path d="M4 12h4l2-5 4 10 2-5h4"/>',
+  'Extras': '<path d="M12 4v4M12 16v4M4 12h4M16 12h4"/><circle cx="12" cy="12" r="2"/>'
+};
+
+const GROUPS = [
+  {
+    title: 'Spike guard',
+    toggle: 'guardEnabled',
+    note: 'Learns how loud the stream normally is and pulls sudden jumps back down.',
+    controls: [
+      ['guardHeadroom', 'Allow above normal', fmt.dbPlain],
+      ['guardCeiling', 'Never louder than', fmt.lufs],
+      ['guardRatio', 'Strength', fmt.ratio],
+      ['guardAttack', 'Reaction time', fmt.ms],
+      ['guardHold', 'Hold before recovering', fmt.ms],
+      ['guardRelease', 'Recovery time', fmt.ms]
+    ]
+  },
+  {
+    title: 'Even out levels',
+    toggle: 'levelEnabled',
+    note: 'Slowly moves every stream toward the same normal loudness.',
+    controls: [
+      ['levelTarget', 'Normal loudness', fmt.lufs],
+      ['levelMaxBoost', 'Most it may raise a quiet stream', fmt.dbPlain]
+    ]
+  },
+  {
+    title: 'Peak limiter',
+    toggle: 'limiterEnabled',
+    note: 'The last safety net: no single sample gets past this ceiling.',
+    controls: [
+      ['limiterCeiling', 'Ceiling', v => `${signed(v)} dBFS`],
+      ['limiterRelease', 'Recovery time', fmt.ms]
+    ]
+  },
+  {
+    title: 'Tone',
+    toggle: 'toneEnabled',
+    note: null,
+    eq: true,
+    controls: [
+      ['lowCut', 'Cut rumble below', fmt.lowCut],
+      ['highCut', 'Cut hiss above', fmt.highCut]
+    ]
+  },
+  {
+    title: 'Compressor',
+    toggle: 'compressorEnabled',
+    note: 'Classic compression for a denser sound. It never raises quiet audio.',
+    controls: [
+      ['compThreshold', 'Threshold', fmt.db],
+      ['compRatio', 'Ratio', v => `${trim(v)}:1`],
+      ['compKnee', 'Knee', fmt.dbPlain],
+      ['compAttack', 'Attack', fmt.ms],
+      ['compRelease', 'Release', fmt.ms],
+      ['compMakeup', 'Output gain', fmt.db]
+    ]
+  },
+  {
+    title: 'Extras',
+    controls: [['noiseLevel', 'Tape hiss', fmt.hiss]],
+    extras: true
   }
+];
 
-  // Filters toggle
-  if (elements.filtersToggle) {
-    elements.filtersToggle.addEventListener('change', (e) => {
-      currentSettings.filtersEnabled = e.target.checked;
-      if (elements.filtersSection) {
-        collapseState.filters = !e.target.checked;
-        elements.filtersSection.classList.toggle('collapsed', collapseState.filters);
-        chrome.storage.local.set({ limitrCollapseState: collapseState });
-      }
-      updateUI();
-      updateTabSettings();
+const groupBindings = [];
+
+function buildFineTune() {
+  const body = $('fineTuneBody');
+  const openGroups = state.ui.groups || {};
+  for (const group of GROUPS) {
+    const section = document.createElement('details');
+    section.className = 'group';
+    section.open = openGroups[group.title] ?? group.title === 'Spike guard';
+    const head = document.createElement('summary');
+    head.className = 'group-head';
+    const icon = document.createElement('span');
+    icon.className = 'gi';
+    icon.append(lineIcon(SECTION_ICONS[group.title] || '', 'gi-svg'));
+    const title = document.createElement('h3');
+    title.textContent = group.title;
+    head.append(icon, title);
+    section.append(head);
+
+    if (group.toggle) {
+      const toggle = switchRow(group.toggle, '', null);
+      toggle.querySelector('.toggle-text').remove();
+      toggle.querySelector('input').setAttribute('aria-label', group.title);
+      toggle.classList.add('compact');
+      head.append(toggle);
+      groupBindings.push(() => { section.dataset.off = String(!state.settings[group.toggle]); });
+    }
+    if (group.note) {
+      const note = document.createElement('p');
+      note.className = 'group-note';
+      note.textContent = group.note;
+      section.append(note);
+    }
+
+    const controls = document.createElement('div');
+    controls.className = 'group-controls';
+    for (const [key, label, format] of group.controls) controls.append(sliderRow(key, label, format));
+    if (group.eq) buildEq(controls);
+    if (group.extras) {
+      controls.append(selectRow('noiseType', 'Hiss character', [['brown', 'Soft rumble'], ['pink', 'Warm'], ['white', 'Bright']]));
+      controls.append(switchRow('monoEnabled', 'Fix one-sided audio', 'Plays mono or one-ear streams in both ears'));
+      controls.append(crtRow());
+    }
+    section.append(controls);
+    section.addEventListener('toggle', () => {
+      state.ui.groups = { ...(state.ui.groups || {}), [group.title]: section.open };
+      saveUi();
+      if (group.eq && section.open) drawEqCurve();
     });
+    body.append(section);
   }
+}
 
-  // 3-Band Multiband toggle
-  if (elements.multibandToggle) {
-    elements.multibandToggle.addEventListener('change', (e) => {
-      currentSettings.multibandEnabled = e.target.checked;
-      if (e.target.checked) {
-        // If enabling multiband, disable global compressor
-        currentSettings.compressorEnabled = false;
-      } else {
-        // If disabling multiband, re-enable global compressor
-        currentSettings.compressorEnabled = true;
-      }
-      // Auto-expand when toggled on, auto-collapse when off
-      if (elements.multibandSection) {
-        collapseState.multiband = !e.target.checked;
-        elements.multibandSection.classList.toggle('collapsed', collapseState.multiband);
-        chrome.storage.local.set({ limitrCollapseState: collapseState });
-      }
-      updateUI();
-      updateTabSettings();
-    });
-  }
+function crtRow() {
+  const row = switchRow('crt', 'CRT look on this tab', 'Scanlines and glow over videos');
+  // Not a stored setting: swap the generic handler for the per-tab overlay toggle
+  toggleBindings.pop();
+  const input = row.querySelector('input');
+  const fresh = input.cloneNode(true);
+  fresh.id = 'crt';
+  input.replaceWith(fresh);
+  fresh.addEventListener('change', event => setCrt(event.target.checked));
+  return row;
+}
 
-  // Multiband sliders
-  setupSlider('crossover1', 'crossover1', 'crossover1Value', v => `${v} Hz`, true);
-  setupSlider('crossover2', 'crossover2', 'crossover2Value', v => `${(v/1000).toFixed(1)}k Hz`, true);
-  setupSlider('subThreshold', 'subThreshold', 'subThresholdValue', v => `${v} dB`, true);
-  setupSlider('midThreshold', 'midThreshold', 'midThresholdValue', v => `${v} dB`, true);
-  setupSlider('highThreshold', 'highThreshold', 'highThresholdValue', v => `${v} dB`, true);
-  setupSlider('subGain', 'subGain', 'subGainValue', formatGain, true);
-  setupSlider('midGain', 'midGain', 'midGainValue', formatGain, true);
-  setupSlider('highGain', 'highGain', 'highGainValue', formatGain, true);
+// ---------- EQ ----------
+const EQ_TYPE_NAMES = [
+  ['lowshelf', 'Low shelf'], ['peaking', 'Bell'], ['highshelf', 'High shelf'],
+  ['highpass', 'High-pass'], ['lowpass', 'Low-pass'], ['notch', 'Notch']
+];
 
-  // Bass/Treble Cut filter sliders
-  const formatBassCut = v => v <= 20 ? 'Off' : `${v} Hz`;
-  const formatTrebleCut = v => v >= 22050 ? 'Off' : v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v} Hz`;
-  setupSlider('bassCutFreq', 'bassCutFreq', 'bassCutFreqValue', formatBassCut, true);
-  setupSlider('trebleCutFreq', 'trebleCutFreq', 'trebleCutFreqValue', formatTrebleCut, true);
-
-  // AI Noise Suppression toggle (Advanced)
-  if (elements.noiseSuppressionToggle) {
-    elements.noiseSuppressionToggle.addEventListener('change', (e) => {
-      currentSettings.noiseSuppressionEnabled = e.target.checked;
-      updateUI();
-      updateTabSettings();
-    });
-  }
-
-  // AI Noise Suppression toggle (Simple)
-  if (elements.noiseSuppressionToggleSimple) {
-    elements.noiseSuppressionToggleSimple.addEventListener('change', (e) => {
-      currentSettings.noiseSuppressionEnabled = e.target.checked;
-      updateUI();
-      updateTabSettings();
-    });
-  }
-
-  // Limiter toggle and threshold
-  if (elements.limiterToggle) {
-    elements.limiterToggle.addEventListener('change', (e) => {
-      currentSettings.limiterEnabled = e.target.checked;
-      updateUI();
-      updateTabSettings();
-    });
-  }
-  setupSlider('limiterThreshold', 'limiterThreshold', 'limiterThresholdValue', v => `${v} dB`, true);
-
-  // Soft Clipper toggle and drive
-  if (elements.softClipToggle) {
-    elements.softClipToggle.addEventListener('change', (e) => {
-      currentSettings.softClipEnabled = e.target.checked;
-      updateUI();
-      updateTabSettings();
-    });
-  }
-  setupSlider('softClipDrive', 'softClipDrive', 'softClipDriveValue', v => `${v} dB`, true);
-
-  // Mono-to-Stereo fixer toggle
-  if (elements.monoMixToggle) {
-    elements.monoMixToggle.addEventListener('change', (e) => {
-      currentSettings.monoMixEnabled = e.target.checked;
-      updateUI();
-      updateTabSettings();
-    });
-  }
-  if (elements.monoMixToggleSimple) {
-    elements.monoMixToggleSimple.addEventListener('change', (e) => {
-      currentSettings.monoMixEnabled = e.target.checked;
-      updateUI();
-      updateTabSettings();
-    });
-  }
-
-  // Auto-Gain toggle and target
-  if (elements.autoGainToggle) {
-    elements.autoGainToggle.addEventListener('change', (e) => {
-      currentSettings.autoGainEnabled = e.target.checked;
-      updateUI();
-      updateTabSettings();
-    });
-  }
-  setupSlider('autoGainTarget', 'autoGainTarget', 'autoGainTargetValue', v => `${v} dB`, true);
-
-  // Noise Gate toggle and threshold
-  if (elements.gateToggle) {
-    elements.gateToggle.addEventListener('change', (e) => {
-      currentSettings.gateEnabled = e.target.checked;
-      updateUI();
-      updateTabSettings();
-    });
-  }
-  setupSlider('gateThreshold', 'gateThreshold', 'gateThresholdValue', v => `${v} dB`, true);
-  setupSlider('gateHold', 'gateHold', 'gateHoldValue', v => `${v} ms`, true);
-  setupSlider('gateRelease', 'gateRelease', 'gateReleaseValue', v => `${v} ms`, true);
-
-  // Audio Ducking toggle
-  if (elements.duckingToggle) {
-    elements.duckingToggle.addEventListener('change', (e) => {
-      currentSettings.duckingEnabled = e.target.checked;
-      updateUI();
-      updateTabSettings();
-    });
-  }
-  setupSlider('duckingThreshold', 'duckingThreshold', 'duckingThresholdValue', v => `${v} dB`, true);
-  setupSlider('duckingAmount', 'duckingAmount', 'duckingAmountValue', v => `${v} dB`, true);
-  setupSlider('duckingRelease', 'duckingRelease', 'duckingReleaseValue', v => `${v} ms`, true);
-
-  // AGC Speed dropdown
-  if (elements.autoGainSpeed) {
-    elements.autoGainSpeed.addEventListener('change', (e) => {
-      currentSettings.autoGainSpeed = e.target.value;
-      updatePresetButtons();
-      updateTabSettings();
-    });
-  }
-
-  // Video Transcriber toggle (Advanced)
-  if (elements.transcriberToggle) {
-    elements.transcriberToggle.addEventListener('change', (e) => {
-      toggleTranscriber(e.target.checked);
-    });
-  }
-
-  // Video Transcriber toggle (Simple)
-  if (elements.transcriberToggleSimple) {
-    elements.transcriberToggleSimple.addEventListener('change', (e) => {
-      toggleTranscriber(e.target.checked);
-    });
-  }
-
-  // 5-Band EQ toggle
-  if (elements.eqToggle) {
-    elements.eqToggle.addEventListener('change', (e) => {
-      currentSettings.eqEnabled = e.target.checked;
-      // Auto-expand when toggled on, auto-collapse when off
-      if (elements.eqSection) {
-        collapseState.eq = !e.target.checked;
-        elements.eqSection.classList.toggle('collapsed', collapseState.eq);
-        chrome.storage.local.set({ limitrCollapseState: collapseState });
-      }
-      updateUI();
-      updateTabSettings();
-    });
-  }
-
-  // EQ band sliders and dropdowns
+function buildEq(container) {
+  const canvas = document.createElement('canvas');
+  canvas.className = 'eq-curve';
+  canvas.id = 'eqCurve';
+  canvas.width = 656;
+  canvas.height = 144;
+  container.append(canvas);
+  const bands = document.createElement('details');
+  bands.className = 'sub';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Equalizer bands';
+  bands.append(summary);
   for (let i = 1; i <= 5; i++) {
-    setupSlider(`eq${i}Freq`, `eq${i}Freq`, `eq${i}FreqValue`, formatFreq, true);
-    setupSlider(`eq${i}Gain`, `eq${i}Gain`, `eq${i}GainValue`, formatGain, true);
-
-    const typeEl = elements[`eq${i}Type`];
-    if (typeEl) {
-      typeEl.addEventListener('change', (e) => {
-        currentSettings[`eq${i}Type`] = e.target.value;
-        updatePresetButtons();
-        updateTabSettings();
-        if (currentSettings.eqEnabled && elements.eqCanvas) {
-          drawEqCurve();
-        }
-      });
-    }
+    const band = document.createElement('div');
+    band.className = 'eq-band';
+    const head = document.createElement('div');
+    head.className = 'eq-band-head';
+    const select = selectRow(`eq${i}Type`, `Band ${i}`, EQ_TYPE_NAMES);
+    select.classList.add('flush');
+    head.append(select);
+    band.append(head);
+    band.append(sliderRow(`eq${i}Freq`, 'Frequency', fmt.hz, logFreq));
+    band.append(sliderRow(`eq${i}Gain`, 'Gain', fmt.db));
+    band.append(sliderRow(`eq${i}Q`, 'Width (Q)', fmt.q));
+    bands.append(band);
   }
-
-  // EQ canvas interaction
-  if (elements.eqCanvas) {
-    setupEqCanvasInteraction();
-  }
-
-  // Preset buttons are bound by rebindPresetButtons() in renderPresetGrid()
+  container.append(bands);
 }
 
-function setupSlider(elementId, settingKey, valueId, formatter, updatePresets) {
-  const slider = elements[elementId];
-  const valueEl = elements[valueId];
-  if (!slider) return;
+let eqContext = null;
+function drawEqCurve() {
+  const canvas = $('eqCurve');
+  if (!canvas) return;
+  const g = canvas.getContext('2d');
+  const { width, height } = canvas;
+  g.clearRect(0, 0, width, height);
 
-  slider.addEventListener('input', (e) => {
-    const value = parseFloat(e.target.value);
-    currentSettings[settingKey] = value;
-    if (valueEl) valueEl.textContent = formatter(value);
+  const s = state.settings;
+  eqContext = eqContext || new OfflineAudioContext(1, 128, 48000);
+  const points = 160;
+  const freqs = new Float32Array(points);
+  for (let i = 0; i < points; i++) freqs[i] = 20 * Math.pow(1000, i / (points - 1));
+  const total = new Float32Array(points).fill(0);
+  const addFilter = (type, frequency, gain, q) => {
+    const f = eqContext.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = frequency;
+    f.gain.value = gain;
+    f.Q.value = q;
+    const mag = new Float32Array(points);
+    f.getFrequencyResponse(freqs, mag, new Float32Array(points));
+    for (let i = 0; i < points; i++) total[i] += 20 * Math.log10(Math.max(mag[i], 1e-6));
+  };
+  if (s.toneEnabled) {
+    if (s.lowCut > 20) addFilter('highpass', s.lowCut, 0, Math.SQRT1_2);
+    for (let i = 1; i <= 5; i++) addFilter(s[`eq${i}Type`], s[`eq${i}Freq`], s[`eq${i}Gain`], s[`eq${i}Q`]);
+    if (s.highCut < 20000) addFilter('lowpass', s.highCut, 0, Math.SQRT1_2);
+  }
 
-    syncControls(settingKey, value);
+  const y = db => height / 2 - (Math.max(-18, Math.min(18, db)) / 18) * (height / 2 - 6);
+  const colors = themeColors();
+  g.strokeStyle = colors.line;
+  g.lineWidth = 2;
+  g.beginPath();
+  g.moveTo(0, height / 2);
+  g.lineTo(width, height / 2);
+  g.stroke();
 
-    if (updatePresets) updatePresetButtons();
-    updateTabSettings();
+  g.strokeStyle = s.toneEnabled ? colors.accent : colors.muted;
+  g.lineWidth = 3;
+  g.beginPath();
+  for (let i = 0; i < points; i++) {
+    const x = (i / (points - 1)) * width;
+    if (i === 0) g.moveTo(x, y(total[i]));
+    else g.lineTo(x, y(total[i]));
+  }
+  g.stroke();
+}
 
-    // Update EQ canvas for relevant settings
-    if (settingKey.startsWith('eq') && currentSettings.eqEnabled && elements.eqCanvas) {
-      drawEqCurve();
+// ---------- rendering ----------
+function renderControls() {
+  sliderBindings.forEach(paint => paint());
+  toggleBindings.forEach(sync => sync());
+  groupBindings.forEach(sync => sync());
+  $('denoiseEnabled').checked = state.settings.denoiseEnabled;
+  const crt = $('crt');
+  if (crt) crt.checked = state.crt;
+  drawEqCurve();
+}
+
+function renderPower() {
+  $('power').checked = state.enabled;
+  $('powerLabel').textContent = state.enabled ? 'On' : 'Off';
+  $('popup').dataset.enabled = String(state.enabled);
+}
+
+function renderMode() {
+  for (const radio of document.querySelectorAll('input[name="mode"]')) {
+    radio.checked = radio.value === state.mode;
+    if (radio.value === 'capture') radio.disabled = !state.canCapture;
+  }
+  if (!state.canCapture) {
+    $('captureNote').textContent = 'Needs Chrome or another Chromium browser. This browser only allows listening inside the page.';
+  }
+  $('mixer').hidden = state.mode !== 'capture';
+}
+
+// Status parts are [text, style] pairs; style is 'strong', 'warn' or undefined
+function renderStatus() {
+  const fs = state.frameStatus;
+  let parts;
+  if (!state.enabled) {
+    parts = [['Off. Audio plays untouched everywhere.']];
+  } else if (state.restricted) {
+    parts = [['Browser pages like this one can\u2019t be processed.']];
+  } else if (state.captured) {
+    parts = [['Listening to the whole tab.', 'strong']];
+  } else if (!fs) {
+    parts = [['Limitr isn\u2019t running on this page yet. Reload the tab to start it.']];
+  } else if (fs.attached > 0) {
+    parts = [[`Taming ${fs.attached === 1 ? 'the player' : `${fs.attached} players`} on this tab.`, 'strong']];
+  } else if (fs.waitingForGesture > 0) {
+    parts = [['Click anywhere on the page once', 'warn'], [' so the browser lets Limitr start.']];
+  } else if (fs.playingSkipped > 0) {
+    // Only while an unreachable player is actually playing
+    parts = state.canCapture
+      ? [['This player can\u2019t be reached from inside the page.', 'warn'], [' Switch to Whole tab under How Limitr listens.']]
+      : [['This player can\u2019t be reached from inside the page', 'warn'], [' in this browser, so it plays untouched.']];
+  } else {
+    parts = [['Press play. Limitr starts with the first sound on this page.']];
+  }
+  if (state.enabled && state.meters && state.meters.dsp === 'fallback') {
+    parts.push([' This site blocks part of Limitr, so spike taming is simpler here.']);
+  }
+  setRichText($('status'), parts);
+}
+
+// The meter poll re-renders these lines 15 times a second; unchanged text skips the DOM work
+// (and the style, layout and paint it would cause)
+const richTextShown = new WeakMap();
+
+function setRichText(el, parts) {
+  const key = JSON.stringify(parts);
+  if (richTextShown.get(el) === key) return;
+  richTextShown.set(el, key);
+  el.replaceChildren(...parts.map(([text, style]) => {
+    if (!style) return document.createTextNode(text);
+    const span = document.createElement(style === 'strong' ? 'strong' : 'span');
+    if (style !== 'strong') span.className = style;
+    span.textContent = text;
+    return span;
+  }));
+}
+
+function renderCaption() {
+  for (const el of [$('traceCaption'), $('miniCaught')]) renderCaughtLine(el);
+}
+
+function renderCaughtLine(el) {
+  const m = state.meters;
+  const live = state.enabled && m && typeof m.spikes === 'number';
+  if (!live) {
+    setRichText(el, []);
+    return;
+  }
+  if (m.spikes === 0) {
+    setRichText(el, [['Listening. Nothing too loud yet.']]);
+    return;
+  }
+  const count = m.spikes === 1 ? '1 spike' : `${m.spikes} spikes`;
+  setRichText(el, [['CAUGHT', 'tag'], [` ${count}. The biggest was cut by ${trim(m.maxSpikeDb)} dB.`]]);
+}
+
+function renderAll() {
+  renderPower();
+  renderPresets();
+  renderControls();
+  renderMode();
+  renderStatus();
+  renderCaption();
+  drawTraces();
+}
+
+// ---------- loudness trace ----------
+function drawTraces() {
+  drawTrace($('trace'), state.history, { label: true });
+  if (state.screen === 'finetune') drawTrace($('miniTrace'), state.history);
+}
+
+function drawTrace(canvas, history, options = {}) {
+  const g = canvas.getContext('2d');
+  const { width, height } = canvas;
+  g.clearRect(0, 0, width, height);
+  const [lo, hi] = TRACE_RANGE;
+  const y = db => height - ((Math.max(lo, Math.min(hi, db)) - lo) / (hi - lo)) * height;
+  const step = width / (HISTORY_POINTS - 1);
+  const h = history;
+  const x = i => width - (h.length - 1 - i) * step;
+
+  const colors = themeColors();
+
+  // Resting line when there is nothing to show
+  if (h.length < 2) {
+    g.strokeStyle = colors.line;
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(0, height - 1);
+    g.lineTo(width, height - 1);
+    g.stroke();
+    return;
+  }
+
+  // Output loudness (what you hear)
+  g.fillStyle = colors.accent;
+  g.globalAlpha = 0.28;
+  g.beginPath();
+  g.moveTo(x(0), height);
+  h.forEach((p, i) => g.lineTo(x(i), y(p.out)));
+  g.lineTo(x(h.length - 1), height);
+  g.closePath();
+  g.fill();
+
+  // What Limitr shaved off: between the would-be level and what you hear
+  g.fillStyle = colors.spike;
+  g.globalAlpha = 0.85;
+  for (let i = 1; i < h.length; i++) {
+    const a = h[i - 1];
+    const b = h[i];
+    if (a.cut < 0.5 && b.cut < 0.5) continue;
+    g.beginPath();
+    g.moveTo(x(i - 1), y(a.out + a.cut));
+    g.lineTo(x(i), y(b.out + b.cut));
+    g.lineTo(x(i), y(b.out));
+    g.lineTo(x(i - 1), y(a.out));
+    g.closePath();
+    g.fill();
+  }
+  g.globalAlpha = 1;
+
+  g.strokeStyle = colors.accent;
+  g.lineWidth = 2;
+  g.beginPath();
+  h.forEach((p, i) => (i === 0 ? g.moveTo(x(i), y(p.out)) : g.lineTo(x(i), y(p.out))));
+  g.stroke();
+
+  // Where taming starts right now
+  const last = h[h.length - 1];
+  if (Number.isFinite(last.limit)) {
+    g.setLineDash([6, 6]);
+    g.strokeStyle = colors.spike;
+    g.globalAlpha = 0.5;
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(0, y(last.limit));
+    g.lineTo(width, y(last.limit));
+    g.stroke();
+    g.setLineDash([]);
+    if (options.label) {
+      // Label on a backing in the page colour so the curve never runs through the text
+      const text = 'Taming starts here';
+      g.font = "600 20px 'IBM Plex Sans', sans-serif";
+      g.textBaseline = 'bottom';
+      const labelY = y(last.limit) - 4;
+      g.globalAlpha = 0.85;
+      g.fillStyle = colors.bg;
+      g.fillRect(0, labelY - 24, g.measureText(text).width + 8, 24);
+      g.fillStyle = colors.spike;
+      g.fillText(text, 0, labelY);
     }
+    g.globalAlpha = 1;
+  }
+}
+
+// ---------- tab status & meters ----------
+async function refreshTabStatus() {
+  if (!state.tabId || state.restricted) {
+    renderStatus();
+    return;
+  }
+  if (state.canCapture && state.mode === 'capture') {
+    const list = await toBackground({ action: 'capture-list' }).catch(() => null);
+    state.captured = Boolean(list?.tabs?.some(t => t.tabId === state.tabId));
+    renderMixer(list?.tabs || []);
+  } else {
+    state.captured = false;
+  }
+
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: state.tabId, allFrames: true },
+      func: () => globalThis.__limitrBridgeStatus || null
+    });
+    let best = null;
+    const total = { attached: 0, waitingForGesture: 0, playingSkipped: 0 };
+    let anyBridge = false;
+    for (const { frameId, result } of results) {
+      if (!result) continue;
+      anyBridge = true;
+      total.attached += result.attached || 0;
+      total.waitingForGesture += result.waitingForGesture || 0;
+      total.playingSkipped += result.playingSkipped || 0;
+      if (!best || (result.attached || 0) > (best.result.attached || 0)) best = { frameId, result };
+    }
+    state.frameStatus = anyBridge ? total : null;
+    state.frameId = best ? best.frameId : 0;
+  } catch (e) {
+    state.frameStatus = null;
+  }
+  renderStatus();
+}
+
+async function pollMeters() {
+  let meters = null;
+  try {
+    if (state.enabled && state.captured) {
+      meters = (await toBackground({ action: 'capture-meters', tabId: state.tabId }))?.meters || null;
+    } else if (state.enabled && state.frameStatus && state.frameStatus.attached > 0) {
+      meters = await chrome.tabs.sendMessage(state.tabId, { action: 'limitr-get-meters' }, { frameId: state.frameId });
+    }
+  } catch (e) {
+    meters = null;
+  }
+
+  state.meters = meters;
+  if (meters && Number.isFinite(meters.outDb)) {
+    const cut = Math.max(0, -(meters.guardDb || 0));
+    state.history.push({ out: meters.outDb, cut, limit: meters.thresholdDb });
+    if (state.history.length > HISTORY_POINTS) state.history.shift();
+  }
+  drawTraces();
+  renderCaption();
+  setTimeout(pollMeters, METER_INTERVAL_MS);
+}
+
+// ---------- tab capture ----------
+async function captureCurrentTab() {
+  if (!state.tabId || state.restricted) return;
+  const response = await toBackground({ action: 'capture-tab', tabId: state.tabId }).catch(e => ({ error: e.message }));
+  if (response && response.error) {
+    setRichText($('status'), [['Couldn\u2019t listen to this tab: ', 'warn'], [response.error]]);
+    return;
+  }
+  await refreshTabStatus();
+}
+
+function renderMixer(tabs) {
+  const list = $('mixerList');
+  list.replaceChildren();
+  if (!tabs.length) {
+    const empty = document.createElement('li');
+    empty.textContent = 'No tabs yet. Tabs join when they start playing sound.';
+    list.append(empty);
+    return;
+  }
+  for (const tab of tabs) {
+    const item = document.createElement('li');
+    const icon = document.createElement('img');
+    icon.alt = '';
+    if (tab.favIconUrl && /^https?:/.test(tab.favIconUrl)) icon.src = tab.favIconUrl;
+    const title = document.createElement('span');
+    title.textContent = tab.title || 'Tab';
+    const output = document.createElement('output');
+    output.textContent = fmt.db(tab.volumeDb);
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = -30;
+    slider.max = 12;
+    slider.step = 1;
+    slider.value = tab.volumeDb;
+    slider.setAttribute('aria-label', `Volume for ${tab.title}`);
+    const paint = () => slider.style.setProperty('--fill', `${((slider.value - slider.min) / (slider.max - slider.min)) * 100}%`);
+    paint();
+    slider.addEventListener('input', () => {
+      output.textContent = fmt.db(Number(slider.value));
+      paint();
+      toBackground({ action: 'capture-volume', tabId: tab.tabId, volumeDb: Number(slider.value) });
+    });
+    item.append(icon, title, output, slider);
+    list.append(item);
+  }
+}
+
+// ---------- captions ----------
+const LANGUAGE_NAMES = Object.fromEntries(S.CAPTION_LANGUAGES);
+const IDLE_CAPTIONS_NOTE = 'Runs on your computer. The first time downloads a speech model.';
+// Chrome and Edge translate on-device; browsers without that (Firefox) don't offer translation
+const translatorApi = () => (typeof self !== 'undefined' && self.Translator) || null;
+// The larger Whisper model runs on WebGPU, which the transcriber only uses outside Firefox
+const largeModelSupported = () => Boolean(navigator.gpu) && !/Firefox\//.test(navigator.userAgent);
+
+function renderCaptions(note) {
+  const toggle = $('captions');
+  toggle.checked = state.captions === 'active' || state.captions === 'loading';
+  toggle.disabled = state.captions === 'loading' || !state.enabled || state.restricted;
+  $('transcript').hidden = state.captions !== 'active';
+  const chip = $('captionsChip');
+  chip.hidden = !toggle.checked;
+  const auto = state.captionPrefs.language === 'auto';
+  chip.textContent = auto
+    ? (state.captionsDetected ? `Auto: ${LANGUAGE_NAMES[state.captionsDetected] || state.captionsDetected}` : 'Auto')
+    : LANGUAGE_NAMES[state.captionPrefs.language] || state.captionPrefs.language;
+  chip.setAttribute('aria-label', `Caption settings: ${chip.textContent}`);
+  if (note) $('captionsNote').textContent = note;
+}
+
+function setCaptionsHint(text) {
+  $('captionsHint').textContent = text || '';
+  $('captionsHint').hidden = !text;
+}
+
+function buildCaptionOptions() {
+  const language = $('captionsLanguage');
+  const translate = $('captionsTranslate');
+  const option = (value, name) => {
+    const el = document.createElement('option');
+    el.value = value;
+    el.textContent = name;
+    return el;
+  };
+  language.replaceChildren(option('auto', 'Detect automatically'), ...S.CAPTION_LANGUAGES.map(([c, n]) => option(c, n)));
+  translate.replaceChildren(option('', 'Off'), ...S.CAPTION_LANGUAGES.map(([c, n]) => option(c, n)));
+  translate.closest('label').hidden = !translatorApi();
+  const largeModel = $('captionsLargeModel');
+  largeModel.closest('label').hidden = !largeModelSupported();
+
+  language.value = state.captionPrefs.language;
+  translate.value = state.captionPrefs.translateTo;
+  largeModel.checked = state.captionPrefs.largeModel;
+
+  language.addEventListener('change', () => {
+    saveCaptionPrefs({ language: language.value });
+    renderCaptions();
+  });
+  translate.addEventListener('change', () => {
+    saveCaptionPrefs({ translateTo: translate.value });
+    // The change event carries the click, which a first-time translator download needs
+    const source = state.captionPrefs.language;
+    if (translate.value && source !== 'auto') prepareTranslation(source, translate.value);
+  });
+  largeModel.addEventListener('change', () => saveCaptionPrefs({ largeModel: largeModel.checked }));
+  $('translationDownload').addEventListener('click', () => {
+    const { source, target } = $('translationDownload').dataset;
+    prepareTranslation(source, target);
   });
 }
 
-function syncControls(key, value) {
-  if (key === 'outputGain') {
-    if (elements.outputGainSimple) elements.outputGainSimple.value = value;
-    if (elements.outputGain) elements.outputGain.value = value;
-    if (elements.outputGainSimpleValue) elements.outputGainSimpleValue.textContent = formatGain(value);
-    if (elements.outputGainValue) elements.outputGainValue.textContent = formatGain(value);
-  }
+function saveCaptionPrefs(change) {
+  state.captionPrefs = S.normalizeCaptions({ ...state.captionPrefs, ...change }, uiLanguage());
+  chrome.storage.local.set({ [K.captions]: state.captionPrefs });
 }
 
-function applyPreset(presetName) {
-  const effectivePreset = getEffectivePreset(presetName);
-  if (!effectivePreset) return;
-  const { settings: presetSettings, outputGainOffset, outputGainOverride } = effectivePreset;
-
-  if (presetName === 'tv90s') {
-    const isTvActive = presetKeys.every(key => {
-      if (!(key in presetSettings)) return true;
-      return currentSettings[key] === presetSettings[key];
-    });
-    if (isTvActive) {
-      toggleCrtVisual();
+// Downloads Chrome's on-device translation model for a pair. Only works from a click.
+async function prepareTranslation(source, target) {
+  const api = translatorApi();
+  $('translationDownload').hidden = true;
+  if (!api || source === target) return;
+  const pair = `${LANGUAGE_NAMES[source] || source} to ${LANGUAGE_NAMES[target] || target}`;
+  try {
+    const availability = await api.availability({ sourceLanguage: source, targetLanguage: target });
+    if (availability === 'unavailable') {
+      setCaptionsHint(target === 'en'
+        ? `This browser can't translate ${pair} on-device, so Whisper translates into English instead.`
+        : `This browser can't translate ${pair} on-device.`);
       return;
     }
+    if (availability === 'available') {
+      setCaptionsHint('');
+      return;
+    }
+    setCaptionsHint(`Downloading the ${pair} translation\u2026`);
+    await api.create({
+      sourceLanguage: source,
+      targetLanguage: target,
+      monitor(m) {
+        m.addEventListener('downloadprogress', e => setCaptionsHint(`Downloading the ${pair} translation\u2026 ${Math.round(e.loaded * 100)}%`));
+      }
+    });
+    setCaptionsHint(`${pair} translation is ready.`);
+  } catch (error) {
+    setCaptionsHint(`Couldn\u2019t prepare the ${pair} translation: ${error.message}`);
+  }
+}
+
+async function setCaptions(enabled) {
+  if (enabled) {
+    state.captions = 'loading';
+    renderCaptions('Loading the speech model\u2026');
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: state.tabId, allFrames: true },
+        files: ['content-transcribe.js']
+      });
+    } catch (e) { /* overlay is optional */ }
+    const response = await toBackground({ action: 'captions-start', tabId: state.tabId }).catch(e => ({ success: false, error: e.message }));
+    state.captions = response?.success ? 'active' : 'error';
+    renderCaptions(response?.success ? 'Captions show over the video and here.' : `Captions failed: ${response?.error || 'unknown error'}`);
   } else {
-    if (crtVisualEnabled) {
-      setCrtVisual(false);
+    await toBackground({ action: 'captions-stop', tabId: state.tabId }).catch(() => {});
+    state.captions = 'off';
+    renderCaptions(IDLE_CAPTIONS_NOTE);
+  }
+}
+
+async function refreshCaptions() {
+  const status = await toBackground({ action: 'captions-status', tabId: state.tabId }).catch(() => null);
+  if (status?.active) state.captions = 'active';
+  else if (status?.loading) state.captions = 'loading';
+  const detected = status?.session?.language;
+  if (detected) state.captionsDetected = detected;
+  renderCaptions(status?.active && detected && state.captionPrefs.language === 'auto'
+    ? `Listening in ${LANGUAGE_NAMES[detected] || detected}.`
+    : undefined);
+}
+
+// The line being spoken arrives several times as it grows; same segment = same line.
+// The transcript keeps the original words; the video overlay shows the translation.
+function showTranscriptLine(result) {
+  const list = $('transcript');
+  let line = result.segmentId != null && list.querySelector(`li[data-segment="${result.segmentId}"]`);
+  if (!line) {
+    line = document.createElement('li');
+    if (result.segmentId != null) line.dataset.segment = result.segmentId;
+    list.append(line);
+    while (list.children.length > 6) list.firstChild.remove();
+  }
+  // Original line, with the translation (when there is one) muted underneath
+  const orig = document.createElement('span');
+  orig.className = 'orig';
+  orig.textContent = result.text;
+  line.replaceChildren(orig);
+  if (result.translation) {
+    const tr = document.createElement('span');
+    tr.className = 'tr';
+    tr.textContent = result.translation;
+    line.append(tr);
+  }
+  list.scrollTop = list.scrollHeight;
+}
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.tabId !== state.tabId) return;
+  if (message.action === 'transcription-result' && message.result?.text) {
+    showTranscriptLine(message.result);
+  } else if (message.action === 'transcription-status') {
+    if (message.status === 'active') state.captions = 'active';
+    else if (message.status === 'loading') state.captions = 'loading';
+    else if (message.status === 'error') state.captions = 'error';
+    else if (message.status === 'stopped') state.captions = 'off';
+    if (message.status === 'language') {
+      state.captionsDetected = message.language;
+      renderCaptions(`Listening in ${LANGUAGE_NAMES[message.language] || message.language}.`);
+    } else if (message.status === 'translation-download') {
+      const button = $('translationDownload');
+      button.dataset.source = message.source;
+      button.dataset.target = message.target;
+      button.textContent = `Download the ${LANGUAGE_NAMES[message.source] || message.source} to ${LANGUAGE_NAMES[message.target] || message.target} translation`;
+      button.hidden = false;
+    } else {
+      renderCaptions(message.status === 'error' ? `Captions failed: ${message.message}`
+        : message.status === 'loading' ? message.message : undefined);
     }
   }
+});
 
-  const savedOutputGain = currentSettings.outputGain;
-  const savedEnabled = currentSettings.enabled;
-  Object.assign(currentSettings, presetSettings);
-  const nextOutput = outputGainOverride !== null
-    ? outputGainOverride
-    : savedOutputGain + (outputGainOffset || 0);
-  currentSettings.outputGain = Math.max(-24, Math.min(24, nextOutput));
-  currentSettings.enabled = savedEnabled;
-
-  updateUI();
-  updateTabSettings();
-}
-
-function toggleCrtVisual() {
-  setCrtVisual(!crtVisualEnabled);
-}
-
-async function setCrtVisual(enabled) {
-  crtVisualEnabled = enabled;
+// ---------- CRT look ----------
+async function setCrt(enabled) {
+  state.crt = enabled;
   try {
     if (enabled) {
-      await chrome.scripting.executeScript({
-        target: { tabId: currentTabId },
-        files: ['content.js']
-      });
+      await chrome.scripting.executeScript({ target: { tabId: state.tabId, allFrames: true }, files: ['content.js'] });
     }
-    await chrome.tabs.sendMessage(currentTabId, {
-      action: 'set-crt-visual',
-      enabled: enabled
+    await chrome.tabs.sendMessage(state.tabId, { action: 'set-crt-visual', enabled });
+  } catch (e) {
+    state.crt = false;
+    renderControls();
+  }
+}
+
+// ---------- screens ----------
+// The popup is one main screen plus secondary screens that replace it (back arrow or Esc returns).
+function showScreen(name) {
+  for (const screen of document.querySelectorAll('.screen')) {
+    screen.hidden = screen.dataset.screen !== name;
+  }
+  state.screen = name;
+  const current = document.querySelector(`.screen[data-screen="${name}"]`);
+  const body = current.querySelector('.screen-body');
+  if (body) body.scrollTop = 0;
+  if (name === 'finetune') {
+    drawEqCurve();
+    drawTraces();
+  }
+  if (name === 'main') fitPresetChips();
+  const focusTarget = name === 'main' ? $('power') : current.querySelector('.back');
+  if (focusTarget) focusTarget.focus();
+}
+
+function openScreen(name, focusId) {
+  showScreen(name);
+  if (focusId && $(focusId)) $(focusId).focus();
+}
+
+// ---------- events ----------
+function bindEvents() {
+  $('power').addEventListener('change', async (event) => {
+    state.enabled = event.target.checked;
+    await chrome.storage.local.set({ [K.enabled]: state.enabled });
+    renderPower();
+    renderStatus();
+    renderCaptions();
+    if (state.enabled && state.mode === 'capture') captureCurrentTab();
+  });
+
+  bindRange($('volume'), $('volumeValue'), 'volume', fmt.db);
+
+  $('denoiseEnabled').addEventListener('change', e => setSetting('denoiseEnabled', e.target.checked));
+  $('captions').addEventListener('change', e => setCaptions(e.target.checked));
+  $('captionsChip').addEventListener('click', () => openScreen('captions'));
+  for (const row of document.querySelectorAll('.nav-row')) {
+    row.addEventListener('click', () => openScreen(row.dataset.open));
+  }
+
+  for (const radio of document.querySelectorAll('input[name="mode"]')) {
+    radio.addEventListener('change', async () => {
+      if (!radio.checked) return;
+      state.mode = radio.value;
+      await chrome.storage.local.set({ [K.mode]: state.mode });
+      renderMode();
+      if (state.mode === 'capture' && state.enabled) await captureCurrentTab();
+      else await refreshTabStatus();
     });
-    updateTvButtonState();
-  } catch (err) {
-    console.error('[Limitr] Failed to toggle CRT visual:', err);
-  }
-}
-
-function updateTvButtonState() {
-  if (elements.crtToggle) {
-    elements.crtToggle.checked = crtVisualEnabled;
-  }
-  if (elements.crtLabel) {
-    elements.crtLabel.classList.toggle('active', crtVisualEnabled);
-  }
-  const tvBtn = document.querySelector('[data-preset="tv90s"]');
-  if (tvBtn) {
-    const descEl = tvBtn.querySelector('.preset-desc');
-    if (crtVisualEnabled) {
-      tvBtn.classList.add('tv-plus');
-      if (descEl) descEl.textContent = 'TV+ active';
-    } else {
-      tvBtn.classList.remove('tv-plus');
-      if (descEl) descEl.textContent = 'Tap twice for TV+';
-    }
-  }
-}
-
-function startReductionPolling() {
-  setInterval(async () => {
-    if (!isCapturing || !currentTabId) {
-      updateMeter(0);
-      updateLufsMeter(-Infinity);
-      return;
-    }
-
-    try {
-      if (mixerMode) {
-        const response = await chrome.runtime.sendMessage({
-          target: 'offscreen',
-          action: 'get-reduction',
-          tabId: currentTabId
-        });
-        if (response && response.reduction !== undefined) {
-          updateMeter(response.reduction);
-        }
-
-        // LUFS meter
-        const lufsResponse = await chrome.runtime.sendMessage({
-          target: 'offscreen',
-          action: 'get-lufs',
-          tabId: currentTabId
-        });
-        if (lufsResponse && lufsResponse.lufs !== undefined) {
-          updateLufsMeter(lufsResponse.lufs);
-        }
-      } else {
-        const response = await chrome.tabs.sendMessage(currentTabId, {
-          action: 'fallback-get-reduction'
-        });
-        if (response && response.reduction !== undefined) {
-          updateMeter(response.reduction);
-        }
-
-        // LUFS meter (fallback)
-        const lufsResponse = await chrome.tabs.sendMessage(currentTabId, {
-          action: 'fallback-get-lufs'
-        });
-        if (lufsResponse && lufsResponse.lufs !== undefined) {
-          updateLufsMeter(lufsResponse.lufs);
-        }
-      }
-    } catch (e) {}
-  }, 50);
-}
-
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.action === 'reduction-update' && message.tabId === currentTabId) {
-    updateMeter(message.reduction);
-  }
-});
-
-// ============ 5-BAND EQ CANVAS VISUALIZATION ============
-
-let eqDragging = null;
-let eqHovering = null;
-
-// Band colors for 5-band EQ
-const bandColors = ['#ef4444', '#f97316', '#22c55e', '#3b82f6', '#a855f7'];
-
-function drawEqCurve() {
-  const canvas = elements.eqCanvas;
-  if (!canvas) return;
-
-  const ctx = canvas.getContext('2d');
-  const width = canvas.width;
-  const height = canvas.height;
-
-  // Clear canvas
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, width, height);
-
-  // Draw grid
-  ctx.strokeStyle = '#252542';
-  ctx.lineWidth = 1;
-
-  // Horizontal grid lines
-  const gainLevels = [-12, -6, 0, 6, 12];
-  gainLevels.forEach(gain => {
-    const y = gainToY(gain, height);
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-    ctx.stroke();
-  });
-
-  // Vertical grid lines
-  const freqMarkers = [100, 300, 1000, 3000, 10000];
-  freqMarkers.forEach(freq => {
-    const x = freqToX(freq, width);
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-    ctx.stroke();
-  });
-
-  // Draw 0dB reference line
-  ctx.strokeStyle = '#444466';
-  ctx.setLineDash([4, 4]);
-  const zeroY = gainToY(0, height);
-  ctx.beginPath();
-  ctx.moveTo(0, zeroY);
-  ctx.lineTo(width, zeroY);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Draw composite EQ curve
-  ctx.beginPath();
-  ctx.strokeStyle = '#4f46e5';
-  ctx.lineWidth = 2;
-
-  const numPoints = 200;
-  for (let i = 0; i <= numPoints; i++) {
-    const freq = 20 * Math.pow(20000 / 20, i / numPoints);
-    let totalGain = 0;
-
-    // Sum contribution from each EQ band
-    for (let b = 1; b <= 5; b++) {
-      const bandFreq = currentSettings[`eq${b}Freq`];
-      const bandGain = currentSettings[`eq${b}Gain`];
-      const bandQ = currentSettings[`eq${b}Q`];
-      const bandType = currentSettings[`eq${b}Type`];
-
-      totalGain += calculateFilterResponse(freq, bandFreq, bandGain, bandQ, bandType);
-    }
-
-    totalGain = Math.max(-15, Math.min(15, totalGain));
-    const x = freqToX(freq, width);
-    const y = gainToY(totalGain, height);
-
-    if (i === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      ctx.lineTo(x, y);
-    }
   }
 
-  ctx.stroke();
-
-  // Fill under curve
-  ctx.lineTo(width, height);
-  ctx.lineTo(0, height);
-  ctx.closePath();
-  const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, 'rgba(79, 70, 229, 0.3)');
-  gradient.addColorStop(1, 'rgba(79, 70, 229, 0.05)');
-  ctx.fillStyle = gradient;
-  ctx.fill();
-
-  // Draw band nodes (5 bands)
-  for (let b = 1; b <= 5; b++) {
-    const freq = currentSettings[`eq${b}Freq`];
-    const gain = currentSettings[`eq${b}Gain`];
-    const x = freqToX(freq, width);
-    const y = gainToY(gain, height);
-    drawBandNode(ctx, x, y, b, bandColors[b - 1]);
+  for (const back of document.querySelectorAll('.back')) {
+    back.addEventListener('click', () => showScreen('main'));
   }
-
-  // Draw frequency labels
-  ctx.fillStyle = '#666';
-  ctx.font = '9px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('100', freqToX(100, width), height - 4);
-  ctx.fillText('1k', freqToX(1000, width), height - 4);
-  ctx.fillText('10k', freqToX(10000, width), height - 4);
-
-  // Draw gain labels
-  ctx.textAlign = 'left';
-  ctx.fillText('+12', 2, gainToY(12, height) + 3);
-  ctx.fillText('0', 2, gainToY(0, height) + 3);
-  ctx.fillText('-12', 2, gainToY(-12, height) + 3);
-}
-
-// Calculate filter frequency response at a given frequency
-function calculateFilterResponse(freq, filterFreq, filterGain, filterQ, filterType) {
-  const ratio = freq / filterFreq;
-  const logRatio = Math.log2(ratio);
-
-  switch (filterType) {
-    case 'highpass':
-      if (freq < filterFreq) {
-        return -24 * Math.pow(filterFreq / freq, 2) / (1 + Math.pow(filterFreq / freq, 2));
-      }
-      return 0;
-
-    case 'lowpass':
-      if (freq > filterFreq) {
-        return -24 * Math.pow(freq / filterFreq, 2) / (1 + Math.pow(freq / filterFreq, 2));
-      }
-      return 0;
-
-    case 'lowshelf':
-      if (freq < filterFreq) {
-        return filterGain * (1 - Math.pow(freq / filterFreq, 2));
-      }
-      return 0;
-
-    case 'highshelf':
-      if (freq > filterFreq) {
-        return filterGain * (1 - Math.pow(filterFreq / freq, 2));
-      }
-      return 0;
-
-    case 'notch':
-      const notchWidth = 1 / filterQ;
-      const notchEffect = Math.exp(-Math.pow(logRatio / notchWidth, 2) * 4);
-      return -12 * notchEffect;
-
-    case 'peaking':
-    default:
-      const bandwidth = 1 / filterQ;
-      const bellEffect = Math.exp(-Math.pow(logRatio / bandwidth, 2) * 2);
-      return filterGain * bellEffect;
-  }
-}
-
-function drawBandNode(ctx, x, y, band, color) {
-  const isHovered = eqHovering === band;
-  const isDragging = eqDragging === band;
-  const radius = isDragging ? 10 : (isHovered ? 9 : 7);
-
-  if (isHovered || isDragging) {
-    ctx.beginPath();
-    ctx.arc(x, y, radius + 4, 0, Math.PI * 2);
-    ctx.fillStyle = color + '40';
-    ctx.fill();
-  }
-
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
-
-  // Band number label
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 8px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(band.toString(), x, y);
-}
-
-function freqToX(freq, width) {
-  const minFreq = 20;
-  const maxFreq = 20000;
-  const logMin = Math.log10(minFreq);
-  const logMax = Math.log10(maxFreq);
-  const logFreq = Math.log10(freq);
-  return ((logFreq - logMin) / (logMax - logMin)) * width;
-}
-
-function xToFreq(x, width) {
-  const minFreq = 20;
-  const maxFreq = 20000;
-  const logMin = Math.log10(minFreq);
-  const logMax = Math.log10(maxFreq);
-  const logFreq = logMin + (x / width) * (logMax - logMin);
-  return Math.pow(10, logFreq);
-}
-
-function gainToY(gain, height) {
-  const minGain = -15;
-  const maxGain = 15;
-  return height - ((gain - minGain) / (maxGain - minGain)) * height;
-}
-
-function yToGain(y, height) {
-  const minGain = -15;
-  const maxGain = 15;
-  return minGain + ((height - y) / height) * (maxGain - minGain);
-}
-
-function setupEqCanvasInteraction() {
-  const canvas = elements.eqCanvas;
-  if (!canvas) return;
-
-  function getNodePositions() {
-    const width = canvas.width;
-    const height = canvas.height;
-    const positions = {};
-    for (let b = 1; b <= 5; b++) {
-      positions[b] = {
-        x: freqToX(currentSettings[`eq${b}Freq`], width),
-        y: gainToY(currentSettings[`eq${b}Gain`], height)
-      };
-    }
-    return positions;
-  }
-
-  function hitTest(x, y) {
-    const nodes = getNodePositions();
-    const hitRadius = 15;
-
-    for (const [band, pos] of Object.entries(nodes)) {
-      const dist = Math.sqrt((x - pos.x) ** 2 + (y - pos.y) ** 2);
-      if (dist <= hitRadius) return parseInt(band);
-    }
-    return null;
-  }
-
-  function getMousePos(e) {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY
-    };
-  }
-
-  canvas.addEventListener('mousemove', (e) => {
-    const pos = getMousePos(e);
-
-    if (eqDragging) {
-      // X = frequency, Y = gain
-      const freq = xToFreq(pos.x, canvas.width);
-      const gain = yToGain(pos.y, canvas.height);
-
-      // Clamp values
-      const clampedFreq = Math.max(20, Math.min(20000, Math.round(freq)));
-      const clampedGain = Math.max(-12, Math.min(12, Math.round(gain)));
-
-      currentSettings[`eq${eqDragging}Freq`] = clampedFreq;
-      currentSettings[`eq${eqDragging}Gain`] = clampedGain;
-
-      // Update sliders
-      const freqEl = elements[`eq${eqDragging}Freq`];
-      const freqValEl = elements[`eq${eqDragging}FreqValue`];
-      const gainEl = elements[`eq${eqDragging}Gain`];
-      const gainValEl = elements[`eq${eqDragging}GainValue`];
-
-      if (freqEl) freqEl.value = clampedFreq;
-      if (freqValEl) freqValEl.textContent = formatFreq(clampedFreq);
-      if (gainEl) gainEl.value = clampedGain;
-      if (gainValEl) gainValEl.textContent = formatGain(clampedGain);
-
-      drawEqCurve();
-      updatePresetButtons();
-      updateTabSettings();
-    } else {
-      const hoveredNode = hitTest(pos.x, pos.y);
-      if (hoveredNode !== eqHovering) {
-        eqHovering = hoveredNode;
-        canvas.style.cursor = hoveredNode ? 'grab' : 'default';
-        drawEqCurve();
-      }
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.screen !== 'main') {
+      event.preventDefault();
+      showScreen('main');
     }
   });
 
-  canvas.addEventListener('mousedown', (e) => {
-    const pos = getMousePos(e);
-    const node = hitTest(pos.x, pos.y);
-    if (node) {
-      eqDragging = node;
-      canvas.style.cursor = 'grabbing';
-    }
+  const form = $('savePresetForm');
+  $('savePresetButton').addEventListener('click', () => {
+    form.hidden = false;
+    $('savePresetButton').hidden = true;
+    $('presetName').focus();
   });
-
-  canvas.addEventListener('mouseup', () => {
-    if (eqDragging) {
-      eqDragging = null;
-      canvas.style.cursor = eqHovering ? 'grab' : 'default';
-    }
+  $('cancelPreset').addEventListener('click', () => {
+    form.hidden = true;
+    $('savePresetButton').hidden = false;
   });
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const name = $('presetName').value.trim();
+    if (!name) return;
+    savePreset(name);
+    form.reset();
+    form.hidden = true;
+    $('savePresetButton').hidden = false;
+  });
+}
 
-  canvas.addEventListener('mouseleave', () => {
-    eqDragging = null;
-    eqHovering = null;
-    canvas.style.cursor = 'default';
+// ---------- startup ----------
+// Paint from local storage first; anything that needs the background (which may be a cold
+// service worker taking a second or more to start) fills in afterwards.
+async function init() {
+  const forcedTab = Number(new URLSearchParams(location.search).get('tabId'));
+  const [tabResult, loaded, stored] = await Promise.all([
+    forcedTab ? chrome.tabs.get(forcedTab).then(t => [t]) : chrome.tabs.query({ active: true, currentWindow: true }),
+    S.load(chrome.storage.local),
+    chrome.storage.local.get([K.customPresets, K.ui, K.captions])
+  ]);
+  const tab = tabResult[0];
+  state.tabId = tab ? tab.id : null;
+  state.restricted = !tab || !/^(https?|file):/.test(tab.url || '');
+
+  state.settings = loaded.settings;
+  state.enabled = loaded.enabled;
+  state.custom = stored[K.customPresets] || {};
+  state.ui = { ...state.ui, ...(stored[K.ui] || {}) };
+  state.preset = S.matchPreset(state.settings, state.custom);
+  if (state.preset) state.ui.basePreset = state.preset;
+  state.captionPrefs = S.normalizeCaptions(stored[K.captions], uiLanguage());
+  // Tab capture exists only in Chromium browsers
+  state.canCapture = Boolean(chrome.tabCapture && chrome.tabCapture.getMediaStreamId);
+  state.mode = state.canCapture ? loaded.mode : 'page';
+
+  buildFineTune();
+  buildCaptionOptions();
+  bindEvents();
+  renderAll();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    drawTraces();
     drawEqCurve();
   });
 
-  // Double-click to reset band
-  canvas.addEventListener('dblclick', (e) => {
-    const pos = getMousePos(e);
-    const node = hitTest(pos.x, pos.y);
-
-    if (node) {
-      currentSettings[`eq${node}Gain`] = 0;
-
-      const gainEl = elements[`eq${node}Gain`];
-      const gainValEl = elements[`eq${node}GainValue`];
-      if (gainEl) gainEl.value = 0;
-      if (gainValEl) gainValEl.textContent = formatGain(0);
-
-      drawEqCurve();
-      updatePresetButtons();
-      updateTabSettings();
-    }
-  });
+  if (state.tabId && !state.restricted) {
+    chrome.tabs.sendMessage(state.tabId, { action: 'get-crt-visual' })
+      .then(r => { state.crt = Boolean(r && r.enabled); renderControls(); })
+      .catch(() => {});
+  }
+  refreshCaptions();
+  setInterval(refreshTabStatus, STATUS_INTERVAL_MS);
+  // Meters come from the frame (or capture) the status finds, so the first poll waits for it
+  // instead of polling empty-handed and trying again a timer tick later
+  try {
+    await refreshTabStatus();
+  } finally {
+    pollMeters();
+  }
+  if (state.mode === 'capture' && state.enabled && !state.restricted && !state.captured) captureCurrentTab();
 }
 
-// ============ VIDEO TRANSCRIBER ============
-
-async function toggleTranscriber(enabled) {
-  if (enabled === transcriberActive && !transcriberLoading) return;
-
-  if (enabled) {
-    transcriberLoading = true;
-    updateTranscriberUI('loading', 'Loading...');
-
-    try {
-      // Inject subtitle overlay content script
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: currentTabId },
-          files: ['content-transcribe.js']
-        });
-      } catch (e) {
-        console.log('[Limitr] Subtitle overlay injection:', e.message);
-      }
-
-      const response = mixerMode
-        ? await sendToBackground({
-            action: 'start-transcription',
-            tabId: currentTabId
-          })
-        : await chrome.tabs.sendMessage(currentTabId, {
-            action: 'fallback-start-transcription',
-            tabId: currentTabId
-          });
-
-      if (response.success) {
-        transcriberActive = true;
-        transcriberLoading = false;
-        updateTranscriberUI('active', 'On');
-      } else {
-        transcriberActive = false;
-        transcriberLoading = false;
-        updateTranscriberUI('error', response.error || 'Failed');
-      }
-    } catch (error) {
-      transcriberActive = false;
-      transcriberLoading = false;
-      updateTranscriberUI('error', 'Error');
-      console.error('[Limitr] Transcriber error:', error);
-    }
-  } else {
-    if (mixerMode) {
-      await sendToBackground({
-        action: 'stop-transcription',
-        tabId: currentTabId
-      });
-    } else {
-      await chrome.tabs.sendMessage(currentTabId, {
-        action: 'fallback-stop-transcription',
-        tabId: currentTabId
-      });
-    }
-    transcriberActive = false;
-    transcriberLoading = false;
-    updateTranscriberUI('off', 'Off');
-  }
-}
-
-function updateTranscriberUI(status, label) {
-  // Advanced mode toggle
-  if (elements.transcriberToggle) {
-    elements.transcriberToggle.checked = status === 'active' || status === 'loading';
-    elements.transcriberToggle.disabled = status === 'loading';
-  }
-  if (elements.transcriberLabel) {
-    elements.transcriberLabel.textContent = label;
-    elements.transcriberLabel.classList.toggle('active', status === 'active');
-    elements.transcriberLabel.classList.toggle('loading', status === 'loading');
-  }
-  if (elements.transcriberNote) {
-    if (status === 'loading') {
-      elements.transcriberNote.textContent = 'Downloading Moonshine model...';
-    } else if (status === 'error') {
-      elements.transcriberNote.textContent = 'Failed to load — check console';
-    } else {
-      elements.transcriberNote.textContent = 'Moonshine AI — live captions from tab audio';
-    }
-  }
-
-  // Show/hide transcript output area
-  const showOutput = status === 'active';
-  if (elements.transcriberOutput) {
-    elements.transcriberOutput.style.display = showOutput ? 'block' : 'none';
-  }
-  if (elements.transcriberOutputSimple) {
-    elements.transcriberOutputSimple.style.display = showOutput ? 'block' : 'none';
-  }
-
-  // Simple mode toggle
-  if (elements.transcriberToggleSimple) {
-    elements.transcriberToggleSimple.checked = status === 'active' || status === 'loading';
-    elements.transcriberToggleSimple.disabled = status === 'loading';
-  }
-  if (elements.transcriberLabelSimple) {
-    elements.transcriberLabelSimple.textContent = label;
-    elements.transcriberLabelSimple.classList.toggle('active', status === 'active');
-  }
-}
-
-function appendTranscription(text) {
-  const maxLines = 8;
-
-  [elements.transcriberText, elements.transcriberTextSimple].forEach(el => {
-    if (!el) return;
-
-    const line = document.createElement('div');
-    line.className = 'transcriber-line';
-    line.textContent = text;
-    el.appendChild(line);
-
-    // Keep only the last N lines
-    while (el.children.length > maxLines) {
-      el.removeChild(el.firstChild);
-    }
-
-    // Auto-scroll to bottom
-    el.scrollTop = el.scrollHeight;
-  });
-}
-
-// Listen for transcription results and status updates from background
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.action === 'transcription-result' && message.tabId === currentTabId) {
-    appendTranscription(message.result.text);
-  }
-
-  if (message.action === 'transcription-status' && message.tabId === currentTabId) {
-    if (message.status === 'loading') {
-      updateTranscriberUI('loading', message.message || 'Loading...');
-    } else if (message.status === 'active') {
-      transcriberActive = true;
-      transcriberLoading = false;
-      updateTranscriberUI('active', 'On');
-    } else if (message.status === 'error') {
-      transcriberActive = false;
-      transcriberLoading = false;
-      updateTranscriberUI('error', message.message || 'Error');
-    } else if (message.status === 'stopped') {
-      transcriberActive = false;
-      transcriberLoading = false;
-      updateTranscriberUI('off', 'Off');
-    }
-  }
-});
-
-// Initialize
 init();
