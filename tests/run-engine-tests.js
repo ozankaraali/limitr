@@ -79,6 +79,7 @@ async function checkCaptionText() {
     'MİNT tarafından Sesli Betimleme Derneği\'ne yaptırılmıştır.',
     'Bu dizinin betimlemesi TRT/Karamel Film tarafından Sesli Betimleme Derneği\'ne yaptırılmıştır.',
     'Altyazı M.K.',
+    'Bu dizinin betimle ilgili bir şey.',
     'Subtitles by the Amara.org community',
     'Untertitel im Auftrag des ZDF, 2017'
   ];
