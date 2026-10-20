@@ -277,6 +277,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     console.log('\nToolbar icon');
     const iconState = id => worker.evaluate(t => (typeof tabIconStates === 'undefined' ? null : tabIconStates.get(t)), id);
     check('protected player plus an unreachable one: working (gold)', (await iconState(tabId)) === 'working', await iconState(tabId));
+    // A single-page site changing its URL keeps its players playing, so the icon stays gold
+    await tab.evaluate(() => history.pushState({}, '', '?view=2'));
+    await sleep(800);
+    check('same-page navigation (pushState) keeps the icon', (await iconState(tabId)) === 'working', await iconState(tabId));
+    await tab.evaluate(() => history.replaceState({}, '', '/page.html'));
     const remoteTab = await context.newPage();
     await remoteTab.goto(`http://127.0.0.1:${port}/remote-only.html`);
     await sleep(500);

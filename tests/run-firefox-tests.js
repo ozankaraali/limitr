@@ -84,7 +84,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     '/speech.html': html(() => `<!DOCTYPE html><html><body><button id="en">English</button><button id="tr">Turkish</button>
       <audio id="a-en" src="/en.wav" loop></audio><audio id="a-tr" src="/tr.wav" loop></audio>
       <script>for (const l of ['en', 'tr']) document.getElementById(l).onclick = () => {
-        document.querySelectorAll('audio').forEach(a => a.pause()); document.getElementById('a-' + l).play(); };</script></body></html>`),
+        document.querySelectorAll('audio').forEach(a => a.pause()); const a = document.getElementById('a-' + l); a.currentTime = 0; a.play(); };</script></body></html>`),
     '/remote-only.html': html(() => `<!DOCTYPE html><html><body><button id="play">Play</button>
       <audio id="remote" src="http://localhost:${port}/tone.wav" loop></audio>
       <script>play.onclick = () => remote.play();</script></body></html>`),
@@ -197,10 +197,15 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       console.log('\nCaptions (hosted in the background page)');
       await tab.goto(`http://127.0.0.1:${port}/speech.html`);
       await sleep(800);
-      // Only captions produced after the click count; a sentence already in flight when a
-      // setting changes still finishes under the old setting
+      // Only captions produced after the click count. Each run starts in silence, once sentences
+      // still in flight from the last run are out (a Whisper call can't be cut short), and plays
+      // its recording from the start
       const play = async (lang, seconds) => {
-        await ask({ op: 'caption-results' });
+        await tab.evaluate(() => document.querySelectorAll('audio').forEach(a => a.pause()));
+        for (let quietMs = 0, waitedMs = 0; quietMs < 3000 && waitedMs < 30000; waitedMs += 500) {
+          await sleep(500);
+          quietMs = (await ask({ op: 'caption-results' })).length ? 0 : quietMs + 500;
+        }
         const clicked = Date.now();
         await tab.click(`#${lang}`);
         await sleep(seconds * 1000);

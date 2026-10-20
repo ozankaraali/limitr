@@ -99,6 +99,7 @@ npm install
 npx playwright install chromium firefox
 npm test                 # engine checks in Chromium + Firefox, and Chromium end-to-end
 npm run test:firefox     # end-to-end in your installed Firefox
+npm run test:captions    # live captions with the real speech models (macOS, uses `say`)
 npm run build:firefox
 npm run lint:firefox
 npm run icons            # toolbar and app icons from icons/mark.svg
@@ -109,6 +110,8 @@ npm run store-art        # README screenshots and store artwork in docs/store/
   through the real engine and checks that normal audio is untouched and the spikes are tamed.
 - **Debug harness:** right-click the toolbar icon and choose Debug Harness to play any recording
   through the engine, watch the trace and compare all presets offline.
+- **Benchmarks** in `tests/bench/` measure page-load cost, popup speed and caption latency; pass
+  `--ext=DIR` more than once to compare copies of the extension.
 
 ## Privacy
 
