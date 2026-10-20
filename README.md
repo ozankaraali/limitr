@@ -54,7 +54,22 @@ You can save your own presets on the Fine-tune screen.
 
 ## Results
 
-Measured by `tests/run-engine-tests.js`, which renders a synthetic stream through the real engine
+**On real streams.** `tests/run-engine-tests.js` also plays two recordings from Kick through the
+engine (when they're present locally): 5 minutes of a regular streamer who doesn't yell, with a
+game bed between phrases, and a 33 s clip that is loud overall with loud moments. "Talking" is the
+stream's talking level, measured the way BS.1770 does.
+
+| Preset | Regular streamer: guard cutting | Talking −18.9 LUFS comes out at | Loud clip: guard cutting | Talking −8.1 LUFS comes out at | Loudest moments |
+|--------|---:|---:|---:|---:|---:|
+| Gentle | 1.9% of the time | −18.9 (untouched) | 0% | −15.2 | +3.6 → +3.5 dB |
+| Stream | 3.3% | −21.5 (its −20 level) | 3.4% | −21.4 | +3.7 → +3.0 dB |
+| Movie | 2.4% | −19.5 | 0% | −19.3 | +3.7 → +3.2 dB |
+| Sleep | 5.2% | −29.9 (its −28 level) | 10.4% | −29.3 | +3.7 → +3.1 dB |
+
+Most of what remains on the regular stream is its first seconds, while Limitr learns it. 2.1.2
+cut the same regular stream 43–82% of the time and turned its talking down 10–18 dB.
+
+**On a synthetic stream.** The test also renders a synthetic stream through the real engine
 in Chromium and Firefox (both give the same numbers): talking with a sudden yell, an alert chime
 and a clap, and a 20 s yelling fit. Spike figures are loudness above normal talking, for a stream
 at −24 LUFS. They stay within a few tenths of a dB of these at every source level from −36 LUFS
@@ -62,26 +77,26 @@ at −24 LUFS. They stay within a few tenths of a dB of these at every source le
 
 | Preset | Yell | Alert | Clap | 20 s yelling fit, 8 s in | Output peak |
 |--------|-----:|------:|-----:|-------------------------:|------------:|
-| Off | +13.5 dB | +16.7 dB | +8.2 dB | +10.7 dB | as sent |
-| Gentle | +7.8 dB | +5.2 dB | +3.0 dB | +7.9 dB | −7.2 dBFS |
-| Stream | +5.2 dB | +4.1 dB | +2.2 dB | +3.9 dB | −8.4 dBFS |
-| Movie | +6.0 dB | +4.5 dB | +2.7 dB | +4.8 dB | −8.0 dBFS |
-| 90s TV | +5.3 dB | +5.2 dB | +2.6 dB | | −12.9 dBFS |
-| Sleep | +4.6 dB | +3.3 dB | +1.5 dB | +2.8 dB | −11.5 dBFS |
+| Off | +13.4 dB | +16.6 dB | +8.0 dB | +10.5 dB | as sent |
+| Gentle | +9.4 dB | +7.8 dB | +4.8 dB | +7.2 dB | −4.6 dBFS |
+| Stream | +5.8 dB | +4.8 dB | +2.6 dB | +4.5 dB | −7.6 dBFS |
+| Movie | +6.8 dB | +5.8 dB | +3.3 dB | +5.5 dB | −6.5 dBFS |
+| 90s TV | +6.9 dB | +7.3 dB | +3.4 dB | | −11.5 dBFS |
+| Sleep | +5.2 dB | +4.0 dB | +1.5 dB | +3.2 dB | −11.5 dBFS |
 
 Where normal talking ends up, by how loud the stream is:
 
 | Preset | Comfortable level | Quiet stream (−30 LUFS) | −24 LUFS | Loud stream (−10 LUFS) |
 |--------|------------------:|------------------------:|---------:|-----------------------:|
-| Gentle | −14 LUFS | unchanged | unchanged | −13.9 LUFS |
-| Stream | −20 LUFS | unchanged | unchanged | −19.9 LUFS |
-| Movie | −18 LUFS | unchanged | unchanged | −17.8 LUFS |
-| Sleep | −28 LUFS | −28.1 LUFS (lifted) | −28.0 LUFS | −28.0 LUFS |
+| Gentle | −14 LUFS | unchanged | unchanged | −14.5 LUFS |
+| Stream | −20 LUFS | unchanged | unchanged | −20.5 LUFS |
+| Movie | −18 LUFS | unchanged | unchanged | −18.5 LUFS |
+| Sleep | −28 LUFS | −28.6 LUFS (lifted) | −28.6 LUFS | −28.6 LUFS |
 
 90s TV is −20 LUFS too, but its own tone and compressor shape the sound on purpose. While the
 stream plays normally, the guard stays idle: it doesn't touch plain talking at any level. The tests
-also play about a minute of real speech (macOS `say`) through every preset at −30 and −14 LUFS:
-the guard cuts it by at most 0.6 dB (1.1 dB in Sleep, which evens things out on purpose).
+also play about a minute of recorded speech (macOS `say`) through every preset at −30 and −14
+LUFS: the guard cuts it by at most 0.1 dB (0.5 dB in Sleep).
 
 The guard lets go 0.4 to 2.6 seconds after a spike ends, depending on the preset. Turning the
 Limitr volume up or down changes how loud everything is and nothing else: the tests check that
@@ -109,15 +124,15 @@ for the stream. The limiter's ceiling moves with the volume and never goes past 
    for hits, a 50 ms one for the start of a sustained sound, and a 400 ms one for what the ear
    hears. Each is compared after taking off the crest it normally has on this stream, so all
    three speak the same LUFS as the threshold.
-2. Takes "normal" to be the talking level of the last 20 seconds: the way BS.1770 measures a
-   programme's loudness, anything more than 10 dB under the window's mean doesn't count (pauses,
-   the game or music bed between phrases; on a real stream that bed fills almost half the time
-   and sits 27 dB under the voice, so a plain median landed on it), and of what's left, the
-   level the talking usually sits at (its upper quartile). A jump of more than 3 dB only becomes
-   the new normal after it has lasted the preset's memory (15 s for Gentle, 30 s for Movie, 60 s
-   for Stream, 5 minutes for Sleep; 20 s while the stream is still new, 3 s in its first 20 s),
-   so a yelling fit stays a spike. Coming back to the stream's familiar level is always allowed, so a quiet BRB screen
-   doesn't leave the voice ducked.
+2. Takes "normal" to be the talking level of the last 20 seconds. As BS.1770 does when measuring
+   a programme's loudness, anything more than 10 dB under the window's mean doesn't count: pauses,
+   and the game or music bed between phrases (on a real stream that bed fills almost half the
+   time, 27 dB under the voice). Of what's left, normal is where the talking usually sits (its
+   upper quartile). A jump of more than 3 dB only becomes the new normal after it has lasted the
+   preset's memory (15 s for Gentle, 30 s for Movie, 60 s for Stream, 5 minutes for Sleep; less
+   while Limitr is still learning a new stream), so a yelling fit stays a spike. Coming back to
+   the stream's familiar level is always allowed, so a quiet BRB screen doesn't leave the voice
+   ducked.
 3. Anything louder than normal plus the preset's headroom (2.5 to 7 dB) is pulled back down;
    sudden hits get at most 5 dB over their usual crest in every preset, the least that still
    leaves a real talker's consonants alone. The 20 ms lookahead lets the gain drop before the
