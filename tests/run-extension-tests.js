@@ -570,8 +570,13 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await popup.evaluate(() => { if (!document.querySelector('[data-screen="main"]').hidden) return; showScreen('main'); });
 
     // Drive the popup with the transcriber's own messages instead of downloading a speech model
+    await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'loading',
+      message: 'Downloading the English speech model (first time only)\u2026' }), tabId);
+    await sleep(200);
     await worker.evaluate(id => chrome.runtime.sendMessage({ action: 'transcription-status', tabId: id, status: 'active' }), tabId);
     await sleep(300);
+    const runningNote = await popup.textContent('#captionsNote');
+    check('once captions run, the note stops saying it is downloading', !/Download/.test(runningNote), runningNote);
     check('captions on: the language chip shows', await visible('#captionsChip'));
     await popup.click('#captionsChip').catch(() => {});
     await sleep(300);

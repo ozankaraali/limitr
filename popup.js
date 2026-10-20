@@ -952,6 +952,7 @@ function renderMixer(tabs) {
 // ---------- captions ----------
 const LANGUAGE_NAMES = Object.fromEntries(S.CAPTION_LANGUAGES);
 const IDLE_CAPTIONS_NOTE = 'Runs on your computer. The first time downloads a speech model.';
+const ACTIVE_CAPTIONS_NOTE = 'Captions show over the video and here.';
 // Chrome and Edge translate on-device; browsers without that (Firefox) don't offer translation
 const translatorApi = () => (typeof self !== 'undefined' && self.Translator) || null;
 // The larger Whisper model runs on WebGPU, which the transcriber only uses outside Firefox
@@ -1062,7 +1063,7 @@ async function setCaptions(enabled) {
     } catch (e) { /* overlay is optional */ }
     const response = await toBackground({ action: 'captions-start', tabId: state.tabId }).catch(e => ({ success: false, error: e.message }));
     state.captions = response?.success ? 'active' : 'error';
-    renderCaptions(response?.success ? 'Captions show over the video and here.' : `Captions failed: ${response?.error || 'unknown error'}`);
+    renderCaptions(response?.success ? ACTIVE_CAPTIONS_NOTE : `Captions failed: ${response?.error || 'unknown error'}`);
   } else {
     await toBackground({ action: 'captions-stop', tabId: state.tabId }).catch(() => {});
     state.captions = 'off';
@@ -1078,7 +1079,7 @@ async function refreshCaptions() {
   if (detected) state.captionsDetected = detected;
   renderCaptions(status?.active && detected && state.captionPrefs.language === 'auto'
     ? `Listening in ${LANGUAGE_NAMES[detected] || detected}.`
-    : undefined);
+    : status?.active ? ACTIVE_CAPTIONS_NOTE : undefined);
 }
 
 // The line being spoken arrives several times as it grows; same segment = same line.
@@ -1125,8 +1126,11 @@ chrome.runtime.onMessage.addListener((message) => {
       button.textContent = `Download the ${LANGUAGE_NAMES[message.source] || message.source} to ${LANGUAGE_NAMES[message.target] || message.target} translation`;
       button.hidden = false;
     } else {
+      // Every state replaces the note, so "Downloading…" never outlives the download
       renderCaptions(message.status === 'error' ? `Captions failed: ${message.message}`
-        : message.status === 'loading' ? message.message : undefined);
+        : message.status === 'loading' ? message.message
+          : message.status === 'active' ? ACTIVE_CAPTIONS_NOTE
+            : message.status === 'stopped' ? IDLE_CAPTIONS_NOTE : undefined);
     }
   }
 });

@@ -98,6 +98,10 @@ function wordRecall(lang, captions) {
     await popup.evaluate(() => {
       window.__results = [];
       window.__statuses = [];
+      // How long this extension page's main thread gets stuck (the popup shares it in Chrome)
+      window.__stalls = [];
+      let last = performance.now();
+      setInterval(() => { const now = performance.now(); window.__stalls.push(now - last - 50); last = now; }, 50);
       chrome.runtime.onMessage.addListener(m => {
         if (m.action === 'transcription-result' && m.result) window.__results.push({ ...m.result, at: Date.now() });
         if (m.action === 'transcription-status') window.__statuses.push(m);
@@ -177,7 +181,10 @@ function wordRecall(lang, captions) {
       await setPrefs({ language: 'tr', translateTo: '' });
       await sleep(500);
       await toBackground({ action: 'captions-start', tabId });
+      await popup.evaluate(() => { window.__stalls = []; });
       run = await play('tr', 24);
+      const stall = await popup.evaluate(() => Math.max(...window.__stalls));
+      check('the popup stays responsive while Whisper works (longest stall under 0.5 s)', stall < 500, `${Math.round(stall)} ms`);
       text = finals(run.results).map(r => r.text);
       check('Turkish captions match the spoken words', wordRecall('tr', text) >= 0.6,
         `${Math.round(wordRecall('tr', text) * 100)}% of words: ${JSON.stringify(text.slice(0, 1))}`);
