@@ -3,61 +3,14 @@
 
 const fs = require('fs/promises');
 const path = require('path');
+const { ROOT, outputDir, copyExtension } = require('./tools/extension-files');
 
-const rootDir = __dirname;
 // --test adds a small agent the Firefox E2E test drives (never ship that build).
 // --out=DIR builds elsewhere, so linting doesn't overwrite a dist/firefox that Firefox has loaded.
 const testBuild = process.argv.includes('--test');
-const outArg = (process.argv.find(a => a.startsWith('--out=')) || '').slice('--out='.length);
-const outDir = outArg
-  ? path.resolve(rootDir, outArg)
-  : path.join(rootDir, 'dist', testBuild ? 'firefox-test' : 'firefox');
-// Only these root entries ship, so whatever else is lying around in the checkout never gets packaged
-const shippedRootEntries = new Set([
-  'background.js', 'content-audio.js', 'content-bridge.js', 'content-transcribe.js', 'content.js',
-  'popup.html', 'popup.js', 'styles.css', 'manifest.json', 'LICENSE', 'NOTICE', 'README.md',
-  'fonts', 'icons', 'lib', 'tests'
-]);
-const skippedFiles = new Set([
-  'icons/build-icons.js',
-  'icons/mark.svg'
-]);
-// Only the debug harness ships from tests/
-const keptTestFiles = new Set(['tests/debug-harness.html', 'tests/debug-harness.js']);
-if (testBuild) {
-  keptTestFiles.add('tests/firefox-test-agent.js');
-  keptTestFiles.add('tests/firefox-test-hook.js');
-}
 
-function toRelativePath(filePath) {
-  return path.relative(rootDir, filePath).split(path.sep).join('/');
-}
-
-async function copyDirectory(sourceDir, targetDir, isRoot = false) {
-  await fs.mkdir(targetDir, { recursive: true });
-  const entries = await fs.readdir(sourceDir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    if (isRoot && !shippedRootEntries.has(entry.name)) continue;
-    if (entry.name.startsWith('.') || entry.name.endsWith('.csv')) continue;
-
-    const sourcePath = path.join(sourceDir, entry.name);
-    const targetPath = path.join(targetDir, entry.name);
-    const relativePath = toRelativePath(sourcePath);
-    if (skippedFiles.has(relativePath)) continue;
-    if (relativePath.startsWith('tests/') && entry.isFile() && !keptTestFiles.has(relativePath)) continue;
-    if (relativePath.startsWith('tests/') && entry.isDirectory()) continue;
-
-    if (entry.isDirectory()) {
-      await copyDirectory(sourcePath, targetPath);
-    } else if (entry.isFile()) {
-      await fs.copyFile(sourcePath, targetPath);
-    }
-  }
-}
-
-async function writeFirefoxManifest() {
-  const manifest = JSON.parse(await fs.readFile(path.join(rootDir, 'manifest.json'), 'utf8'));
+async function writeFirefoxManifest(outDir) {
+  const manifest = JSON.parse(await fs.readFile(path.join(ROOT, 'manifest.json'), 'utf8'));
   manifest.permissions = manifest.permissions.filter(p => p !== 'tabCapture' && p !== 'offscreen');
   manifest.background = {
     scripts: manifest.background.scripts,
@@ -75,13 +28,12 @@ async function writeFirefoxManifest() {
 }
 
 async function main() {
-  // The output folder is emptied first, so it must be a folder of its own under dist/
-  const distDir = path.join(rootDir, 'dist');
-  if (path.dirname(outDir) !== distDir) throw new Error(`--out must be a folder directly inside dist/, not ${outDir}`);
-  await fs.rm(outDir, { recursive: true, force: true });
-  await copyDirectory(rootDir, outDir, true);
-  await writeFirefoxManifest();
-  console.log(`Firefox build written to ${path.relative(rootDir, outDir)}`);
+  const outDir = outputDir(testBuild ? 'firefox-test' : 'firefox');
+  await copyExtension(outDir, {
+    testFiles: testBuild ? ['tests/firefox-test-agent.js', 'tests/firefox-test-hook.js'] : []
+  });
+  await writeFirefoxManifest(outDir);
+  console.log(`Firefox build written to ${path.relative(ROOT, outDir)}`);
   console.log(`Load this file in Firefox: ${path.join(outDir, 'manifest.json')}`);
 }
 
