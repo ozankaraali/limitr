@@ -104,6 +104,27 @@ async function runIn(browserType, port) {
     }
   }
 
+  console.log('\nVolume is a plain gain after the guard: louder or quieter, taming stays the same');
+  for (const id of ['gentle', 'stream', 'sleep', 'movie']) {
+    const at = {};
+    for (const volume of [-12, 0, 6, 12]) at[volume] = await page.evaluate(([p, v]) => bench.scenario(p, { volume: v }), [id, volume]);
+    const louder = at[6].normalOutLufs - at[0].normalOutLufs;
+    const quieter = at[-12].normalOutLufs - at[0].normalOutLufs;
+    check(`${id}: +6 dB on the slider is +6 dB of normal talking`, Math.abs(louder - 6) <= 0.5, `${louder.toFixed(1)} dB`);
+    check(`${id}: -12 dB on the slider is -12 dB of normal talking`, Math.abs(quieter + 12) <= 0.5, `${quieter.toFixed(1)} dB`);
+    const sameTaming = ['yell', 'alert'].every(e => Math.abs(at[-12].events[e].outAboveNormal - at[0].events[e].outAboveNormal) <= 0.5);
+    check(`${id}: spikes tamed the same at -12 dB`, sameTaming,
+      ['yell', 'alert'].map(e => `${e} ${at[-12].events[e].outAboveNormal} vs ${at[0].events[e].outAboveNormal}`).join(', '));
+    check(`${id}: never over 0 dBFS at +12 dB`, at[12].outputPeakDbfs <= 0.01, `${at[12].outputPeakDbfs} dBFS`);
+  }
+  for (const id of ['stream', 'sleep']) {
+    const base = await page.evaluate(p => bench.scenario(p, { volume: 0 }), id);
+    const up = await page.evaluate(p => bench.scenario(p, { volume: 6 }), id);
+    const same = ['yell', 'alert'].every(e => Math.abs(up.events[e].outAboveNormal - base.events[e].outAboveNormal) <= 0.5);
+    check(`${id}: spikes tamed the same at +6 dB`, same,
+      ['yell', 'alert'].map(e => `${e} ${up.events[e].outAboveNormal} vs ${base.events[e].outAboveNormal}`).join(', '));
+  }
+
   console.log('\nPage script (content-audio.js)');
   const pageScript = await browser.newPage();
   await pageScript.goto(`http://127.0.0.1:${port}/tests/page-script-bench.html`);

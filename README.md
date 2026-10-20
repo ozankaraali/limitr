@@ -65,19 +65,23 @@ sudden yell, an alert chime and a clap. Figures are loudness above normal talkin
 | 90s TV | 4.8 dB quieter | +6.2 dB | +5.2 dB | +2.9 dB | −12.0 dBFS |
 | Sleep | 6.9 dB quieter | +4.5 dB | +1.4 dB | +0.6 dB | −14.1 dBFS |
 
-The guard lets go 0.4 to 2.6 seconds after a spike ends, depending on the preset. With Limitr
-turned off, the audio is bit-for-bit what the site sent. The Off preset adds only a constant 15 ms
-delay.
+The guard lets go 0.4 to 2.6 seconds after a spike ends, depending on the preset. Turning the
+Limitr volume up or down changes how loud everything is and nothing else: the tests check that
+the slider moves normal talking by exactly the same number of dB, and that spikes are tamed the
+same at −12 dB (and at +6 dB in Stream and Sleep). Near full scale the limiter only ever makes
+spikes smaller. With Limitr turned off, the audio is bit-for-bit what the site sent. The Off
+preset adds only a constant 15 ms delay.
 
 ## How it works
 
 ```
-source → [mono fix] → [noise removal] → [low cut → EQ → high cut] → [compressor] → volume
-       → spike guard (adaptive, 10 ms lookahead) → brickwall limiter (5 ms lookahead) → output
+source → [mono fix] → [noise removal] → [low cut → EQ → high cut] → [compressor]
+       → spike guard (adaptive, 10 ms lookahead) → brickwall limiter (5 ms lookahead) → volume → output
 ```
 
-Stages in brackets are optional. Volume comes before the guard, so the guard's limits really are
-the loudest thing you will hear.
+Stages in brackets are optional. Volume comes last, so the guard always judges the stream itself:
+spikes are tamed the same at every volume, and the slider only changes how loud it all is. The
+limiter's ceiling moves with the volume and never goes past 0 dBFS.
 
 **Spike guard** (an AudioWorklet, `lib/dsp-worklet.js`):
 
@@ -85,7 +89,7 @@ the loudest thing you will hear.
 2. Takes "normal" to be the 75th percentile of the last 20 seconds of non-silent audio, so a pause
    or a single yell doesn't move it.
 3. Anything louder than normal plus the preset's headroom (3 to 9 dB), or above the preset's
-   absolute ceiling, is pulled back down. The 10 ms lookahead lets the gain drop before the jump
+   ceiling, is pulled back down. The 10 ms lookahead lets the gain drop before the jump
    reaches the output.
 4. A brickwall limiter after it, also with lookahead, makes sure no sample goes over the ceiling.
 

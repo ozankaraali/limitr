@@ -421,10 +421,10 @@ const GROUPS = [
   {
     title: 'Spike guard',
     toggle: 'guardEnabled',
-    note: 'Learns how loud the stream normally is and pulls sudden jumps back down.',
+    note: 'Learns how loud the stream normally is and pulls sudden jumps back down. Works the same at any volume.',
     controls: [
       ['guardHeadroom', 'Allow above normal', fmt.dbPlain],
-      ['guardCeiling', 'Never louder than', fmt.lufs],
+      ['guardCeiling', 'Never louder than (at 0 dB volume)', fmt.lufs],
       ['guardRatio', 'Strength', fmt.ratio],
       ['guardAttack', 'Reaction time', fmt.ms],
       ['guardHold', 'Hold before recovering', fmt.ms],
@@ -443,9 +443,9 @@ const GROUPS = [
   {
     title: 'Peak limiter',
     toggle: 'limiterEnabled',
-    note: 'The last safety net: no single sample gets past this ceiling.',
+    note: 'The last safety net: no single sample gets past this ceiling. Volume moves it, up to 0 dBFS.',
     controls: [
-      ['limiterCeiling', 'Ceiling', v => `${signed(v)} dBFS`],
+      ['limiterCeiling', 'Ceiling (at 0 dB volume)', v => `${signed(v)} dBFS`],
       ['limiterRelease', 'Recovery time', fmt.ms]
     ]
   },
