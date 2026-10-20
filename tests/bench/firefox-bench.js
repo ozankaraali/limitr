@@ -7,7 +7,6 @@
 
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 const { execFileSync } = require('child_process');
 const puppeteer = require('puppeteer-core');
 const B = require('./common');
@@ -19,7 +18,8 @@ const UUID = '6b0c3f1e-2f4f-4a51-9d55-6c1d1a4c7e01';
 const FIREFOX = B.arg('firefox', process.platform === 'darwin' ? '/Applications/Firefox.app/Contents/MacOS/firefox' : 'firefox');
 
 function build(dir) {
-  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'limitr-bench-firefox-'));
+  // Builds must go directly inside that copy's dist/ (build-firefox.js empties the folder first)
+  const out = path.join(dir, 'dist', `firefox-bench-${process.pid}-${Math.random().toString(36).slice(2, 8)}`);
   execFileSync('node', [path.join(dir, 'build-firefox.js'), '--test', `--out=${out}`], { stdio: 'ignore' });
   fs.copyFileSync(path.join(__dirname, 'firefox-bench-hook.js'), path.join(out, 'tests', 'firefox-bench-hook.js'));
   const manifestPath = path.join(out, 'manifest.json');
