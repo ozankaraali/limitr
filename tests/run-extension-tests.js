@@ -227,8 +227,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       });
       return results.map(r => ({ frameId: r.frameId, ...r.result }));
     }, tabId);
-    const meters = (frameId = 0) => worker.evaluate(({ id, frameId: f }) =>
-      chrome.tabs.sendMessage(id, { action: 'limitr-get-meters' }, { frameId: f }), { id: tabId, frameId });
+    const meters = (frameId = 0, trace = false) => worker.evaluate(({ id, frameId: f, trace: t }) =>
+      chrome.tabs.sendMessage(id, { action: 'limitr-get-meters', trace: t }, { frameId: f }), { id: tabId, frameId, trace });
 
     let status = await frameStatus();
     check('content scripts present in page and iframe', status.length === 2 && status.every(s => s.attached === 0),
@@ -254,6 +254,12 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     m = await meters(0);
     check('loud burst counted as a caught spike', m && m.spikes >= 1, m && `spikes=${m.spikes}, biggest=${m.maxSpikeDb?.toFixed(1)} dB`);
     check('normal level learned', m && m.baselineDb > -45 && m.baselineDb < -15, m && `${m.baselineDb?.toFixed(1)} LUFS`);
+    // The popup's loudness trace opens on the last ~10 s, recorded while the popup was closed
+    const traced = await meters(0, true);
+    const trace = traced && traced.trace;
+    check('the loudness trace is kept while the popup is closed', Array.isArray(trace) && trace.length >= 60 &&
+      trace.every(p => Number.isFinite(p.out) && Number.isFinite(p.cut)), trace ? `${trace.length} points` : 'none');
+    check('the trace is only sent when asked for', m && !('trace' in m));
 
     console.log('\nLive settings');
     await worker.evaluate(() => chrome.storage.local.set({ limitrEnabled: false }));
@@ -671,6 +677,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       cm2 = (await worker.evaluate(id => chrome.runtime.sendMessage({ target: 'offscreen', action: 'capture-meters', tabId: id }), tabId)).meters;
     }
     check('capture engine catches the bursts', cm2 && cm2.spikes >= 1, cm2 && `spikes=${cm2.spikes}`);
+    const capturedTrace = (await worker.evaluate(id => chrome.runtime.sendMessage({ target: 'offscreen', action: 'capture-meters', tabId: id, trace: true }), tabId)).meters;
+    // (the capture has run for a few seconds by now)
+    check('the captured tab keeps its loudness trace too', capturedTrace && Array.isArray(capturedTrace.trace) && capturedTrace.trace.length >= 30,
+      capturedTrace && capturedTrace.trace ? `${capturedTrace.trace.length} points` : 'none');
     await worker.evaluate(() => chrome.storage.local.set({ limitrMode: 'page' }));
     await sleep(1500);
     const listAfter = await worker.evaluate(() => capturedTabIds());

@@ -445,7 +445,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'capture-meters':
       return respond((async () => {
         if (!(await hasOffscreen())) return { meters: null };
-        return toOffscreen({ action: 'capture-meters', tabId: message.tabId });
+        return toOffscreen({ action: 'capture-meters', tabId: message.tabId, trace: Boolean(message.trace) });
       })(), sendResponse);
     case 'captions-start':
       return respond(startCaptions(message.tabId), sendResponse);

@@ -192,7 +192,7 @@
     }
   }
 
-  function requestMeters() {
+  function requestMeters(trace = false) {
     const id = Math.random().toString(36).slice(2);
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -203,7 +203,7 @@
         clearTimeout(timer);
         resolve(meters);
       });
-      postToPage('get-meters', { id });
+      postToPage('get-meters', { id, trace });
     });
   }
 
@@ -212,7 +212,7 @@
     if (!message || typeof message.action !== 'string') return false;
     switch (message.action) {
       case 'limitr-get-meters':
-        requestMeters().then(sendResponse);
+        requestMeters(Boolean(message.trace)).then(sendResponse);
         return true;
       case 'limitr-capture-state':
         current.captured = Boolean(message.captured);

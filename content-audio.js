@@ -87,7 +87,7 @@
         break;
       }
       case 'get-meters':
-        post('meters', { id: msg.id, meters: meters() });
+        post('meters', { id: msg.id, meters: meters(Boolean(msg.trace)) });
         break;
       case 'reset-analysis':
         if (engine) engine.resetAnalysis();
@@ -345,12 +345,12 @@
     }, 50);
   }
 
-  function meters() {
+  function meters(withTrace = false) {
     return {
       attached: attachedCount,
       waitingForGesture: waiting.size,
       skipped: Object.fromEntries(skipped),
-      ...(engine ? engine.getMeters() : {})
+      ...(engine ? engine.getMeters(withTrace) : {})
     };
   }
 

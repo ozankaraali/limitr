@@ -136,7 +136,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'capture-meters': {
       const capture = captures.get(message.tabId);
-      sendResponse({ meters: capture ? { attached: 1, captured: true, ...capture.engine.getMeters() } : null });
+      sendResponse({ meters: capture ? { attached: 1, captured: true, ...capture.engine.getMeters(Boolean(message.trace)) } : null });
       return false;
     }
 

@@ -881,18 +881,22 @@ async function refreshTabStatus() {
 
 async function pollMeters() {
   let meters = null;
+  // An empty trace (the popup just opened) starts from what the engine kept while it was closed
+  const trace = state.history.length === 0;
   try {
     if (state.enabled && state.captured) {
-      meters = (await toBackground({ action: 'capture-meters', tabId: state.tabId }))?.meters || null;
+      meters = (await toBackground({ action: 'capture-meters', tabId: state.tabId, trace }))?.meters || null;
     } else if (state.enabled && state.frameStatus && state.frameStatus.attached > 0) {
-      meters = await chrome.tabs.sendMessage(state.tabId, { action: 'limitr-get-meters' }, { frameId: state.frameId });
+      meters = await chrome.tabs.sendMessage(state.tabId, { action: 'limitr-get-meters', trace }, { frameId: state.frameId });
     }
   } catch (e) {
     meters = null;
   }
 
   state.meters = meters;
-  if (meters && Number.isFinite(meters.outDb)) {
+  if (meters && Array.isArray(meters.trace) && meters.trace.length) {
+    state.history = meters.trace.slice(-HISTORY_POINTS);
+  } else if (meters && Number.isFinite(meters.outDb)) {
     const cut = Math.max(0, -(meters.guardDb || 0));
     state.history.push({ out: meters.outDb, cut, limit: meters.thresholdDb });
     if (state.history.length > HISTORY_POINTS) state.history.shift();

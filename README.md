@@ -25,7 +25,8 @@ smoothly. Quieter sound, like a streamer who starts whispering, is left alone. S
 where quiet talking is easy to hear, and leave it running.
 
 The popup shows a live loudness trace: purple is what you hear, gold is what Limitr shaved off, and
-the dashed line is where taming starts. It counts the spikes it caught and how hard it cut the
+the dashed line is where taming starts. Limitr works whether the popup is open or not; the trace
+opens on the last 10 seconds, so you can see what just happened. It counts the spikes it caught and how hard it cut the
 biggest one. The toolbar icon tells you the state at a glance: gray when Limitr is off, purple when
 it's on, gold while it's working on the tab, and red when sound is playing unprotected and Limitr
 needs you (the popup says what to do).
