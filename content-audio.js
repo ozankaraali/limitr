@@ -24,6 +24,10 @@
   const BRIDGE = 'limitr-bridge';
   const PAGE = 'limitr-page';
   const RESUME_TIMEOUT_MS = 300;
+  // A running AudioContext costs the browser's real-time audio thread several percent of a core
+  // even when nothing plays, so after this long with no processed player playing it is suspended,
+  // and the next play wakes it
+  const IDLE_SUSPEND_MS = 10000;
 
   const state = {
     configured: false,
@@ -47,6 +51,8 @@
   const unreachable = new Set();  // WeakRefs, so a player the page drops can still be collected
   const sources = [];
   let gestureListening = false;
+  let idleTimer = null;
+  let idleSuspended = false;
   let gestureListener = null;
   let transcriber = null;
   let transcriberPending = null;
@@ -131,7 +137,10 @@
     // The context can start after resume() stopped waiting for it (a slow start, or a gesture we
     // didn't see); players parked until then must attach without needing another click.
     ctx.addEventListener('statechange', () => {
-      if (ctx.state === 'running') attachWaiting();
+      if (ctx.state === 'running') {
+        idleSuspended = false;
+        attachWaiting();
+      }
     });
     enginePromise = engine.init().then(() => engine);
     return enginePromise;
@@ -248,6 +257,7 @@
       sources.push(source);
       engine.resetAnalysis();
       followSiteVolume(el);
+      followPlayback(el);
       reportStatus();
       syncTranscriber();
     } catch (e) {
@@ -305,6 +315,36 @@
     for (const type of ['loadstart', 'emptied']) {
       el.addEventListener(type, () => { if (engine) engine.resetAnalysis(); });
     }
+  }
+
+  // ---------- idle: no processed player playing ----------
+  // Listened for on the element itself, so detached and shadow-DOM players count too
+  function followPlayback(el) {
+    for (const type of ['play', 'playing']) el.addEventListener(type, wake);
+    for (const type of ['pause', 'ended', 'emptied']) el.addEventListener(type, scheduleIdle);
+  }
+
+  function scheduleIdle() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(suspendIfIdle, IDLE_SUSPEND_MS);
+  }
+
+  // Only once the page has had a gesture: then the browser always lets the context resume, so a
+  // processed player is never left silent (one that autoplayed without a gesture stays running)
+  function suspendIfIdle() {
+    idleTimer = null;
+    if (!ctx || ctx.state !== 'running' || sources.some(s => !s.mediaElement.paused)) return;
+    if (!(navigator.userActivation && navigator.userActivation.hasBeenActive)) return;
+    idleSuspended = true;
+    ctx.suspend().catch(() => { idleSuspended = false; }).finally(reportStatus);
+  }
+
+  function wake() {
+    clearTimeout(idleTimer);
+    idleTimer = null;
+    if (!idleSuspended) return;
+    idleSuspended = false;
+    ctx.resume().catch(() => {}).finally(reportStatus);
   }
 
   // Listen on the element itself: detached and shadow-DOM players don't reach window listeners

@@ -167,6 +167,17 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     m = await meters(0);
     check('turning it back on resumes processing', m && m.inDb > -60, m && `in ${m.inDb?.toFixed(1)}`);
 
+    console.log('\nPaused tab');
+    await tab.evaluate(() => document.getElementById('local').pause());
+    await sleep(11000);
+    m = await meters(0);
+    check('a paused page suspends its audio after 10 s', m && m.contextState === 'suspended', m && m.contextState);
+    await tab.evaluate(() => document.getElementById('local').play());
+    await sleep(1000);
+    m = await meters(0);
+    check('playing again wakes it within a second', m && m.contextState === 'running' && m.inDb > -60,
+      m && `${m.contextState}, in ${m.inDb?.toFixed(1)}`);
+
     console.log('\nToolbar icon');
     const remoteTab = await browser.newPage();
     await remoteTab.goto(`http://127.0.0.1:${port}/remote-only.html`);

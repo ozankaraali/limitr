@@ -279,6 +279,19 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       m && `threshold ${m.thresholdDb?.toFixed(1)}, normal ${m.baselineDb?.toFixed(1)}`);
     await worker.evaluate((s) => chrome.storage.local.set({ limitrSettings: s }), limitrSettings);
 
+    // A paused page lets the browser's real-time audio go idle, and wakes when a player plays
+    console.log('\nPaused tab');
+    await tab.evaluate(() => document.getElementById('local').pause());
+    await sleep(11000);
+    m = await meters(0);
+    check('a paused page suspends its audio after 10 s', m && m.contextState === 'suspended', m && m.contextState);
+    await tab.evaluate(() => document.getElementById('local').play());
+    await sleep(1000);
+    m = await meters(0);
+    check('playing again wakes it within a second', m && m.contextState === 'running' && m.inDb > -60,
+      m && `${m.contextState}, in ${m.inDb?.toFixed(1)}`);
+    check('...and the toolbar doesn\'t ask for attention', (await worker.evaluate(t => tabIconStates.get(t), tabId)) !== 'attention');
+
     check('no page errors', pageErrors.length === 0, pageErrors.join(' | '));
 
     console.log('\nToolbar icon');
