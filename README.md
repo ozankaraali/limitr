@@ -184,6 +184,16 @@ within 0.001 dB in both Chromium and Firefox, so the compressor never makes quie
   starts when you open the popup there. Fullscreen video stays inside the window while a tab is
   captured, and each captured tab gets its own volume.
 
+## What's new in 2.2
+
+Stream and Sleep now take the shrill edge off a yell into the mic, a piercing alert or a cheering
+crowd while it lasts, measured against how the stream usually sounds, so normal talk keeps its
+tone (Fine-tune → Harsh sound). Limitr's processing takes about a third less CPU, and a paused
+tab costs nothing extra after 10 seconds: before, it kept the browser's real-time audio running at
+5–8% of a core. A stream that opens on room noise while the streamer sets up no longer has its
+voice cut for the rest of the clip, and the popup's trace opens on the last 10 seconds, kept while
+the popup was closed.
+
 ## What's new in 2.1
 
 An independent audit of the maths and a review of the chain design, both measured on streams from
