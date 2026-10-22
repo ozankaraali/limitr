@@ -354,6 +354,16 @@ async function runIn(browserType, port) {
     }
   }
 
+  console.log('\nA boom: the mic or the music turned up over 5 s, on purpose, and kept there');
+  for (const [id, holdsFor15] of [['gentle', false], ['movie', true], ['stream', true], ['sleep', true]]) {
+    const limit = PRESET_EXPECTATIONS[id].maxYellAbove;
+    for (const sourceDb of [-30, -14]) {
+      const r = await page.evaluate(([p, l]) => bench.boom(p, { sourceDb: l }), [id, sourceDb]);
+      check(`${id} at ${sourceDb} LUFS: a boom (+${r.inAbove} dB) held to +${limit} dB${holdsFor15 ? ' 15 s in' : ' 8 s in'}`,
+        r.at8 <= limit && (!holdsFor15 || r.at15 <= limit), `+${r.at8} dB at 8 s, +${r.at15} dB at 15 s`);
+    }
+  }
+
   // Gentle takes yelling for the stream's level once it fills a quarter of its familiar minute
   // (four times its 15 s memory), so it holds the fits of the first 25 s only
   console.log('\nA streamer who keeps yelling, from the stream\'s first seconds');

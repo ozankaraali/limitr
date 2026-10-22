@@ -131,8 +131,10 @@ for the stream. The limiter's ceiling moves with the volume and never goes past 
    a programme's loudness, anything more than 10 dB under the window's mean doesn't count: pauses,
    and the game or music bed between phrases (on a real stream that bed fills almost half the
    time, 27 dB under the voice). Of what's left, normal is where the talking usually sits (its
-   upper quartile). A jump of more than 3 dB only becomes the new normal after it has lasted the
-   preset's memory (15 s for Gentle, 30 s for Movie, 60 s for Stream, 5 minutes for Sleep; 20 s
+   upper quartile). Normal follows drifts of up to 3 dB around the level it is defending. A jump
+   of more than 3 dB above that level, even one that builds over a few seconds (a mic or the
+   music turned up on purpose), only becomes the new normal after it has lasted the preset's
+   memory (15 s for Gentle, 30 s for Movie, 60 s for Stream, 5 minutes for Sleep; 20 s
    at most while Limitr is still learning a new stream), so a yelling fit stays a spike. A rise
    the size of a yell starts over whenever the stream is back at normal for 2 s, so a streamer
    who keeps yelling never teaches Limitr that yelling is normal. Only a rise of 12 dB or more in

@@ -484,6 +484,34 @@
     };
   }
 
+  // A streamer who turns the mic (or the music) up on purpose, over a few seconds, and keeps it
+  // there for 20 s after 40 s of talking: a slow rise must not walk normal up with it. Returns how
+  // far above normal talking the boom comes out 8 and 15 s after it is fully up.
+  async function boom(id, { boomDb = 9, rampSeconds = 5, seconds = 20, sourceDb = NORMAL_LUFS } = {}) {
+    const from = 40;
+    const total = from + rampSeconds + seconds + 10;
+    const talk = scaleTo(voice(total, 7), NORMAL_LUFS);
+    for (let i = from * FS; i < total * FS; i++) {
+      const t = i / FS - from;
+      const up = t < rampSeconds ? t / rampSeconds : t < rampSeconds + seconds ? 1 : 0;
+      talk[i] *= Math.pow(10, boomDb * up / 20);
+    }
+    const input = scaled(talk, sourceDb);
+    const out = await renderThroughEngine(input, input, presetSettings(id));
+    const inM = momentary(input, input);
+    const outM = momentary(out.left, out.right);
+    const within = (m, a, b) => m.filter(v => v.t >= a && v.t <= b).map(v => v.lufs);
+    const normalIn = talkingLevel(within(inM, 25, from));
+    const normalOut = talkingLevel(within(outM, 25, from));
+    const up = from + rampSeconds;
+    const above = (m, normal, at) => talkingLevel(within(m, up + at - 2, up + at + 2)) - normal;
+    return {
+      inAbove: +above(inM, normalIn, 10).toFixed(1),
+      at8: +above(outM, normalOut, 8).toFixed(1),
+      at15: +above(outM, normalOut, 15).toFixed(1)
+    };
+  }
+
   // A streamer who keeps yelling: fits of +11 dB, 4 to 12 s long, from the stream's first seconds,
   // with calm talk in between. However often they come, the fits are spikes the listener didn't
   // set the volume for. Returns how far each fit comes out above the calm talk's talking level
@@ -638,6 +666,7 @@
     offTransparent,
     scenario,
     sustained,
+    boom,
     yellingFits,
     quietStart,
     talkWithBed,
