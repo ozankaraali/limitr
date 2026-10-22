@@ -468,7 +468,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('Fine-tune opens as its own screen', (await visible('[data-screen="finetune"]')) && !(await visible('[data-screen="main"]')));
     check('Fine-tune shows the live loudness strip', await visible('#miniTrace'));
     check('Fine-tune sections have icons', (await popup.$$eval('[data-screen="finetune"] .gi svg',
-      els => els.filter(svg => svg.querySelector('path, rect, circle')).length)) === 6);
+      els => els.filter(svg => svg.querySelector('path, rect, circle')).length)) === 7);
     // Web Audio ignores gain on pass and notch filters, and Q on shelves: only show what works
     const eqRows = type => popup.evaluate(t => {
       const select = document.querySelector('.eq-band select');
@@ -488,6 +488,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       'levelTarget', 'levelMaxCut', 'levelMaxBoost'];
     const presentSliders = await popup.evaluate(ids => ids.filter(id => document.getElementById(`ctl-${id}`)), guardSliders);
     check('Spike guard and Comfortable level sliders are there', presentSliders.length === guardSliders.length, presentSliders.join(', '));
+    const harsh = await popup.evaluate(() => {
+      const toggle = document.querySelector('[data-screen="finetune"] input[aria-label="Harsh sound"]');
+      return { toggle: !!toggle, on: !!toggle && toggle.checked, slider: !!document.getElementById('ctl-deharshMaxCut') };
+    });
+    check('Harsh sound has its switch, on in Sleep, and its slider', harsh.toggle && harsh.on && harsh.slider, JSON.stringify(harsh));
     await popup.evaluate(() => {
       const slider = document.getElementById('ctl-guardHeadroom');
       slider.value = 8;

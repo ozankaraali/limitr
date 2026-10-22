@@ -553,7 +553,8 @@
   }
 
   // Spectral balance every 100 ms over 400 ms: the edge of the sound (2-8 kHz) against its body
-  // (150-600 Hz), in dB. A yell or a shrill sound tips it up; a clean voice sits about -10.
+  // (150-600 Hz), in dB. A yell or a shrill sound tips it up; a clean voice sits about -10. Also
+  // the edge's own level (dB of mean square), for sound with almost no body to measure against.
   function balance(left, right) {
     const biquad = (x, [b0, b1, b2, a1, a2]) => {
       const y = new Float32Array(x.length);
@@ -573,7 +574,7 @@
     const out = [];
     for (let b = 3; b < n; b++) {
       const sum = a => a[b] + a[b - 1] + a[b - 2] + a[b - 3];
-      out.push({ t: (b + 1) / 10, tilt: 10 * Math.log10((sum(ehi) + 1e-20) / (sum(elo) + 1e-20)) });
+      out.push({ t: (b + 1) / 10, tilt: 10 * Math.log10((sum(ehi) + 1e-20) / (sum(elo) + 1e-20)), edge: 10 * Math.log10(sum(ehi) / (4 * hop) + 1e-20) });
     }
     return out;
   }
@@ -645,6 +646,47 @@
       inAbove: +above(inM, normalIn, 10).toFixed(1),
       at8: +above(outM, normalOut, 8).toFixed(1),
       at15: +above(outM, normalOut, 15).toFixed(1)
+    };
+  }
+
+  // Talk with harsh moments in place of it, as loud as the talk: a crowd or a cymbal-heavy song
+  // (hits of noise above 3 kHz). Returns each harsh part's balance (edge over body, as in
+  // balance()) in and out and its edge level out; the talk's usual balance in and out and its edge
+  // level out, away from the parts; and the deepest cut the meters showed for harsh sound. Set a
+  // run against one with deharshEnabled off to see what it did: the guard and the evener read the
+  // input, so they act alike in both, and only the harsh-sound stage changes the edge.
+  async function harshParts(id, { overrides = {}, sourceDb = NORMAL_LUFS, parts = [[20, 24], [32, 35]], seconds = 45 } = {}) {
+    const program = scaleTo(voice(seconds, 7), NORMAL_LUFS);
+    const r = rng(5);
+    const hit = Math.round(0.3 * FS);
+    for (const [a, b] of parts) {
+      program.fill(0, Math.round(a * FS), Math.round(b * FS));
+      const noise = new Float32Array(Math.round((b - a) * FS));
+      for (let i = 0; i < noise.length; i++) noise[i] = (r() * 2 - 1) * Math.exp(-(i % hit) / (0.15 * FS));
+      onePoleHighpass(noise, 3000);
+      onePoleHighpass(noise, 3000);
+      mix(program, scaleTo(noise, NORMAL_LUFS), a);
+    }
+    const input = scaled(program, sourceDb);
+    const out = await renderThroughEngine(input, input, presetSettings(id, overrides));
+    const inM = momentary(input, input);
+    const balIn = balance(input, input);
+    const balOut = balance(out.left, out.right);
+    const talk = talkingLevel(inM.map(v => v.lufs));
+    const near = t => parts.some(([a, b]) => t >= a - 1 && t <= b + 1.4);
+    const usual = (bal, key = 'tilt') => median(bal.filter((v, k) => v.t >= 10 && !near(v.t) && Math.abs(inM[k].lufs - talk) <= 6).map(v => v[key]));
+    const during = (bal, [a, b], key = 'tilt') => {
+      const v = bal.filter(x => x.t >= a + 0.4 && x.t <= b + 0.4).map(x => x[key]);
+      return v.reduce((s, x) => s + x, 0) / v.length;
+    };
+    const cuts = out.meters.map(m => m.harshDb).filter(Number.isFinite);
+    return {
+      dsp: out.status.dsp,
+      talkIn: +usual(balIn).toFixed(2),
+      talkOut: +usual(balOut).toFixed(2),
+      talkEdgeOut: +usual(balOut, 'edge').toFixed(2),
+      parts: parts.map(p => ({ at: p[0], in: +during(balIn, p).toFixed(1), out: +during(balOut, p).toFixed(1), edgeOut: +during(balOut, p, 'edge').toFixed(1) })),
+      harshDb: +Math.min(0, ...cuts).toFixed(1)
     };
   }
 
@@ -806,6 +848,7 @@
     sustained,
     boom,
     yellingFits,
+    harshParts,
     quietStart,
     silentStart,
     longSetup,

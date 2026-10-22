@@ -214,6 +214,21 @@ async function checkUpgradeFrom20() {
   check('volume and tone stay', settings.volume === -4 && settings.toneEnabled && settings.eq2Gain === 3);
 }
 
+// 2.1 settings have no harsh-sound stage: it comes from the preset they were on, which stays shown
+async function checkUpgradeFrom21() {
+  const S = globalThis.LimitrSettings;
+  console.log('\nUpgrade from 2.1');
+  for (const [preset, expected] of [['stream', true], ['sleep', true], ['gentle', false], [null, false]]) {
+    const old = { ...S.applyPreset({ volume: -3 }, preset || 'stream'), guardHeadroom: preset ? S.PRESETS[preset].settings.guardHeadroom : 9 };
+    delete old.deharshEnabled;
+    delete old.deharshMaxCut;
+    const { settings, preset: shown } = await S.load({ get: async () => ({ limitrSettings: old, limitrPreset: preset }) });
+    check(`${preset || 'own settings'}: harsh sound ${expected ? 'on' : 'off'}${preset ? `, still shown as ${preset}` : ''}`,
+      settings.deharshEnabled === expected && settings.volume === -3 && (!preset || S.matchPreset(settings) === preset),
+      JSON.stringify({ deharsh: settings.deharshEnabled, shown, matches: S.matchPreset(settings) }));
+  }
+}
+
 async function runIn(browserType, port) {
   // Offline rendering needs neither the GPU nor the speakers
   // Off the GPU and silent. Chromium: fake audio output device, so the speakers are never opened.
@@ -385,6 +400,23 @@ async function runIn(browserType, port) {
     check(`${id}: ${id === 'gentle' ? 'the fits of the first 25 s' : 'every fit of yelling'} held to +${limit} dB over the calm talk`,
       held.every(f => f.outAbove <= limit), fits.map(f => `${f.at}s +${f.inAbove}→+${f.outAbove}`).join(', '));
   }
+
+  // Stream and Sleep take the edge off harsh sound while it lasts (against the same preset with
+  // it switched off) and leave the talk's tone alone; Gentle leaves both as they are
+  console.log('\nHarsh sound: a crowd or a cymbal-heavy song, as loud as the talk');
+  for (const [id, sourceDb] of [['stream', -30], ['stream', -14], ['sleep', -24]]) {
+    const on = await page.evaluate(([p, l]) => bench.harshParts(p, { sourceDb: l }), [id, sourceDb]);
+    const off = await page.evaluate(([p, l]) => bench.harshParts(p, { sourceDb: l, overrides: { deharshEnabled: false } }), [id, sourceDb]);
+    const softened = on.parts.map((p, k) => +(off.parts[k].edgeOut - p.edgeOut).toFixed(1));
+    check(`${id} at ${sourceDb} LUFS: each harsh part's edge (2-8 kHz) comes out at least 4 dB softer`,
+      on.dsp === 'worklet' && softened.every(d => d >= 4), `${softened.join(', ')} dB; meters showed ${on.harshDb} dB`);
+    check(`${id} at ${sourceDb} LUFS: the talk's tone moves at most 0.3 dB`,
+      Math.abs(on.talkOut - off.talkOut) <= 0.3 && Math.abs(on.talkEdgeOut - off.talkEdgeOut) <= 0.3,
+      `balance ${off.talkOut} → ${on.talkOut} dB, edge ${off.talkEdgeOut} → ${on.talkEdgeOut} dB`);
+  }
+  const gentle = await page.evaluate(() => bench.harshParts('gentle'));
+  check('gentle: harsh sound is left as it is', gentle.parts.every(p => Math.abs(p.out - p.in) <= 0.5) && gentle.harshDb === 0,
+    gentle.parts.map(p => `${p.in}→${p.out}`).join(', '));
 
   if (SPEECH) {
     console.log('\nReal speech (macOS say) is left alone');
@@ -622,6 +654,7 @@ async function runIn(browserType, port) {
   await checkCaptionText();
   await checkLegacyUpgrade();
   await checkUpgradeFrom20();
+  await checkUpgradeFrom21();
   const routes = {};
   for (const [name, file] of Object.entries(RECORDING_FILES)) {
     routes[`/recordings/${name}`] = (req, res) => {

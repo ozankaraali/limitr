@@ -35,8 +35,8 @@ needs you (the popup says what to do).
 |--------|--------------|
 | Off | Audio plays exactly as the site sends it |
 | Gentle | Steps in only when something is far louder than the talking around it; only very loud streams are turned down |
-| Stream | Pulls alerts, blerps and sudden yelling back to a few dB above normal talking; loud streams come down to one comfortable level |
-| Sleep | Quiet and even: spikes barely rise above normal, every stream sits at one low level (quiet ones are lifted a little), softer highs |
+| Stream | Pulls alerts, blerps and sudden yelling back to a few dB above normal talking and softens their shrill edge; loud streams come down to one comfortable level |
+| Sleep | Quiet and even: spikes barely rise above normal and lose their shrill edge, every stream sits at one low level (quiet ones are lifted a little), softer highs |
 | Movie | Tames explosions and music stings, leaves dialog alone |
 | 90s TV | Narrow, warm broadcast sound with a little tape hiss (pair it with the CRT look) |
 
@@ -50,8 +50,8 @@ You can save your own presets on the Fine-tune screen.
   tiny, about twice as fast) or, on Chrome and Edge, a larger one that runs on the graphics card
   (410 MB). Save the transcript as a text file from the Captions screen.
 - **Remove background noise:** RNNoise, running locally
-- **Fine-tune:** spike guard, peak limiter, tone (low/high cut and a 5-band EQ), a classic
-  compressor, tape hiss, a mono fix and a CRT video look
+- **Fine-tune:** spike guard, comfortable level, harsh sound, peak limiter, tone (low/high cut
+  and a 5-band EQ), a classic compressor, tape hiss, a mono fix and a CRT video look
 
 ## Results
 
@@ -63,15 +63,24 @@ way BS.1770 does.
 
 | Preset | Regular streamer: guard cutting | Talking −18.9 LUFS comes out at | Yelling clip: guard cutting | Calm talk −14.5 LUFS comes out at | Yells above the calm talk |
 |--------|---:|---:|---:|---:|---:|
-| Gentle | 1.9% of the time | −18.9 (untouched) | 66% | −16.6 | +7.4 → +4.8 dB |
-| Stream | 3.3% | −21.5 (its −20 level) | 90% | −20.9 (its −20 level) | +7.4 → +2.9 dB |
-| Movie | 2.4% | −19.5 | 83% | −17.9 (its −18 level) | +7.4 → +2.9 dB |
-| Sleep | 5.2% | −29.9 (its −28 level) | 98% | −29.7 (its −28 level) | +7.4 → +3.2 dB |
+| Gentle | 1.3% of the time | −18.9 (untouched) | 60% | −16.6 | +7.4 → +4.8 dB |
+| Stream | 2.2% | −21.6 (its −20 level) | 85% | −21.2 (its −20 level) | +7.4 → +2.0 dB |
+| Movie | 1.4% | −19.5 | 78% | −17.9 (its −18 level) | +7.4 → +3.0 dB |
+| Sleep | 3.6% | −29.9 (its −28 level) | 92% | −30.0 (its −28 level) | +7.4 → +2.4 dB |
 
 Most of what remains on the regular stream is its first seconds, while Limitr learns it. 2.1.2
 cut the same regular stream 43–82% of the time and turned its talking down 10–18 dB. On the
 yelling clip, the guard is busy because the yells are most of it; 2.1.3 took the yelling for
 normal within seconds and left the yells 7.3–7.9 dB over the calm talk.
+
+**Harsh sound.** `node tools/eval-dataset.js` scores a dataset of 22 recordings (hour-long
+sessions and clips from five Kick and YouTube streamers, and a Turkish-dubbed documentary as the
+calm reference) where a listener marked 39 moments as harsh. The Stream preset takes them from
+5.3 dB brighter than the streamer's usual talk to 3.7 dB on average (a yelling clip's from 4.7 to
+2.9 dB). In the engine test, a crowd or cymbals as loud as the talk lose about 7 dB above 2 kHz
+while the talk around them keeps its tone to within 0.01 dB. On whole sessions the talk's balance
+moves 0.5 dB on average, mostly from unmarked yelling and music, and the documentary's 0.3 dB.
+In Stream and Sleep, the yells on the clip above come out about 1 dB softer than without it.
 
 **On a synthetic stream.** The test also renders a synthetic stream through the real engine
 in Chromium and Firefox (both give the same numbers): talking with a sudden yell, an alert chime
@@ -83,10 +92,10 @@ at −24 LUFS. They stay within a few tenths of a dB of these at every source le
 |--------|-----:|------:|-----:|-------------------------:|------------:|
 | Off | +13.4 dB | +16.6 dB | +8.0 dB | +10.5 dB | as sent |
 | Gentle | +9.4 dB | +7.8 dB | +4.8 dB | +7.2 dB | −4.6 dBFS |
-| Stream | +5.8 dB | +4.8 dB | +2.6 dB | +4.5 dB | −7.6 dBFS |
+| Stream | +5.8 dB | +4.0 dB | −0.4 dB | +4.5 dB | −8.4 dBFS |
 | Movie | +6.8 dB | +5.8 dB | +3.3 dB | +5.5 dB | −6.5 dBFS |
 | 90s TV | +6.9 dB | +7.3 dB | +3.4 dB | | −11.5 dBFS |
-| Sleep | +5.2 dB | +4.0 dB | +1.5 dB | +3.2 dB | −11.5 dBFS |
+| Sleep | +5.0 dB | +2.7 dB | −1.0 dB | +3.1 dB | −11.5 dBFS |
 
 Where normal talking ends up, by how loud the stream is:
 
@@ -113,7 +122,7 @@ preset adds only a constant 25 ms delay.
 
 ```
 source → [mono fix] → [noise removal] → [low cut → EQ → high cut] → [compressor]
-       → spike guard + comfortable level (20 ms lookahead) → [tape hiss] → volume
+       → spike guard + harsh sound + comfortable level (20 ms lookahead) → [tape hiss] → volume
        → brickwall limiter (5 ms lookahead) → output
 ```
 
@@ -151,7 +160,14 @@ for the stream. The limiter's ceiling moves with the volume and never goes past 
 4. The comfortable level turns the stream's normal loudness down to the preset's level within
    about a second when it's louder, and leaves quieter streams alone (Sleep lifts them by up to
    6 dB). A new video starts fresh, and the site's own volume slider acts like a plain gain.
-5. A brickwall limiter at the end, also with lookahead, makes sure no sample goes over the ceiling.
+5. Harsh sound (on in Stream and Sleep): a yell into the mic, a shrill alert or a cheering crowd
+   tips the sound from the voice's body (150–600 Hz) to its edge (2–8 kHz). Limitr learns the
+   balance this stream usually has while it talks (over about 20 s), and when a moment near the
+   talking level or louder turns more than 3 dB brighter than that, a high shelf above 2 kHz
+   softens it while it lasts: 1.2 dB for each dB over, up to 8 dB, within 10 ms, letting go over a
+   quarter of a second. Because it's measured against the stream itself, a bright streamer's
+   normal voice keeps its tone, and quiet brightness (sibilance, room tone) is left alone.
+6. A brickwall limiter at the end, also with lookahead, makes sure no sample goes over the ceiling.
 
 **Compressor without the hidden boost:** Web Audio's `DynamicsCompressorNode` applies automatic
 makeup gain that can't be turned off: +15.3 dB at −30 dB / 12:1. Limitr cancels it exactly, to
