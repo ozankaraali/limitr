@@ -7,6 +7,7 @@
 // recordings, to compare a candidate with the current engine. --auto scores the recordings no
 // listener has reviewed yet on their automatic tags (tools/autotag-dataset.js), provisionally.
 // Run: node tools/eval-dataset.js [--worklet=FILE] [--presets=gentle,stream] [--auto] [name-filter]
+//   name-filter: part of a file name, or a regular expression ("k434e|vp05")
 
 const fs = require('fs');
 const path = require('path');
@@ -19,14 +20,14 @@ const arg = name => (process.argv.find(a => a.startsWith(`--${name}=`)) || '').s
 const worklet = arg('worklet');
 const presets = (arg('presets') || 'gentle,stream,movie,sleep').split(',');
 const useAuto = process.argv.includes('--auto');
-const filter = process.argv.slice(2).find(a => !a.startsWith('--')) || '';
+const filter = new RegExp(process.argv.slice(2).find(a => !a.startsWith('--')) || '');
 // The listener's labels, or (with --auto, where nobody has reviewed it) the automatic tags
 const loudOf = e => e.reviewed || e.loud ? e.loud || [] : useAuto && e.auto ? e.auto.loud : [];
 const harshOf = e => e.reviewed ? e.harsh || [] : useAuto && e.auto ? e.auto.harsh : [];
 const labelled = e => e.reviewed || e.loud ? 'labelled' : useAuto && e.auto ? 'auto-tagged' : 'not labelled';
 
 const entries = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/fixtures/dataset.json'), 'utf8'))
-  .filter(e => e.file.includes(filter) && fs.existsSync(path.join(DIR, e.file)));
+  .filter(e => filter.test(e.file) && fs.existsSync(path.join(DIR, e.file)));
 const mean = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : NaN;
 
 (async () => {
