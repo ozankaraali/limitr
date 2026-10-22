@@ -484,6 +484,64 @@
     };
   }
 
+  // Loudness range (EBU Tech 3342): the spread, 10th to 95th percentile, of 3 s short-term
+  // loudness every 100 ms, gated at -70 LUFS and 20 LU under the gated mean. A calm dubbed
+  // documentary measures about 5 LU; streams 10 to 20.
+  function loudnessRange(left, right) {
+    const kl = kWeight(left), kr = kWeight(right);
+    const hop = FS / 10;
+    const n = Math.floor(kl.length / hop);
+    const sub = new Float64Array(n);
+    for (let b = 0; b < n; b++) {
+      let e = 0;
+      for (let i = b * hop; i < (b + 1) * hop; i++) e += kl[i] * kl[i] + kr[i] * kr[i];
+      sub[b] = e / hop;
+    }
+    const st = [];
+    for (let b = 29, sum = sub.slice(0, 29).reduce((s, v) => s + v, 0); b < n; b++) {
+      sum += sub[b];
+      st.push(sum / 30);
+      sum -= sub[b - 29];
+    }
+    const heard = st.filter(p => -0.691 + 10 * Math.log10(p + 1e-20) > -70);
+    if (!heard.length) return NaN;
+    const gate = -0.691 + 10 * Math.log10(heard.reduce((s, p) => s + p, 0) / heard.length) - 20;
+    const kept = heard.map(p => -0.691 + 10 * Math.log10(p)).filter(v => v > gate).sort((a, b) => a - b);
+    const at = q => kept[Math.min(kept.length - 1, Math.floor(kept.length * q))];
+    return at(0.95) - at(0.1);
+  }
+
+  // A labelled recording from the dataset (tools/eval-dataset.js): the talking level outside the
+  // loud parts, in and out; the guard's share of that time cutting >1 dB; and each loud part's
+  // loudest 400 ms over the talking level, in and out. After the first `skip` seconds.
+  async function datasetFile(id, url, { loud = [], skip = 10 } = {}) {
+    const decoded = await new OfflineAudioContext(2, FS, FS).decodeAudioData(await (await fetch(url)).arrayBuffer());
+    const left = decoded.getChannelData(0);
+    const right = decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : left;
+    const out = await renderThroughEngine(left, right, presetSettings(id));
+    const inM = momentary(left, right);
+    const outM = momentary(out.left, out.right);
+    // A loud part's own blocks, and a second either side (onsets and the guard's release)
+    const nearLoud = t => loud.some(([a, b]) => t >= a - 1 && t <= b + 1.4);
+    const normal = m => m.filter(v => v.t >= skip && !nearLoud(v.t)).map(v => v.lufs);
+    const talkIn = talkingLevel(normal(inM));
+    const talkOut = talkingLevel(normal(outM));
+    const meters = out.meters.filter(m => m.time >= skip && !nearLoud(m.time));
+    const from = Math.round(skip * FS);
+    return {
+      talkIn: +talkIn.toFixed(1),
+      talkOut: +talkOut.toFixed(1),
+      rangeIn: +loudnessRange(left.subarray(from), right.subarray(from)).toFixed(1),
+      rangeOut: +loudnessRange(out.left.subarray(from), out.right.subarray(from)).toFixed(1),
+      guardBusy: meters.length ? +(meters.filter(m => m.guardDb < -1).length / meters.length).toFixed(3) : 0,
+      loud: loud.map(([a, b]) => {
+        let k = -1;
+        inM.forEach((v, i) => { if (v.t >= a + 0.4 && v.t <= b + 0.4 && (k < 0 || v.lufs > inM[k].lufs)) k = i; });
+        return k < 0 ? null : { at: a, inAbove: +(inM[k].lufs - talkIn).toFixed(1), outAbove: +(outM[k].lufs - talkOut).toFixed(1) };
+      }).filter(Boolean)
+    };
+  }
+
   // A streamer who turns the mic (or the music) up on purpose, over a few seconds, and keeps it
   // there for 20 s after 40 s of talking: a slow rise must not walk normal up with it. Returns how
   // far above normal talking the boom comes out 8 and 15 s after it is fully up.
@@ -672,6 +730,7 @@
     talkWithBed,
     longQuietIntro,
     recording,
+    datasetFile,
     pauseAndResume,
     volumeSteps,
     speechCut: (id, base64, sourceDb) => speechCut(id, Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer, sourceDb),

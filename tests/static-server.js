@@ -14,7 +14,7 @@ const TYPES = {
   '.css': 'text/css'
 };
 
-function startStaticServer(root = path.join(__dirname, '..'), extraRoutes = {}) {
+function startStaticServer(root = path.join(__dirname, '..'), extraRoutes = {}, port = 0) {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (extraRoutes[url.pathname]) {
@@ -38,7 +38,7 @@ function startStaticServer(root = path.join(__dirname, '..'), extraRoutes = {}) 
     });
   });
   return new Promise(resolve => {
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+    server.listen(port, '127.0.0.1', () => resolve({ server, port: server.address().port }));
   });
 }
 

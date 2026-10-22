@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label loud moments</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1c1a; --muted: #6b6862; --line: #dedbd4;
+    --curve: #3b5bdb; --bright: #e8590c; --talk: #2b8a3e; --cand: #f2c94c; --loud: #e03131; --harsh: #9c36b5; --both: #d6336c; --fine: #adb5bd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1b1d; --panel: #242427; --ink: #ecebe8; --muted: #a09d97; --line: #3a3a3e;
+      --curve: #7c9cff; --bright: #ff922b; --talk: #69db7c; --cand: #e8b931; --loud: #ff6b6b; --harsh: #da77f2; --both: #f06595; --fine: #6c727a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+  .app { display: grid; grid-template-columns: 300px 1fr; min-height: 100vh; }
+  aside { border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; max-height: 100vh; position: sticky; top: 0; }
+  aside h1 { font-size: 15px; margin: 16px; }
+  .file { display: block; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--line); background: none; color: inherit; padding: 10px 16px; cursor: pointer; font: inherit; }
+  .file:hover, .file.on { background: var(--bg); }
+  .file small { display: block; color: var(--muted); }
+  .badge { float: right; font-size: 12px; color: var(--muted); }
+  .badge.done { color: var(--talk); }
+  main { padding: 16px 24px 48px; min-width: 0; }
+  .head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .head h2 { margin: 0; font-size: 18px; }
+  .head a { color: var(--muted); }
+  canvas { width: 100%; height: 240px; display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; margin: 12px 0 4px; cursor: crosshair; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .legend i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 5px; }
+  audio { width: 100%; }
+  .hint { color: var(--muted); font-size: 13px; margin: 4px 0 12px; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+  th, td { text-align: left; padding: 6px 10px; border-top: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; border-top: 0; }
+  tr.cur { outline: 2px solid var(--curve); outline-offset: -2px; }
+  tr.loud td:first-child { box-shadow: inset 4px 0 var(--loud); }
+  tr.harsh td:first-child { box-shadow: inset 4px 0 var(--harsh); }
+  tr.both td:first-child { box-shadow: inset 4px 0 var(--both); }
+  tr.fine td:first-child { box-shadow: inset 4px 0 var(--fine); }
+  tr.proposed td { color: var(--muted); }
+  tr.proposed td:nth-child(3)::after { content: " · proposed"; }
+  button.save { font: inherit; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: 0; background: var(--curve); color: #fff; cursor: pointer; }
+  button.act { font: inherit; padding: 3px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg); color: inherit; cursor: pointer; }
+  button.act.sel-loud { background: var(--loud); color: #fff; border-color: var(--loud); }
+  button.act.sel-harsh { background: var(--harsh); color: #fff; border-color: var(--harsh); }
+  button.act.sel-both { background: var(--both); color: #fff; border-color: var(--both); }
+  button.act.sel-fine { background: var(--fine); color: #fff; border-color: var(--fine); }
+  button.act.speed.on { background: var(--curve); color: #fff; border-color: var(--curve); }
+  button.act:focus-visible, .file:focus-visible { outline: 2px solid var(--curve); outline-offset: 1px; }
+  textarea { width: 100%; min-height: 56px; font: inherit; background: var(--panel); color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  .status { color: var(--muted); }
+  .status.bad { color: var(--loud); }
+  @media (max-width: 720px) { .app { grid-template-columns: 1fr; } aside { position: static; max-height: 40vh; } main { padding: 16px; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside><h1>Recorded streams</h1><div id="files"></div></aside>
+  <main>
+    <div id="empty" class="hint">Pick a recording on the left.</div>
+    <div id="work" hidden>
+      <div class="head"><h2 id="title"></h2><a id="page" target="_blank" rel="noopener">source</a><span id="talk" class="status"></span></div>
+      <canvas id="curve"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--curve)"></i>loudness (LUFS, left scale)</span>
+        <span><i style="background:var(--talk)"></i>talking level</span>
+        <span><i style="background:var(--bright)"></i>harshness: share of sound above 4 kHz (lower half)</span>
+      </div>
+      <audio id="player" controls></audio>
+      <div class="row">
+        <span>Speed</span>
+        <button class="act speed" data-rate="1">1×</button><button class="act speed" data-rate="1.5">1.5×</button><button class="act speed" data-rate="2">2×</button>
+        <span id="saved" class="status"></span>
+      </div>
+      <div class="row" id="proposedRow"><span id="proposedInfo" class="status"></span><button class="save" id="accept">Accept the proposals</button></div>
+      <p class="hint">Proposed: too loud when 8 dB or more over the talking; harsh when 6 dB brighter than this stream's usual talking, or bright whatever the stream (crowds, cymbals, a clipping mic, shrill alerts), unless it's quiet. Fix the ones that are wrong, or accept them all; every mark is saved as you make it. Click the curve to jump there; Shift-drag on it marks a part as too loud, Alt-drag (Option on a Mac) as harsh. Keys: Space play or pause, J and K previous and next moment, L too loud, H harsh, B loud and harsh, F fine.</p>
+      <div class="row">
+        <label>Also list moments <select id="minAbove"><option>6</option><option>7</option><option selected>8</option><option>10</option><option>12</option></select> dB or more over the talking</label>
+        <span id="count" class="status"></span>
+      </div>
+      <table><thead><tr><th>At</th><th>Length</th><th>What stands out</th><th></th></tr></thead><tbody id="moments"></tbody></table>
+      <h3>Notes</h3>
+      <textarea id="notes" placeholder="Anything about this recording (what the loud parts are, what should happen)"></textarea>
+    </div>
+  </main>
+</div>
+<script src="/stream-analysis.js"></script>
+<script>
+'use strict';
+const FS = 48000;
+const SA = window.StreamAnalysis;
+const KINDS = ['loud', 'harsh', 'both', 'fine'];
+const NAMES = { loud: 'too loud', harsh: 'harsh', both: 'loud & harsh', fine: 'fine' };
+const KEYS = { l: 'loud', h: 'harsh', b: 'both', f: 'fine' };
+const $ = id => document.getElementById(id);
+let entries = [];
+let state = null; // { entry, blocks, talk, usual, duration, moments, marks, current }
+
+const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const overlaps = (a, b) => a[0] < b[1] && b[0] < a[1];
+const store = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* private window */ } } };
+
+// Too-loud and harsh ranges as marks: where they overlap, one 'both' mark over the loud range
+function marksFrom(loud, harsh, fine, proposed) {
+  const marks = [];
+  const harshLeft = harsh.slice();
+  for (const r of loud) {
+    const touching = harshLeft.filter(h => overlaps(h, r));
+    for (const h of touching) harshLeft.splice(harshLeft.indexOf(h), 1);
+    marks.push({ range: r.slice(), mark: touching.length ? 'both' : 'loud', proposed });
+  }
+  for (const r of harshLeft) marks.push({ range: r.slice(), mark: 'harsh', proposed });
+  for (const r of fine) marks.push({ range: r.slice(), mark: 'fine', proposed });
+  return marks;
+}
+
+function renderFiles() {
+  $('files').innerHTML = '';
+  for (const e of entries) {
+    const button = document.createElement('button');
+    button.className = 'file' + (state && state.entry.file === e.file ? ' on' : '');
+    const badge = !e.present ? 'not downloaded' : e.reviewed ? 'labelled' : '';
+    button.innerHTML = `<span class="badge ${badge === 'labelled' ? 'done' : ''}">${badge}</span>${e.channel} · ${e.kind}<small></small>`;
+    button.querySelector('small').textContent = e.title;
+    button.disabled = !e.present;
+    button.onclick = () => open(e);
+    $('files').appendChild(button);
+  }
+}
+
+async function open(entry) {
+  await flushSave();
+  $('empty').hidden = false;
+  $('empty').textContent = 'Loading…';
+  $('work').hidden = true;
+  const bytes = await (await fetch(`/audio/${entry.file}`)).arrayBuffer();
+  const player = $('player');
+  if (player.src) URL.revokeObjectURL(player.src);
+  player.src = URL.createObjectURL(new Blob([bytes], { type: 'audio/ogg' }));
+  player.playbackRate = Number(store.get('rate')) || 1;
+  const buffer = await new OfflineAudioContext(2, 1, FS).decodeAudioData(bytes.slice(0));
+  const channels = [buffer.getChannelData(0)];
+  if (buffer.numberOfChannels > 1) channels.push(buffer.getChannelData(1));
+  const blocks = SA.analyse(channels, buffer.sampleRate);
+  const talk = SA.talkingLevel(blocks);
+  const usual = SA.usualShare(blocks, talk);
+  // A recording nobody has labelled yet starts from the proposals, to correct
+  const marks = entry.reviewed
+    ? marksFrom(entry.loud || [], entry.harsh || [], entry.fine || [], false)
+    : (p => marksFrom(p.loud, p.harsh, [], true))(SA.propose(blocks));
+  state = { entry, blocks, talk, usual, duration: buffer.duration, moments: [], marks, current: -1 };
+  buildMoments();
+  $('title').textContent = entry.title;
+  $('page').href = entry.page;
+  $('talk').textContent = `talking level ${talk.toFixed(1)} LUFS · ${fmt(buffer.duration)}`;
+  $('notes').value = entry.notes || '';
+  $('saved').textContent = '';
+  $('empty').hidden = true;
+  $('work').hidden = false;
+  renderSpeed();
+  renderFiles();
+  draw();
+}
+
+function buildMoments() {
+  state.moments = SA.moments(state.blocks, state.talk, state.usual, Number($('minAbove').value));
+  state.current = -1;
+  renderMoments();
+}
+const markFor = m => state.marks.find(k => overlaps(k.range, m.range)) || null;
+// Marks that no listed moment covers: marked by hand, or hidden by the threshold
+const looseMarks = () => state.marks.filter(k => !state.moments.some(m => overlaps(k.range, m.range)));
+
+function renderMoments() {
+  const body = $('moments');
+  body.innerHTML = '';
+  state.moments.forEach((m, i) => {
+    const tr = document.createElement('tr');
+    const k = markFor(m);
+    const how = k ? k.mark : null;
+    tr.className = (i === state.current ? 'cur ' : '') + (how || '') + (k && k.proposed ? ' proposed' : '');
+    const why = [m.louder >= 3 ? `+${m.louder.toFixed(1)} dB louder` : null,
+      m.brighter >= 3 ? `+${m.brighter.toFixed(1)} dB brighter` : null].filter(Boolean).join(', ') || 'bright';
+    tr.innerHTML = `<td>${fmt(m.range[0])}</td><td>${(m.range[1] - m.range[0]).toFixed(1)} s</td><td>${why}</td>
+      <td><button class="act play">Play</button> ${KINDS.map(kind =>
+        `<button class="act ${how === kind ? `sel-${kind}` : ''}" data-mark="${kind}">${NAMES[kind][0].toUpperCase() + NAMES[kind].slice(1)}</button>`).join(' ')}</td>`;
+    tr.querySelector('.play').onclick = () => go(i, true);
+    tr.querySelectorAll('[data-mark]').forEach(b => { b.onclick = () => mark(i, b.dataset.mark); });
+    body.appendChild(tr);
+  });
+  for (const k of looseMarks()) {
+    const r = k.range;
+    const tr = document.createElement('tr');
+    tr.className = k.mark + (k.proposed ? ' proposed' : '');
+    tr.innerHTML = `<td>${fmt(r[0])}</td><td>${(r[1] - r[0]).toFixed(1)} s</td><td>${NAMES[k.mark]}${k.proposed ? '' : ', marked by hand'}</td><td><button class="act play">Play</button> <button class="act rm">Remove</button></td>`;
+    tr.querySelector('.play').onclick = () => { $('player').currentTime = Math.max(0, r[0] - 2); $('player').play(); };
+    tr.querySelector('.rm').onclick = () => { state.marks.splice(state.marks.indexOf(k), 1); changed(); };
+    body.appendChild(tr);
+  }
+  const done = state.moments.filter(m => markFor(m)).length;
+  $('count').textContent = `${state.moments.length} moments, ${done} marked`;
+  const proposed = state.marks.filter(k => k.proposed);
+  $('proposedRow').hidden = !proposed.length;
+  const n = kind => proposed.filter(k => k.mark === kind).length;
+  $('proposedInfo').textContent = `Proposed, not saved yet: ${n('loud')} too loud, ${n('harsh')} harsh, ${n('both')} loud and harsh.`;
+}
+
+function go(i, play) {
+  if (i < 0 || i >= state.moments.length) return;
+  state.current = i;
+  $('player').currentTime = Math.max(0, state.moments[i].range[0] - 2);
+  if (play) $('player').play();
+  renderMoments();
+  draw();
+}
+
+function mark(i, how) {
+  const m = state.moments[i];
+  if (!m) return;
+  const was = markFor(m);
+  state.marks = state.marks.filter(k => !overlaps(k.range, m.range));
+  // The same key again clears a mark, but confirms a proposed one
+  if (!was || was.mark !== how || was.proposed) state.marks.push({ range: m.range.slice(), mark: how });
+  changed();
+}
+
+// Every change is saved at once (half a second later, so a run of key presses saves once)
+let saveTimer = null;
+function changed() {
+  renderMoments();
+  draw();
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 500);
+}
+async function flushSave() {
+  if (saveTimer === null) return;
+  clearTimeout(saveTimer);
+  await save();
+}
+async function save() {
+  saveTimer = null;
+  if (!state) return;
+  const ranges = (...kinds) => state.marks.filter(k => kinds.includes(k.mark)).map(k => k.range).sort((a, b) => a[0] - b[0]);
+  const labels = { loud: ranges('loud', 'both'), harsh: ranges('harsh', 'both'), fine: ranges('fine'), notes: $('notes').value };
+  try {
+    const res = await fetch('/save', { method: 'POST', body: JSON.stringify({ file: state.entry.file, ...labels }) });
+    if (!res.ok) throw new Error(await res.text());
+    Object.assign(state.entry, labels, { reviewed: true });
+    for (const k of state.marks) delete k.proposed;
+    $('saved').className = 'status';
+    $('saved').textContent = `Saved: ${labels.loud.length} too loud, ${labels.harsh.length} harsh, ${labels.fine.length} fine`;
+    renderMoments();
+    renderFiles();
+    draw();
+  } catch (e) {
+    $('saved').className = 'status bad';
+    $('saved').textContent = `Not saved (${e.message}). Is node tools/label-dataset.js still running?`;
+  }
+}
+$('accept').onclick = () => { for (const k of state.marks) delete k.proposed; changed(); };
+
+function renderSpeed() {
+  const rate = $('player').playbackRate;
+  document.querySelectorAll('.speed').forEach(b => b.classList.toggle('on', Number(b.dataset.rate) === rate));
+}
+document.querySelectorAll('.speed').forEach(b => {
+  b.onclick = () => { $('player').playbackRate = Number(b.dataset.rate); store.set('rate', b.dataset.rate); renderSpeed(); };
+});
+
+// The curve: loudness and the talking level on the left scale, harshness in the lower half,
+// the moments and marks shaded (proposals paler), and the playhead
+function draw() {
+  const c = $('curve');
+  const w = c.clientWidth, hgt = c.clientHeight, dpr = window.devicePixelRatio || 1;
+  c.width = w * dpr; c.height = hgt * dpr;
+  const g = c.getContext('2d');
+  g.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  const col = n => css.getPropertyValue(n).trim();
+  const top = Math.ceil((state.talk + 16) / 5) * 5, bottom = top - 50;
+  const x = t => t / state.duration * w;
+  const y = v => (top - Math.max(bottom, Math.min(top, v))) / (top - bottom) * hgt;
+  // Harshness: from 30 dB under the usual share to 15 dB over it, across the lower half
+  const yb = v => hgt - Math.max(0, Math.min(1, (v - state.usual + 30) / 45)) * hgt / 2;
+  const shade = (r, color, alpha) => { g.fillStyle = color; g.globalAlpha = alpha; g.fillRect(x(r[0]), 0, Math.max(2, x(r[1]) - x(r[0])), hgt); g.globalAlpha = 1; };
+  for (const m of state.moments) if (!markFor(m)) shade(m.range, col('--cand'), 0.28);
+  for (const k of state.marks) shade(k.range, col(`--${k.mark}`), k.proposed ? 0.14 : 0.32);
+  if (state.drag) shade([Math.min(...state.drag.span), Math.max(...state.drag.span)], col(`--${state.drag.mark}`), 0.32);
+  const line = (color, yOf, key) => {
+    g.strokeStyle = color; g.lineWidth = 1; g.beginPath();
+    state.blocks.forEach((b, i) => (i ? g.lineTo : g.moveTo).call(g, x(b.t), yOf(b[key])));
+    g.stroke();
+  };
+  g.globalAlpha = 0.7;
+  line(col('--bright'), yb, 'share');
+  g.globalAlpha = 1;
+  line(col('--curve'), y, 'lufs');
+  g.setLineDash([5, 4]); g.strokeStyle = col('--talk'); g.beginPath(); g.moveTo(0, y(state.talk)); g.lineTo(w, y(state.talk)); g.stroke(); g.setLineDash([]);
+  g.fillStyle = col('--muted'); g.font = '11px system-ui';
+  for (let v = top; v >= bottom; v -= 10) g.fillText(`${v}`, 4, y(v) + (v === top ? 10 : -2));
+  const now = $('player').currentTime;
+  g.strokeStyle = col('--ink'); g.beginPath(); g.moveTo(x(now), 0); g.lineTo(x(now), hgt); g.stroke();
+}
+
+function timeAt(ev) {
+  const r = $('curve').getBoundingClientRect();
+  return Math.max(0, Math.min(state.duration, (ev.clientX - r.left) / r.width * state.duration));
+}
+$('curve').addEventListener('pointerdown', ev => {
+  if (ev.shiftKey || ev.altKey) {
+    ev.preventDefault();
+    state.drag = { mark: ev.altKey ? 'harsh' : 'loud', span: [timeAt(ev), timeAt(ev)] };
+    $('curve').setPointerCapture(ev.pointerId);
+  } else {
+    $('player').currentTime = timeAt(ev);
+    draw();
+  }
+});
+$('curve').addEventListener('pointermove', ev => { if (state && state.drag) { state.drag.span[1] = timeAt(ev); draw(); } });
+$('curve').addEventListener('pointerup', () => {
+  if (!state || !state.drag) return;
+  const { mark: how, span } = state.drag;
+  const r = [Math.min(...span), Math.max(...span)].map(t => +t.toFixed(1));
+  state.drag = null;
+  if (r[1] - r[0] >= 0.3) state.marks.push({ range: r, mark: how });
+  changed();
+});
+$('player').addEventListener('timeupdate', () => state && draw());
+$('player').addEventListener('ratechange', renderSpeed);
+$('minAbove').addEventListener('change', () => { buildMoments(); draw(); });
+$('notes').addEventListener('input', () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 800); });
+window.addEventListener('resize', () => state && draw());
+window.addEventListener('beforeunload', () => { if (saveTimer !== null) save(); });
+document.addEventListener('keydown', ev => {
+  if (!state || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT') return;
+  const p = $('player');
+  if (ev.key === ' ') { ev.preventDefault(); p.paused ? p.play() : p.pause(); }
+  else if (ev.key === 'k') go(state.current + 1, true);
+  else if (ev.key === 'j') go(state.current - 1, true);
+  else if (KEYS[ev.key]) mark(state.current, KEYS[ev.key]);
+});
+
+fetch('/dataset.json').then(r => r.json()).then(list => { entries = list; renderFiles(); });
+</script>
+</body>
+</html>
