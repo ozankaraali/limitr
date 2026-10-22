@@ -168,7 +168,8 @@
 
   // ---------- rendering through the real engine ----------
   // changes: [{ at: seconds, settings }] applied mid-render, like a listener moving a control.
-  // Returns the rendered audio and every meter message the worklet sent.
+  // Returns the rendered audio, every meter message the worklet sent and how long the rendering
+  // itself took (renderMs, for tests/bench/engine-cpu-bench.js).
   async function renderThroughEngine(left, right, settings, { enabled = true, failWorklets = false, changes = [] } = {}) {
     const ctx = new OfflineAudioContext(2, left.length, FS);
     const buffer = ctx.createBuffer(2, left.length, FS);
@@ -198,9 +199,11 @@
     source.connect(engine.input);
     engine.output.connect(ctx.destination);
     source.start();
+    const renderStart = performance.now();
     const rendered = await ctx.startRendering();
+    const renderMs = performance.now() - renderStart;
     await new Promise(resolve => setTimeout(resolve, 50)); // let queued meter messages arrive
-    return { left: rendered.getChannelData(0), right: rendered.getChannelData(1), status: engine.status, meters };
+    return { left: rendered.getChannelData(0), right: rendered.getChannelData(1), status: engine.status, meters, renderMs };
   }
 
   const LATENCY_S = 0.025; // guard lookahead + limiter lookahead
@@ -659,6 +662,8 @@
   }
 
   window.bench = {
+    renderThroughEngine,
+    presetSettings,
     makeupCases,
     compensatedCompressor,
     limiterCeiling,

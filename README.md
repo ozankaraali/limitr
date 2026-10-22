@@ -265,6 +265,12 @@ npm run store-art        # README screenshots and store artwork in docs/store/
   through the engine, watch the trace and compare all presets offline.
 - **Benchmarks** in `tests/bench/` measure page-load cost, popup speed and caption latency. Pass
   `--ext=DIR` more than once to compare copies of the extension.
+- **Limiting cost** on real recordings (set `LIMITR_RECORDINGS`, or pass `--file=` any recording):
+  `node tests/bench/worklet-bench.js` times the worklet in Node per preset (`--profile` for its
+  hot lines, `--exact` to check that a speed fix leaves every output sample unchanged);
+  `node tests/bench/engine-cpu-bench.js` renders through the whole engine in Chromium;
+  `node tests/bench/engine-realtime-bench.js` measures a playing, paused and switched-off page in
+  real time. Pass `--worklet=FILE` more than once to compare copies of `lib/dsp-worklet.js`.
 
 ## Privacy
 
