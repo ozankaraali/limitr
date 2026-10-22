@@ -140,7 +140,9 @@ for the stream. The limiter's ceiling moves with the volume and never goes past 
    who keeps yelling never teaches Limitr that yelling is normal. Only a rise of 12 dB or more in
    a stream's first 20 s, the voice arriving after an intro or a pause, is taken within 3 s.
    Coming back to the stream's familiar level is always allowed, so a quiet BRB screen doesn't
-   leave the voice ducked.
+   leave the voice ducked. Sound quieter than −50 LUFS (an empty room, a muted mic while the
+   streamer sets up) is never learned, normal is first learned from a second of sound, and
+   whatever was cut before that is let go at once.
 3. Anything louder than normal plus the preset's headroom (2.5 to 7 dB) is pulled back down;
    sudden hits get at most 5 dB over their usual crest in every preset, the least that still
    leaves a real talker's consonants alone. The 20 ms lookahead lets the gain drop before the

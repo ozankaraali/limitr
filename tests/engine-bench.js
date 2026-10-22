@@ -347,6 +347,44 @@
     };
   }
 
+  // A stream that opens on room noise (a muted mic, an empty scene) before anyone talks: the noise
+  // is not a level to defend, so the voice must not be cut once Limitr has heard a second of it.
+  // Returns how long the guard cut the voice by more than 3 dB, and its deepest cut after the
+  // voice's first 1.5 s.
+  async function silentStart(id, { silenceSeconds = 10, roomDb = -62, sourceDb = -16, seconds = 30 } = {}) {
+    const program = new Float32Array(seconds * FS);
+    mix(program, scaleTo(bed(seconds, 5), roomDb), 0);
+    mix(program, scaleTo(voice(seconds - silenceSeconds, 7), sourceDb), silenceSeconds);
+    const out = await renderThroughEngine(program, program, presetSettings(id));
+    const voiceMeters = out.meters.filter(m => m.time >= silenceSeconds);
+    let cutFor = 0;
+    for (const m of voiceMeters) if (m.guardDb < -3) cutFor = m.time - silenceSeconds;
+    return {
+      cutForSeconds: +cutFor.toFixed(1),
+      deepestAfter: +Math.min(0, ...voiceMeters.filter(m => m.time >= silenceSeconds + 1.5).map(m => m.guardDb)).toFixed(1)
+    };
+  }
+
+  // Most streams open on the broadcaster setting up: minutes of room audio (a fan, the keyboard,
+  // quiet music) loud enough to be learned as the stream's level, then the voice. The voice must
+  // not be held down as a loud stretch for the preset's memory. Returns how long the guard cut it
+  // by more than 3 dB, and the guard's share of time cutting >1 dB once that is over.
+  async function longSetup(id, { setupSeconds = 150, roomDb = -42, sourceDb = -16, talkSeconds = 40 } = {}) {
+    const seconds = setupSeconds + talkSeconds;
+    const program = new Float32Array(seconds * FS);
+    mix(program, scaleTo(bed(seconds, 5), roomDb), 0);
+    mix(program, scaleTo(voice(talkSeconds, 7), sourceDb), setupSeconds);
+    const out = await renderThroughEngine(program, program, presetSettings(id));
+    const voiceMeters = out.meters.filter(m => m.time >= setupSeconds);
+    let cutFor = 0;
+    for (const m of voiceMeters) if (m.guardDb < -3) cutFor = m.time - setupSeconds;
+    const after = voiceMeters.filter(m => m.time >= setupSeconds + cutFor + 5);
+    return {
+      cutForSeconds: +cutFor.toFixed(1),
+      guardBusyAfter: after.length ? +(after.filter(m => m.guardDb < -1).length / after.length).toFixed(2) : 0
+    };
+  }
+
   // What real streams look like: a streamer talking in phrases over a quieter game bed that
   // fills the pauses (on a recorded stream, the bed filled 43% of the time, 27 dB under the
   // voice). The talking must pass as if the bed weren't there. Returns the guard's share of
@@ -545,8 +583,8 @@
   // A streamer who turns the mic (or the music) up on purpose, over a few seconds, and keeps it
   // there for 20 s after 40 s of talking: a slow rise must not walk normal up with it. Returns how
   // far above normal talking the boom comes out 8 and 15 s after it is fully up.
-  async function boom(id, { boomDb = 9, rampSeconds = 5, seconds = 20, sourceDb = NORMAL_LUFS } = {}) {
-    const from = 40;
+  async function boom(id, { boomDb = 9, rampSeconds = 5, seconds = 20, sourceDb = NORMAL_LUFS, talkSeconds = 40 } = {}) {
+    const from = talkSeconds;
     const total = from + rampSeconds + seconds + 10;
     const talk = scaleTo(voice(total, 7), NORMAL_LUFS);
     for (let i = from * FS; i < total * FS; i++) {
@@ -727,6 +765,8 @@
     boom,
     yellingFits,
     quietStart,
+    silentStart,
+    longSetup,
     talkWithBed,
     longQuietIntro,
     recording,

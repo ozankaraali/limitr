@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Renders synthetic stream audio through the real engine in Chromium and Firefox and checks
-// that Limitr does what it promises. Run: node tests/run-engine-tests.js [--browser=chromium|firefox]
+// that Limitr does what it promises. LIMITR_WORKLET=FILE runs the checks on another
+// dsp-worklet.js, to try a candidate without touching lib/.
+// Run: node tests/run-engine-tests.js [--browser=chromium|firefox]
 
 const { chromium, firefox } = require('playwright');
 const { startStaticServer } = require('./static-server');
@@ -364,6 +366,15 @@ async function runIn(browserType, port) {
     }
   }
 
+  // A big rise after minutes of talk (a song or an alert 15 dB up) is no voice arriving after a
+  // setup (that is 20 dB and more): it stays held for as long as the preset remembers normal
+  console.log('\nA song or an alert 15 dB up for 15 s, after two and a half minutes of talk');
+  for (const id of ['movie', 'stream', 'sleep']) {
+    const limit = PRESET_EXPECTATIONS[id].maxYellAbove;
+    const r = await page.evaluate(p => bench.boom(p, { boomDb: 15, rampSeconds: 0.5, seconds: 15, talkSeconds: 150 }), id);
+    check(`${id}: held to +${limit} dB 8 s in`, r.at8 <= limit, `+${r.inAbove} dB in, +${r.at8} dB at 8 s`);
+  }
+
   // Gentle takes yelling for the stream's level once it fills a quarter of its familiar minute
   // (four times its 15 s memory), so it holds the fits of the first 25 s only
   console.log('\nA streamer who keeps yelling, from the stream\'s first seconds');
@@ -390,6 +401,23 @@ async function runIn(browserType, port) {
     const r = await page.evaluate(p => bench.quietStart(p), id);
     check(`${id}: normal talking after a quiet start isn't treated as a loud stretch`, r.guardBusy <= 0.1,
       `guard cutting >1 dB ${Math.round(r.guardBusy * 100)}% of the time, deepest ${r.deepest} dB`);
+  }
+
+  console.log('\nA stream that opens on 10 s of room noise, then talking');
+  for (const id of ['gentle', 'stream', 'movie', 'sleep']) {
+    const r = await page.evaluate(p => bench.silentStart(p), id);
+    check(`${id}: the room noise isn't taken for normal, so the voice is cut at most while it is learned (1.5 s)`,
+      r.cutForSeconds <= 1.5 && r.deepestAfter >= -3, `cut >3 dB for ${r.cutForSeconds} s, deepest ${r.deepestAfter} dB after 1.5 s`);
+  }
+
+  // Once the setup is the stream's familiar level, the voice becomes normal when it is familiar
+  // in turn: seconds, not the preset's memory (60 s for Stream, 5 minutes for Sleep)
+  console.log('\nTwo and a half minutes of setup room audio, then talking');
+  for (const id of ['gentle', 'stream', 'movie', 'sleep']) {
+    const r = await page.evaluate(p => bench.longSetup(p), id);
+    check(`${id}: the voice after a long setup is cut for at most 12 s, not held down as a loud stretch`,
+      r.cutForSeconds <= 12 && r.guardBusyAfter <= 0.1,
+      `cut >3 dB for ${r.cutForSeconds} s, then guard cutting >1 dB ${Math.round(r.guardBusyAfter * 100)}% of the time`);
   }
 
   console.log('\nA streamer talking in phrases over a quieter game bed (what real streams look like)');
@@ -599,6 +627,13 @@ async function runIn(browserType, port) {
     routes[`/recordings/${name}`] = (req, res) => {
       res.writeHead(200, { 'Content-Type': 'audio/wav' });
       res.end(require('fs').readFileSync(file));
+    };
+  }
+  if (process.env.LIMITR_WORKLET) {
+    console.log(`Worklet: ${process.env.LIMITR_WORKLET}`);
+    routes['/lib/dsp-worklet.js'] = (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/javascript' });
+      res.end(require('fs').readFileSync(process.env.LIMITR_WORKLET));
     };
   }
   const { server, port } = await startStaticServer(undefined, routes);
