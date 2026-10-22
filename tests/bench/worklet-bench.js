@@ -19,6 +19,8 @@
 //              count output samples and meter readings that differ (a pure speed fix changes none)
 // Each worklet's output fingerprint (energy, peak, spikes caught, last normal) is printed too,
 // to check against tests/bench/engine-cpu-bench.js that the browser does the same work.
+// Node doesn't flush denormal numbers to zero as Chrome's audio thread does, so stretches of
+// digital silence (where filters and envelopes decay into them) cost several times more here.
 
 const fs = require('fs');
 const path = require('path');

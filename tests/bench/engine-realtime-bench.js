@@ -9,7 +9,8 @@
 // `off` (Limitr switched off: the engine bypassed); `none` (no Limitr: the audio straight to the
 // output). Medians of --rounds; copies of the worklet (--worklet=FILE, repeatable) take turns.
 // Run: node tests/bench/engine-realtime-bench.js [--worklet=FILE ...] [--file=REC] [--seconds=20]
-//        [--rounds=3] [--preset=stream] [--states=playing,paused,off,none] [--threads]
+//        [--rounds=3] [--preset=stream] [--states=playing,paused,off,none] [--settle=2] [--threads]
+//   --settle  seconds each state runs before it is measured
 
 const fs = require('fs');
 const os = require('os');
@@ -81,6 +82,7 @@ async function startPlayback({ state, preset }) {
   const rounds = Number(B.arg('rounds', 3));
   const preset = B.arg('preset', 'stream');
   const states = B.arg('states', 'playing,paused,off,none').split(',');
+  const settle = Number(B.arg('settle', 2));
   const variants = files.map(file => ({ file, label: files.length > 1 ? path.basename(file) : 'worklet' }));
 
   const pcm = Buffer.from(decodePlanar(recording).buffer);
@@ -122,7 +124,7 @@ async function startPlayback({ state, preset }) {
             });
             const ctxState = await page.evaluate(startPlayback, { state: st, preset });
             if (ctxState !== 'running') throw new Error(`AudioContext ${ctxState}`);
-            await B.sleep(2000);
+            await B.sleep(settle * 1000);
             const lbl = st === 'none' ? 'no Limitr' : v.label;
             const cpuBefore = B.browserCpuMs(profile);
             const wallBefore = Date.now();
