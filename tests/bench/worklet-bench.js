@@ -27,7 +27,8 @@ const path = require('path');
 const vm = require('vm');
 const inspector = require('inspector');
 const { execFileSync } = require('child_process');
-const { performance, PerformanceObserver } = require('perf_hooks');
+const { GCProfiler } = require('v8');
+const { performance } = require('perf_hooks');
 const B = require('./common');
 
 require('../../lib/settings.js');
@@ -189,6 +190,8 @@ function runOnce(Processor, preset, audio, totalFrames) {
   let peak = 0;
   let pos = 0;
   let noisePos = 0;
+  const gc = new GCProfiler();
+  gc.start();
   const cpu0 = process.cpuUsage();
   const start = performance.now();
   for (let b = 0; b < blocks; b++) {
@@ -215,6 +218,7 @@ function runOnce(Processor, preset, audio, totalFrames) {
   }
   const wallMs = performance.now() - start;
   const cpu = process.cpuUsage(cpu0);
+  const gcs = gc.stop().statistics;
   let sum = 0;
   for (let b = 0; b < blocks; b++) sum += times[b];
   const sorted = Float64Array.from(times).sort();
@@ -222,8 +226,9 @@ function runOnce(Processor, preset, audio, totalFrames) {
   const meters = processor.port.lastMessage || {};
   return {
     seconds,
-    start,
-    end: start + wallMs,
+    wallMs,
+    gcs: gcs.length,
+    gcMs: gcs.reduce((total, e) => total + e.cost, 0) / 1000,
     processMsPerS: sum / seconds,
     cpuMsPerS: (cpu.user + cpu.system) / 1000 / seconds,
     p99Us: sorted[Math.floor(0.99 * blocks)] * 1000,
@@ -301,11 +306,6 @@ function lineReport(title, nodes, files, valueOf, unit) {
     return;
   }
 
-  // Garbage collections during each run
-  const gcs = [];
-  const observer = new PerformanceObserver(list => gcs.push(...list.getEntries()));
-  observer.observe({ entryTypes: ['gc'] });
-
   let session = null;
   if (profile || alloc) {
     session = new inspector.Session();
@@ -341,14 +341,11 @@ function lineReport(title, nodes, files, valueOf, unit) {
     }
   }
   console.log('');
-  await new Promise(resolve => setImmediate(resolve)); // deliver the GC entries
-  observer.disconnect();
 
   for (const [key, list] of Object.entries(runsByKey)) {
     const [preset, label] = key.split(' ');
     const metric = name => `${preset.padEnd(7)} ${name}`;
     for (const r of list) {
-      const during = gcs.filter(g => g.startTime >= r.start && g.startTime <= r.end);
       B.record(results, metric('process() ms per s of audio'), label, r.processMsPerS);
       B.record(results, metric('% of one core in real time'), label, r.processMsPerS / 10);
       B.record(results, metric('CPU ms per s (whole loop)'), label, r.cpuMsPerS);
@@ -356,7 +353,8 @@ function lineReport(title, nodes, files, valueOf, unit) {
       B.record(results, metric('slowest 0.1% of blocks (µs)'), label, r.p999Us);
       B.record(results, metric('slowest block (µs)'), label, r.maxUs);
       B.record(results, metric(`blocks over 1 ms (of ${Math.floor(totalFrames / QUANTUM)})`), label, r.over1ms);
-      B.record(results, metric('GCs per minute of audio'), label, during.length / (r.seconds / 60));
+      B.record(results, metric('GCs per minute of audio'), label, r.gcs / (r.seconds / 60));
+      B.record(results, metric('GC pause ms per minute of audio'), label, r.gcMs / (r.seconds / 60));
       B.record(results, metric('meter messages per s'), label, r.messages / r.seconds);
     }
   }
