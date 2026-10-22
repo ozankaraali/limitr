@@ -504,11 +504,21 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       tuned.limitrSettings && tuned.limitrSettings.guardHeadroom);
     let o = await overflow();
     check('Fine-tune: no horizontal overflow', o.doc <= 360 && o.inner <= 0, JSON.stringify(o));
+    // The strip's most used color: the theme's, wherever the trace happens to be (one pixel at
+    // the newest reading is blank whenever the test tone is between its bursts, under the strip)
     const mini = () => popup.evaluate(() => {
       const c = document.getElementById('miniTrace');
       if (!c) return null;
-      const px = c.getContext('2d').getImageData(c.width - 4, c.height - 3, 1, 1).data;
-      return Array.from(px).join(',');
+      const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const counts = new Map();
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] === 0) continue;
+        const key = `${data[i]},${data[i + 1]},${data[i + 2]},${data[i + 3]}`;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      let best = ['0,0,0,0', 0];
+      for (const entry of counts) if (entry[1] > best[1]) best = entry;
+      return best[0];
     });
     await popup.emulateMedia({ colorScheme: 'dark' });
     await sleep(300);
@@ -516,7 +526,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await popup.emulateMedia({ colorScheme: 'light' });
     await sleep(300);
     const lightPixel = await mini();
-    check('live strip redraws in the new theme', darkPixel !== lightPixel && darkPixel !== '0,0,0,0', `${darkPixel} vs ${lightPixel}`);
+    const strip = await popup.evaluate(() => ({ points: state.history.length, last: state.history.slice(-3).map(p => Math.round(p.out)),
+      meters: !!state.meters, attached: state.frameStatus && state.frameStatus.attached }));
+    check('live strip redraws in the new theme', darkPixel !== lightPixel && darkPixel !== '0,0,0,0',
+      `${darkPixel} vs ${lightPixel}; ${JSON.stringify(strip)}`);
     await popup.click('[data-screen="finetune"] .back');
     check('back returns to the main screen', await visible('[data-screen="main"]'));
     await popup.click('.nav-row[data-open="finetune"]');
