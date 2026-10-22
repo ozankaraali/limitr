@@ -549,10 +549,36 @@
     return at(0.95) - at(0.1);
   }
 
+  // Spectral balance every 100 ms over 400 ms: the edge of the sound (2-8 kHz) against its body
+  // (150-600 Hz), in dB. A yell or a shrill sound tips it up; a clean voice sits about -10.
+  function balance(left, right) {
+    const biquad = (x, [b0, b1, b2, a1, a2]) => {
+      const y = new Float32Array(x.length);
+      let z1 = 0, z2 = 0;
+      for (let i = 0; i < x.length; i++) { const v = b0 * x[i] + z1; z1 = b1 * x[i] - a1 * v + z2; z2 = b2 * x[i] - a2 * v; y[i] = v; }
+      return y;
+    };
+    const w = f => 2 * Math.PI * f / FS;
+    const bp = (() => { const al = Math.sin(w(300)) / 1.4, a0 = 1 + al; return [al / a0, 0, -al / a0, -2 * Math.cos(w(300)) / a0, (1 - al) / a0]; })();
+    const hp = (() => { const c = Math.cos(w(2000)), al = Math.sin(w(2000)) / Math.SQRT2, a0 = 1 + al; return [(1 + c) / 2 / a0, -(1 + c) / a0, (1 + c) / 2 / a0, -2 * c / a0, (1 - al) / a0]; })();
+    const lp = (() => { const c = Math.cos(w(8000)), al = Math.sin(w(8000)) / Math.SQRT2, a0 = 1 + al; return [(1 - c) / 2 / a0, (1 - c) / a0, (1 - c) / 2 / a0, -2 * c / a0, (1 - al) / a0]; })();
+    const mono = new Float32Array(left.length);
+    for (let i = 0; i < mono.length; i++) mono[i] = (left[i] + right[i]) / 2;
+    const lo = biquad(mono, bp), hi = biquad(biquad(mono, hp), lp);
+    const hop = FS / 10, n = Math.floor(mono.length / hop), elo = new Float64Array(n), ehi = new Float64Array(n);
+    for (let b = 0; b < n; b++) for (let i = b * hop; i < (b + 1) * hop; i++) { elo[b] += lo[i] * lo[i]; ehi[b] += hi[i] * hi[i]; }
+    const out = [];
+    for (let b = 3; b < n; b++) {
+      const sum = a => a[b] + a[b - 1] + a[b - 2] + a[b - 3];
+      out.push({ t: (b + 1) / 10, tilt: 10 * Math.log10((sum(ehi) + 1e-20) / (sum(elo) + 1e-20)) });
+    }
+    return out;
+  }
+
   // A labelled recording from the dataset (tools/eval-dataset.js): the talking level outside the
   // loud parts, in and out; the guard's share of that time cutting >1 dB; and each loud part's
   // loudest 400 ms over the talking level, in and out. After the first `skip` seconds.
-  async function datasetFile(id, url, { loud = [], skip = 10 } = {}) {
+  async function datasetFile(id, url, { loud = [], harsh = [], skip = 10 } = {}) {
     const decoded = await new OfflineAudioContext(2, FS, FS).decodeAudioData(await (await fetch(url)).arrayBuffer());
     const left = decoded.getChannelData(0);
     const right = decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : left;
@@ -566,9 +592,20 @@
     const talkOut = talkingLevel(normal(outM));
     const meters = out.meters.filter(m => m.time >= skip && !nearLoud(m.time));
     const from = Math.round(skip * FS);
+    // Harshness: each harsh part's balance over the usual balance of the talk (talk-level blocks
+    // away from every marked part), in and out; and how much the talk's own balance moved
+    const balIn = balance(left, right), balOut = balance(out.left, out.right);
+    const nearMarked = t => nearLoud(t) || harsh.some(([a, b]) => t >= a - 1 && t <= b + 1.4);
+    const usual = (bal, m, talk) => median(bal.filter((v, k) => v.t >= skip && !nearMarked(v.t) && m[k] && Math.abs(m[k].lufs - talk) <= 6).map(v => v.tilt));
+    const usualIn = usual(balIn, inM, talkIn), usualOut = usual(balOut, outM, talkOut);
+    const over = (bal, [a, b], u) => { const v = bal.filter(x => x.t >= a + 0.4 && x.t <= b + 0.4).map(x => x.tilt); return v.length ? v.reduce((s, x) => s + x, 0) / v.length - u : NaN; };
     return {
       talkIn: +talkIn.toFixed(1),
       talkOut: +talkOut.toFixed(1),
+      dsp: out.status.dsp,
+      talkDuller: +(usualOut - usualIn).toFixed(1),
+      harsh: harsh.map(r => ({ at: r[0], inAbove: +over(balIn, r, usualIn).toFixed(1), outAbove: +over(balOut, r, usualOut).toFixed(1) }))
+        .filter(h => Number.isFinite(h.inAbove)),
       rangeIn: +loudnessRange(left.subarray(from), right.subarray(from)).toFixed(1),
       rangeOut: +loudnessRange(out.left.subarray(from), out.right.subarray(from)).toFixed(1),
       guardBusy: meters.length ? +(meters.filter(m => m.guardDb < -1).length / meters.length).toFixed(3) : 0,
