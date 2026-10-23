@@ -203,6 +203,17 @@ within 0.001 dB in both Chromium and Firefox, so the compressor never makes quie
   starts when you open the popup there. Fullscreen video stays inside the window while a tab is
   captured, and each captured tab gets its own volume.
 
+## What's new in 2.3
+
+A calm documentary now comes out as it went in. 2.2 could take a documentary's opening ambience
+for normal and then cut every narration phrase after it: on a Turkish-dubbed NatGeo night
+recording it cut the narration by 5.2 dB in Stream, where 2.3 cuts it by 0.6 dB. Normal is now
+learned from speech, and natural speech gets 3 dB more room before the guard steps in
+(Fine-tune → Spike guard). Stream and Sleep also bring a voice raised for seconds, or a strained
+one, back near the talk (Fine-tune → Raised voice): a streamer's long yells come out at
+most 1.4 dB over their talk in Stream, against 2.6–4.5 dB. After a quiet intro or a long setup the
+voice is cut for about a second instead of up to 24 s, and Sleep no longer lifts quiet streams.
+
 ## What's new in 2.2
 
 Stream and Sleep now take the shrill edge off a yell into the mic, a piercing alert or a cheering
