@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Tags every downloaded recording of tests/fixtures/dataset.json with what stands out in it
+// Tags every downloaded recording of the stream dataset with what stands out in it
 // (tools/stream-analysis.js): the parts much louder than the talking, and the harsh ones (bright:
 // a clipping mic, cymbals, crowds, shrill alerts). They go into each entry's `auto`, apart from
 // the listener's own labels, as proposals to review in tools/label-dataset.js and as provisional
@@ -10,9 +10,10 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { analyse, propose } = require('./stream-analysis');
+const { DATASET } = require('./dataset-file');
 
 const ROOT = path.join(__dirname, '..');
-const MANIFEST = path.join(ROOT, 'tests/fixtures/dataset.json');
+const MANIFEST = DATASET;
 const DIR = path.join(process.env.LIMITR_RECORDINGS || path.join(ROOT, 'tests/fixtures/recordings'), 'dataset');
 const FS = 48000;
 const filter = process.argv[2] || '';

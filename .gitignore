@@ -5,3 +5,4 @@ dist/
 .superpowers/
 .DS_Store
 tests/fixtures/recordings/
+tests/fixtures/dataset.local.json

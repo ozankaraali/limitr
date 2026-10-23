@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Scores the engine on the labelled recordings of tests/fixtures/dataset.json (fetched by
+// Scores the engine on the labelled recordings of the stream dataset (fetched by
 // tools/fetch-dataset.js): for each recording and preset, how far its loud parts come out above
 // the streamer's talking level, how often the guard touches that talking, and the loudness range
 // (EBU LRA; a calm dubbed documentary, the comfort reference, measures about 5 LU). Offline in a
@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 const { startStaticServer } = require('../tests/static-server');
+const { DATASET } = require('./dataset-file');
 
 const ROOT = path.join(__dirname, '..');
 const DIR = path.join(process.env.LIMITR_RECORDINGS || path.join(ROOT, 'tests/fixtures/recordings'), 'dataset');
@@ -28,7 +29,7 @@ const loudOf = e => e.reviewed || e.loud ? e.loud || [] : useAuto && e.auto ? e.
 const harshOf = e => e.reviewed ? e.harsh || [] : useAuto && e.auto ? e.auto.harsh : [];
 const labelled = e => e.reviewed || e.loud ? 'labelled' : useAuto && e.auto ? 'auto-tagged' : 'not labelled';
 
-const entries = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/fixtures/dataset.json'), 'utf8'))
+const entries = JSON.parse(fs.readFileSync(DATASET, 'utf8'))
   .filter(e => filter.test(e.file) && fs.existsSync(path.join(DIR, e.file)));
 const mean = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : NaN;
 

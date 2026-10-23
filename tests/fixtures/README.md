@@ -48,20 +48,24 @@ ffmpeg -f lavfi -i "sine=frequency=440:duration=30,volume='0.001*exp(log(1000)*t
 `tests/fixtures/recordings/` (ignored by git) or in the folder named by `LIMITR_RECORDINGS`.
 They are 48 kHz WAVs captured from live streams, and the checks are specific to each:
 
-- `videoyun.wav`: 5 minutes of a regular streamer who doesn't yell, with a game bed between
+- `regular.wav`: 5 minutes of a regular streamer who doesn't yell, with a game bed between
   phrases. The guard must stay idle and the talking pass (or be evened when it is louder than
   the preset's comfortable level).
-- `husam.wav`: a 33 s clip that is loud overall, with loud moments. It is looped so the engine is
+- `yelling.wav`: a 33 s clip that is loud overall, with loud moments. It is looped so the engine is
   settled; it must be evened to the comfortable level with the loud moments held.
 
 Missing files are skipped.
 
 ## Labelled stream dataset
 
-`dataset.json` lists stretches of real broadcasts and clips (Kick and YouTube) of different kinds of
-streamers: calm, yelling, booming the mic or bass-boosted music, loud sound alerts, always loud.
+The dataset lists stretches of real broadcasts and clips (Kick and YouTube) of different kinds of
+streamers: calm, yelling, turning the mic or bass-boosted music up, loud sound alerts, always loud.
 Each entry names its source and offset, and the loud parts a listener marked (`loud`, and `fine`
-for loud moments that are all right), so the audio itself stays out of the repository:
+for loud moments that are all right), so the audio itself stays out of the repository. The list
+stays out of it too, since it names real streams and what a listener marked in them: it lives in
+`dataset.local.json` here (ignored by git). `dataset.json` is an empty list in the same format, which
+the tools fall back to when there is no local one (`tools/dataset-file.js`).
+
 
 - `node tools/fetch-dataset.js` downloads them into `tests/fixtures/recordings/dataset/` (needs
   ffmpeg and yt-dlp).
@@ -71,7 +75,7 @@ for loud moments that are all right), so the audio itself stays out of the repos
   `tools/stream-analysis.js`.
 - `node tools/label-dataset.js` opens a local page (http://127.0.0.1:8723/) to listen to each one,
   starting from those tags, and mark its parts too loud, harsh, both or fine; every mark is written
-  back into `dataset.json` as it is made.
+  back into the list as it is made.
 - `node tools/eval-dataset.js` plays the labelled ones through the engine, per preset: how far the
   loud parts come out above the talking level, and how often the guard touches the talking.
   `--worklet=FILE` scores another `dsp-worklet.js` on the same recordings, to compare; `--auto`

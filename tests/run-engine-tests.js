@@ -61,15 +61,15 @@ const TRANSPARENT_PRESETS = ['gentle', 'stream', 'movie'];
 
 // Recorded streams, when the listener has them (they aren't in the repository): a folder named
 // by LIMITR_RECORDINGS, or tests/fixtures/recordings. Each is a 48 kHz WAV. What each must get:
-//   videoyun.wav  5 minutes of a regular Kick streamer who doesn't yell, with a game bed between
+//   regular.wav   5 minutes of a regular Kick streamer who doesn't yell, with a game bed between
 //                 phrases: the guard stays idle, the talking passes (or is evened, when louder
 //                 than the preset's comfortable level)
-//   husam.wav     a 33 s clip of a streamer yelling, more than half of it, between calm talk:
+//   yelling.wav   a 33 s clip of a streamer yelling, more than half of it, between calm talk:
 //                 opened fresh, the yells held near the calm talk all the way through, the calm
 //                 talk evened to the comfortable level
 const RECORDINGS = {
-  'videoyun.wav': { kind: 'regular', skip: 10, loops: 1 },
-  'husam.wav': { kind: 'yelling', skip: 5, loops: 1, yells: [[8, 9.7], [15.4, 26.4]], calm: [[14, 14.8], [27.4, 33]] }
+  'regular.wav': { kind: 'regular', skip: 10, loops: 1 },
+  'yelling.wav': { kind: 'yelling', skip: 5, loops: 1, yells: [[8, 9.7], [15.4, 26.4]], calm: [[14, 14.8], [27.4, 33]] }
 };
 function findRecordings() {
   const fs = require('fs');

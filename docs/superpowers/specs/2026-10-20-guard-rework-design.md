@@ -93,7 +93,7 @@ level; summing limiter across tabs; RNNoise switch-on click; faster whisper lift
 ### What went wrong
 
 Two 48 kHz recordings of real Kick streams showed the 2.1 guard taming normal streams. On
-5 minutes of a regular streamer who doesn't yell (kick.com/videoyun, −22.6 LUFS plain median,
+5 minutes of a regular streamer who doesn't yell (−22.6 LUFS plain median,
 −18.8 LUFS BS.1770 integrated), Gentle turned the talking down to −33 LUFS and cut more than 1 dB
 43% of the time; Stream to −41 LUFS, 62% of the time; Sleep 82%. Instrumenting the worklet's
 meters showed why:
@@ -184,20 +184,20 @@ onset slips through); a 10 s "settle" rule instead of the first-20 s rule (a str
 20 s when it is the majority of the gated window (the extension test's chime, 0.8 s and 17 dB
 over the talking, became normal: once it is in the window the gate throws the talking out).
 
-### Results (recordings; talking level = gated median; husam looped so the engine is settled)
+### Results (recordings; talking level = gated median; the yelling clip looped so the engine is settled)
 
 | Recording | Preset | Talking in→out | Guard >1 dB before → after |
 |---|---|---|---|
-| videoyun | Gentle | −18.9 → −18.9 | 43% → 1.9% |
+| regular | Gentle | −18.9 → −18.9 | 43% → 1.9% |
 | | Stream | −18.9 → −21.5 (evened; comfortable −20) | 62% → 3.3% |
 | | Movie | −18.9 → −19.5 | 52% → 2.4% |
 | | Sleep | −18.9 → −29.9 (comfortable −28) | 82% → 5.2% |
-| husam | Gentle | −8.1 → −15.2 (comfortable −14) | 39% → 0% |
+| yelling | Gentle | −8.1 → −15.2 (comfortable −14) | 39% → 0% |
 | | Stream | −8.1 → −21.4 | 49% → 3.4% |
 | | Movie | −8.1 → −19.3 | 45% → 0% |
 | | Sleep | −8.1 → −29.3 | 61% → 10.4% |
 
-Of what remains on videoyun, about half is the start: the stream opens on 18 s of bed, and the
+Of what remains on the regular streamer, about half is the start: the stream opens on 18 s of bed, and the
 voice is held 3 s plus the guard's release before it becomes normal. The clip's loudest moments
 are +3.6 dB over its local talking level, i.e. loud talking, and come
 out at +2.5…+3.5; what the ear hears as peaks on it is its overall loudness, which the

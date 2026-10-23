@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Downloads the recorded-stream dataset listed in tests/fixtures/dataset.json into
+// Downloads the recorded-stream dataset (tools/dataset-file.js says where its list is) into
 // tests/fixtures/recordings/dataset/ (or the folder named by LIMITR_RECORDINGS, plus /dataset),
 // as 48 kHz stereo Opus. A `url` source is a stretch of a Kick broadcast (HLS, through ffmpeg);
 // a `ytdlp` source is a page yt-dlp understands (a Kick clip, whole, or a stretch of a YouTube
@@ -11,9 +11,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
+const { DATASET } = require('./dataset-file');
 
 const ROOT = path.join(__dirname, '..');
-const entries = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/fixtures/dataset.json'), 'utf8'));
+const entries = JSON.parse(fs.readFileSync(DATASET, 'utf8'));
 const dir = path.join(process.env.LIMITR_RECORDINGS || path.join(ROOT, 'tests/fixtures/recordings'), 'dataset');
 const filter = process.argv[2] || '';
 fs.mkdirSync(dir, { recursive: true });

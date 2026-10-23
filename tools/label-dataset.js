@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 // A local page for labelling the recorded-stream dataset: plays each file with its loudness and
 // the moments that jump well above the stream's talking level or turn harsh (a mic clipping), so
-// the listener can mark each one too loud, harsh or fine. Every mark is written back into
-// tests/fixtures/dataset.json as it is made.
+// the listener can mark each one too loud, harsh or fine. Every mark is written back into the
+// dataset's list (tools/dataset-file.js says which file) as it is made.
 // Run: node tools/label-dataset.js [port], then open the address it prints (port 8723 by default).
 
 const fs = require('fs');
 const path = require('path');
 const { startStaticServer } = require('../tests/static-server');
+const { DATASET } = require('./dataset-file');
 
 const ROOT = path.join(__dirname, '..');
-const MANIFEST = path.join(ROOT, 'tests/fixtures/dataset.json');
+const MANIFEST = DATASET;
 const DIR = path.join(process.env.LIMITR_RECORDINGS || path.join(ROOT, 'tests/fixtures/recordings'), 'dataset');
 
 const readManifest = () => JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
