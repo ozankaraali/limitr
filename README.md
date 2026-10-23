@@ -61,41 +61,45 @@ game bed between phrases, and a 33 s clip of a streamer who yells for more than 
 calm talk between the yells, opened fresh. "Talking" is the stream's talking level, measured the
 way BS.1770 does.
 
-| Preset | Regular streamer: guard cutting | Talking −18.9 LUFS comes out at | Yelling clip: guard cutting | Calm talk −14.5 LUFS comes out at | Yells above the calm talk |
+| Preset | Regular streamer: Limitr cutting | Talking −18.9 LUFS comes out at | Yelling clip: Limitr cutting | Calm talk −14.5 LUFS comes out at | Yells above the calm talk |
 |--------|---:|---:|---:|---:|---:|
-| Gentle | 1.3% of the time | −18.9 (untouched) | 60% | −16.6 | +7.4 → +4.8 dB |
-| Stream | 2.2% | −21.6 (its −20 level) | 85% | −21.2 (its −20 level) | +7.4 → +2.0 dB |
-| Movie | 1.4% | −19.5 | 78% | −17.9 (its −18 level) | +7.4 → +3.0 dB |
-| Sleep | 3.6% | −29.9 (its −28 level) | 92% | −30.0 (its −28 level) | +7.4 → +2.4 dB |
+| Gentle | 0.7% of the time | −18.9 (untouched) | 64% | −16.1 | +7.4 → +3.9 dB |
+| Stream | 2.5% | −20.8 (its −20 level) | 79% | −20.1 (its −20 level) | +7.4 → −0.4 dB |
+| Movie | 1.4% | −19.3 | 81% | −17.8 (its −18 level) | +7.4 → +2.9 dB |
+| Sleep | 4.4% | −28.9 (its −28 level) | 92% | −29.8 (its −28 level) | +7.4 → +1.0 dB |
 
-Most of what remains on the regular stream is its first seconds, while Limitr learns it. 2.1.2
+Most of what remains on the regular stream falls in its first minute, while Limitr learns it. 2.1.2
 cut the same regular stream 43–82% of the time and turned its talking down 10–18 dB. On the
-yelling clip, the guard is busy because the yells are most of it; 2.1.3 took the yelling for
+yelling clip, Limitr is busy because the yells are most of it; 2.1.3 took the yelling for
 normal within seconds and left the yells 7.3–7.9 dB over the calm talk.
 
-**Harsh sound.** `node tools/eval-dataset.js` scores a dataset of 22 recordings (hour-long
-sessions and clips from five Kick and YouTube streamers, and a Turkish-dubbed documentary as the
-calm reference) where a listener marked 39 moments as harsh. The Stream preset takes them from
-5.3 dB brighter than the streamer's usual talk to 3.7 dB on average (a yelling clip's from 4.7 to
-2.9 dB). In the engine test, a crowd or cymbals as loud as the talk lose about 7 dB above 2 kHz
-while the talk around them keeps its tone to within 0.01 dB. On whole sessions the talk's balance
-moves 0.5 dB on average, mostly from unmarked yelling and music, and the documentary's 0.3 dB.
-In Stream and Sleep, the yells on the clip above come out about 1 dB softer than without it.
+**Harsh sound.** `node tools/eval-dataset.js` scores a dataset of 24 recordings (hour-long
+sessions and clips from five Kick and YouTube streamers, and two recordings of a Turkish-dubbed
+documentary channel as the calm reference) where a listener marked 39 moments as harsh. The
+Stream preset takes them from 5.3 dB brighter than the streamer's usual talk to 3.5 dB on average
+(a yelling clip's from 4.7 to 1.8 dB). In the engine test, a crowd or cymbals as loud as the talk
+lose about 7 dB above 2 kHz while the talk around them keeps its tone to within 0.01 dB. On whole
+sessions the talk's balance moves 0.4 dB on average, mostly from unmarked yelling and music, and
+the documentary's 0.3 and 1.5 dB. In Stream and Sleep, the yells on the clip above come out about
+1 dB softer than without it.
 
 **On a synthetic stream.** The test also renders a synthetic stream through the real engine
-in Chromium and Firefox (both give the same numbers): talking with a sudden yell, an alert chime
-and a clap, and a 20 s yelling fit. Spike figures are loudness above normal talking, for a stream
-at −24 LUFS. They stay within a few tenths of a dB of these at every source level from −36 LUFS
-(a quiet podcast) to −10 LUFS (a loud Twitch stream).
+in Chromium and Firefox: talking with a sudden yell, an alert chime and a clap, and a 20 s yelling
+fit. Both browsers give the same numbers, except for 90s TV, whose compressor is the browser's
+own (these are Chromium's). Spike figures are loudness above normal talking, for a stream at
+−24 LUFS. In Stream, Movie and Sleep they stay within a few tenths of a dB of these at every
+source level from −36 LUFS (a quiet podcast) to −10 LUFS (a loud Twitch stream). Gentle holds the
+yell and the alert up to 3 dB lower from −18 LUFS up, and 90s TV's yell ranges from +8.1 dB on
+the quietest stream to +6.1 dB on the loudest.
 
 | Preset | Yell | Alert | Clap | 20 s yelling fit, 8 s in | Output peak |
 |--------|-----:|------:|-----:|-------------------------:|------------:|
 | Off | +13.4 dB | +16.6 dB | +8.0 dB | +10.5 dB | as sent |
-| Gentle | +9.4 dB | +7.8 dB | +4.8 dB | +7.2 dB | −4.6 dBFS |
-| Stream | +5.8 dB | +4.0 dB | −0.4 dB | +4.5 dB | −8.4 dBFS |
-| Movie | +6.8 dB | +5.8 dB | +3.3 dB | +5.5 dB | −6.5 dBFS |
-| 90s TV | +6.9 dB | +7.3 dB | +3.4 dB | | −11.5 dBFS |
-| Sleep | +5.0 dB | +2.7 dB | −1.0 dB | +3.1 dB | −11.5 dBFS |
+| Gentle | +9.4 dB | +7.5 dB | +4.4 dB | +6.1 dB | −5.0 dBFS |
+| Stream | +5.9 dB | +3.7 dB | −0.7 dB | +1.6 dB | −6.8 dBFS |
+| Movie | +6.8 dB | +5.5 dB | +2.8 dB | +4.7 dB | −6.8 dBFS |
+| 90s TV | +6.9 dB | +7.0 dB | +3.2 dB | | −11.7 dBFS |
+| Sleep | +5.0 dB | +2.7 dB | −0.7 dB | −0.2 dB | −11.5 dBFS |
 
 Where normal talking ends up, by how loud the stream is:
 
@@ -104,12 +108,12 @@ Where normal talking ends up, by how loud the stream is:
 | Gentle | −14 LUFS | unchanged | unchanged | −14.5 LUFS |
 | Stream | −20 LUFS | unchanged | unchanged | −20.5 LUFS |
 | Movie | −18 LUFS | unchanged | unchanged | −18.5 LUFS |
-| Sleep | −28 LUFS | −28.6 LUFS (lifted) | −28.6 LUFS | −28.6 LUFS |
+| Sleep | −28 LUFS | unchanged | −28.5 LUFS | −28.5 LUFS |
 
 90s TV is −20 LUFS too, but its own tone and compressor shape the sound on purpose. While the
-stream plays normally, the guard stays idle: it doesn't touch plain talking at any level. The tests
-also play about a minute of recorded speech (macOS `say`) through every preset at −30 and −14
-LUFS: the guard cuts it by at most 0.1 dB (0.5 dB in Sleep).
+stream plays normally, the guard and the raised-voice stage stay idle: they don't touch plain
+talking at any level. The tests also play about a minute of recorded speech (macOS `say`) through
+every preset at −30 and −14 LUFS: Limitr cuts it by at most 0.1 dB (0.4 dB in Sleep).
 
 The guard lets go 0.4 to 2.6 seconds after a spike ends, depending on the preset. Turning the
 Limitr volume up or down changes how loud everything is and nothing else: the tests check that

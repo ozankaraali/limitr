@@ -457,7 +457,7 @@ async function runIn(browserType, port) {
   for (const id of ['gentle', 'stream', 'movie', 'sleep']) {
     const r = await page.evaluate(p => bench.quietStart(p), id);
     check(`${id}: normal talking after a quiet start isn't treated as a loud stretch`, r.guardBusy <= 0.1,
-      `guard cutting >1 dB ${Math.round(r.guardBusy * 100)}% of the time, deepest ${r.deepest} dB`);
+      `cutting >1 dB ${Math.round(r.guardBusy * 100)}% of the time, deepest ${r.deepest} dB`);
   }
 
   console.log('\nA stream that opens on 10 s of room noise, then talking');
@@ -474,7 +474,7 @@ async function runIn(browserType, port) {
     const r = await page.evaluate(p => bench.longSetup(p), id);
     check(`${id}: the voice after a long setup is cut for at most 12 s, not held down as a loud stretch`,
       r.cutForSeconds <= 12 && r.guardBusyAfter <= 0.1,
-      `cut >3 dB for ${r.cutForSeconds} s, then guard cutting >1 dB ${Math.round(r.guardBusyAfter * 100)}% of the time`);
+      `cut >3 dB for ${r.cutForSeconds} s, then cutting >1 dB ${Math.round(r.guardBusyAfter * 100)}% of the time`);
   }
 
   console.log('\nA streamer talking in phrases over a quieter game bed (what real streams look like)');
@@ -483,12 +483,12 @@ async function runIn(browserType, port) {
     const limit = id === 'sleep' ? 0.2 : 0.05;
     check(`${id}: the talking passes untouched although the bed fills most of the pauses`,
       r.guardBusy <= limit && (id === 'sleep' ? r.talkGainDb <= -3 : Math.abs(r.talkGainDb) <= 0.5),
-      `guard cutting >1 dB ${Math.round(r.guardBusy * 100)}% of the time, deepest ${r.deepest} dB, talking ${r.talkGainDb} dB`);
+      `cutting >1 dB ${Math.round(r.guardBusy * 100)}% of the time, deepest ${r.deepest} dB, talking ${r.talkGainDb} dB`);
   }
   // A louder bed, only 12 dB under the voice, with the voice there less than half the time
   const loudBed = await page.evaluate(() => bench.talkWithBed('stream', { bedUnderDb: 12, talkShare: 0.45 }));
   check('stream: a game bed 12 dB under the voice is still not taken for normal', loudBed.guardBusy <= 0.05 && Math.abs(loudBed.talkGainDb) <= 0.5,
-    `guard cutting >1 dB ${Math.round(loudBed.guardBusy * 100)}% of the time, deepest ${loudBed.deepest} dB, talking ${loudBed.talkGainDb} dB`);
+    `cutting >1 dB ${Math.round(loudBed.guardBusy * 100)}% of the time, deepest ${loudBed.deepest} dB, talking ${loudBed.talkGainDb} dB`);
 
   console.log('\nA long quiet intro (40 s of soft music), then the voice');
   for (const id of ['gentle', 'stream', 'movie', 'sleep']) {
@@ -496,7 +496,7 @@ async function runIn(browserType, port) {
       const r = await page.evaluate(([p, s]) => bench.longQuietIntro(p, { pauseSeconds: s }), [id, pauseSeconds]);
       check(`${id}: the voice${pauseSeconds ? `, with ${pauseSeconds} s pauses over the music,` : ''} is cut for at most 25 s, not the preset's whole memory`,
         r.cutForSeconds <= 25 && r.guardBusyAfter <= 0.1,
-        `cut >3 dB for ${r.cutForSeconds} s, then guard cutting >1 dB ${Math.round(r.guardBusyAfter * 100)}% of the time`);
+        `cut >3 dB for ${r.cutForSeconds} s, then cutting >1 dB ${Math.round(r.guardBusyAfter * 100)}% of the time`);
     }
   }
 
@@ -509,7 +509,7 @@ async function runIn(browserType, port) {
         const r = await page.evaluate(([p, u, o]) => bench.recording(p, u, o), [id, `/recordings/${name}`, spec]);
         const comfortable = targets[id].settings.levelTarget;
         const loudest = r.loudest.filter(l => l.inAbove > 0);
-        console.log(`  ${name} ${id.padEnd(7)} guard >1 dB ${(r.guardBusy * 100).toFixed(1)}% | talking ${r.talkingIn}→${r.talkingOut} LUFS | ` +
+        console.log(`  ${name} ${id.padEnd(7)} cut >1 dB ${(r.guardBusy * 100).toFixed(1)}% | talking ${r.talkingIn}→${r.talkingOut} LUFS | ` +
           (spec.yells ? `calm talk ${r.calmIn}→${r.calmOut} LUFS, yells over it +${r.yellsOverCalmIn}→+${r.yellsOverCalmOut} dB`
             : `loudest moments above the talking level: ${loudest.map(l => `${l.t}s +${l.inAbove}→+${l.outAbove}`).join(', ')}`));
         // Louder than the comfortable level: evened to it (the louder half of the talking sits at

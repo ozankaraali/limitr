@@ -230,6 +230,11 @@
     return sorted.length ? sorted[Math.floor(sorted.length / 2)] : NaN;
   }
 
+  // What Limitr cuts at a meter reading: the spike guard or a raised-voice cut, whichever is deeper
+  function cutDb(m) {
+    return Math.min(m.guardDb, m.shoutDb || 0);
+  }
+
   // The talking level: the median of momentary loudness after the BS.1770-4 relative gate
   // (blocks more than 10 LU under the mean don't count), so pauses and a background bed between
   // phrases don't pull it down. The engine gates the same way for "normal" (and then takes the
@@ -310,9 +315,9 @@
     }));
     const recovered = after.find(v => Math.abs(v.diff - normalGain) < 1);
 
-    // Share of plain talking where the guard cuts more than 1 dB, and what the popup would say
+    // Share of plain talking where Limitr cuts more than 1 dB, and what the popup would say
     const talkMeters = out.meters.filter(m => m.time >= normalWindow[0] && m.time <= normalWindow[1]);
-    const guardBusy = talkMeters.length ? talkMeters.filter(m => m.guardDb < -1).length / talkMeters.length : 0;
+    const guardBusy = talkMeters.length ? talkMeters.filter(m => cutDb(m) < -1).length / talkMeters.length : 0;
     const last = out.meters[out.meters.length - 1] || {};
 
     return {
@@ -344,15 +349,15 @@
     const inM = momentary(program, program).filter(v => v.t >= 10);
     const outM = momentary(out.left, out.right).filter(v => v.t >= 10);
     return {
-      guardBusy: +(talk.filter(m => m.guardDb < -1).length / talk.length).toFixed(2),
-      deepest: +Math.min(...talk.map(m => m.guardDb)).toFixed(1),
+      guardBusy: +(talk.filter(m => cutDb(m) < -1).length / talk.length).toFixed(2),
+      deepest: +Math.min(...talk.map(cutDb)).toFixed(1),
       normalGainDb: +(median(outM.map(v => v.lufs)) - median(inM.map(v => v.lufs))).toFixed(1)
     };
   }
 
   // A stream that opens on room noise (a muted mic, an empty scene) before anyone talks: the noise
   // is not a level to defend, so the voice must not be cut once Limitr has heard a second of it.
-  // Returns how long the guard cut the voice by more than 3 dB, and its deepest cut after the
+  // Returns how long Limitr cut the voice by more than 3 dB, and its deepest cut after the
   // voice's first 1.5 s.
   async function silentStart(id, { silenceSeconds = 10, roomDb = -62, sourceDb = -16, seconds = 30 } = {}) {
     const program = new Float32Array(seconds * FS);
@@ -361,10 +366,10 @@
     const out = await renderThroughEngine(program, program, presetSettings(id));
     const voiceMeters = out.meters.filter(m => m.time >= silenceSeconds);
     let cutFor = 0;
-    for (const m of voiceMeters) if (m.guardDb < -3) cutFor = m.time - silenceSeconds;
+    for (const m of voiceMeters) if (cutDb(m) < -3) cutFor = m.time - silenceSeconds;
     return {
       cutForSeconds: +cutFor.toFixed(1),
-      deepestAfter: +Math.min(0, ...voiceMeters.filter(m => m.time >= silenceSeconds + 1.5).map(m => m.guardDb)).toFixed(1)
+      deepestAfter: +Math.min(0, ...voiceMeters.filter(m => m.time >= silenceSeconds + 1.5).map(cutDb)).toFixed(1)
     };
   }
 
@@ -387,8 +392,8 @@
 
   // Most streams open on the broadcaster setting up: minutes of room audio (a fan, the keyboard,
   // quiet music) loud enough to be learned as the stream's level, then the voice. The voice must
-  // not be held down as a loud stretch for the preset's memory. Returns how long the guard cut it
-  // by more than 3 dB, and the guard's share of time cutting >1 dB once that is over.
+  // not be held down as a loud stretch for the preset's memory. Returns how long Limitr cut it
+  // by more than 3 dB, and its share of time cutting >1 dB once that is over.
   async function longSetup(id, { setupSeconds = 150, roomDb = -42, sourceDb = -16, talkSeconds = 40 } = {}) {
     const seconds = setupSeconds + talkSeconds;
     const program = new Float32Array(seconds * FS);
@@ -397,11 +402,11 @@
     const out = await renderThroughEngine(program, program, presetSettings(id));
     const voiceMeters = out.meters.filter(m => m.time >= setupSeconds);
     let cutFor = 0;
-    for (const m of voiceMeters) if (m.guardDb < -3) cutFor = m.time - setupSeconds;
+    for (const m of voiceMeters) if (cutDb(m) < -3) cutFor = m.time - setupSeconds;
     const after = voiceMeters.filter(m => m.time >= setupSeconds + cutFor + 5);
     return {
       cutForSeconds: +cutFor.toFixed(1),
-      guardBusyAfter: after.length ? +(after.filter(m => m.guardDb < -1).length / after.length).toFixed(2) : 0
+      guardBusyAfter: after.length ? +(after.filter(m => cutDb(m) < -1).length / after.length).toFixed(2) : 0
     };
   }
 
@@ -427,8 +432,8 @@
     const inM = momentary(program, program).filter(v => v.t >= 25 && inPhrase(v.t));
     const outM = momentary(out.left, out.right).filter(v => v.t >= 25 && inPhrase(v.t));
     return {
-      guardBusy: +(talk.filter(m => m.guardDb < -1).length / talk.length).toFixed(2),
-      deepest: +Math.min(...talk.map(m => m.guardDb)).toFixed(1),
+      guardBusy: +(talk.filter(m => cutDb(m) < -1).length / talk.length).toFixed(2),
+      deepest: +Math.min(...talk.map(cutDb)).toFixed(1),
       talkGainDb: +(talkingLevel(outM.map(v => v.lufs)) - talkingLevel(inM.map(v => v.lufs))).toFixed(1)
     };
   }
@@ -451,12 +456,12 @@
     const out = await renderThroughEngine(program, program, presetSettings(id));
     const voiceMeters = out.meters.filter(m => m.time >= introSeconds + 1);
     let lastDeep = null;
-    for (const m of voiceMeters) if (m.guardDb < -3) lastDeep = m.time;
+    for (const m of voiceMeters) if (cutDb(m) < -3) lastDeep = m.time;
     const cutFor = lastDeep === null ? 0 : lastDeep - introSeconds;
     const after = voiceMeters.filter(m => m.time >= introSeconds + cutFor + 5);
     return {
       cutForSeconds: +cutFor.toFixed(1),
-      guardBusyAfter: after.length ? +(after.filter(m => m.guardDb < -1).length / after.length).toFixed(2) : 0
+      guardBusyAfter: after.length ? +(after.filter(m => cutDb(m) < -1).length / after.length).toFixed(2) : 0
     };
   }
 
@@ -506,7 +511,7 @@
     } : {};
     return {
       ...yelling,
-      guardBusy: +(meters.filter(m => m.guardDb < -1).length / meters.length).toFixed(3),
+      guardBusy: +(meters.filter(m => cutDb(m) < -1).length / meters.length).toFixed(3),
       talkingIn: +talkingLevel(after(inM)).toFixed(1),
       talkingOut: +talkingLevel(after(outM)).toFixed(1),
       loudest: picked.map(i => ({
@@ -642,7 +647,7 @@
       for (const m of list) {
         const p = Math.pow(10, m.inDb / 10);
         w += p;
-        g += p * Math.pow(10, (Math.min(m.guardDb, m.shoutDb || 0) + (m.limiterDb || 0)) / 10);
+        g += p * Math.pow(10, (cutDb(m) + (m.limiterDb || 0)) / 10);
       }
       return w > 0 ? +(-10 * Math.log10(g / w)).toFixed(2) : null;
     };
@@ -679,7 +684,7 @@
       rangeIn: +loudnessRange(left.subarray(from), right.subarray(from)).toFixed(1),
       rangeOut: +loudnessRange(out.left.subarray(from), out.right.subarray(from)).toFixed(1),
       // Any cut on the talk counts: the guard's, and a raised voice's
-      guardBusy: meters.length ? +(meters.filter(m => Math.min(m.guardDb, m.shoutDb || 0) < -1).length / meters.length).toFixed(3) : 0,
+      guardBusy: meters.length ? +(meters.filter(m => cutDb(m) < -1).length / meters.length).toFixed(3) : 0,
       // Each loud part at its loudest moment, and on the whole (its mean power: a raised voice can
       // go on for long, and its every second counts)
       loud: loud.map(([a, b]) => {
@@ -876,15 +881,15 @@
   }
 
   // Real recorded speech (a WAV from the test runner) at a source level: how often and how deep
-  // the guard cuts it. Normal talking should be left alone.
+  // Limitr cuts it. Normal talking should be left alone.
   async function speechCut(id, wav, sourceDb) {
     const decoded = await new OfflineAudioContext(1, FS, FS).decodeAudioData(wav);
     const talk = scaleTo(Float32Array.from(decoded.getChannelData(0)), sourceDb);
     const out = await renderThroughEngine(talk, talk, presetSettings(id));
     const meters = out.meters.filter(m => m.time > 5);
     return {
-      busy: meters.filter(m => m.guardDb < -1).length / meters.length,
-      deepest: Math.min(...meters.map(m => m.guardDb))
+      busy: meters.filter(m => cutDb(m) < -1).length / meters.length,
+      deepest: Math.min(...meters.map(cutDb))
     };
   }
 
