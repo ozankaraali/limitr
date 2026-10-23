@@ -755,12 +755,21 @@ function renderCaughtLine(el) {
     setRichText(el, []);
     return;
   }
-  if (m.spikes === 0) {
-    setRichText(el, [['Listening. Nothing too loud yet.']]);
+  const raised = m.raisedVoices || 0;
+  if (m.spikes === 0 && raised === 0) {
+    // Nothing caught, but the trace may still show a cut (the talk evened out, a loud stretch
+    // held down): say so rather than that nothing is too loud
+    const cut = Math.max(0, ...state.history.map(p => p.cut));
+    setRichText(el, [[cut >= 0.5
+      ? `Listening. Evening out the sound by up to ${Math.max(1, Math.round(cut))} dB.`
+      : 'Listening. Nothing too loud yet.']]);
     return;
   }
-  const count = m.spikes === 1 ? '1 spike' : `${m.spikes} spikes`;
-  setRichText(el, [['CAUGHT', 'tag'], [` ${count}. The biggest was cut by ${trim(m.maxSpikeDb)} dB.`]]);
+  const counts = [];
+  if (m.spikes > 0) counts.push(m.spikes === 1 ? '1 spike' : `${m.spikes} spikes`);
+  if (raised > 0) counts.push(raised === 1 ? '1 raised voice' : `${raised} raised voices`);
+  const biggest = Math.max(m.maxSpikeDb || 0, m.maxRaisedDb || 0);
+  setRichText(el, [['CAUGHT', 'tag'], [` ${counts.join(' and ')}. The biggest was cut by ${trim(biggest)} dB.`]]);
 }
 
 function renderAll() {

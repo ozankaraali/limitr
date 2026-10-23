@@ -400,7 +400,33 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const statusText = await popup.textContent('#status');
     check('popup reports the player is being tamed', /Taming/.test(statusText), statusText);
     const caption = await popup.textContent('#traceCaption');
-    check('popup shows caught spikes', /CAUGHT \d+ spikes?\./.test(caption), caption);
+    check('popup shows caught spikes', /CAUGHT \d+ spikes?( and \d+ raised voices?)?\./.test(caption), caption);
+    // The caption against what the trace shows: raised voices count with spikes, and a trace with a
+    // cut but nothing caught says it's evening the sound out rather than that nothing is too loud
+    const captions = await popup.evaluate(() => {
+      const saved = { meters: state.meters, history: state.history };
+      const show = (meters, history) => {
+        state.meters = { ...saved.meters, ...meters };
+        state.history = history;
+        renderCaption();
+        return $('traceCaption').textContent;
+      };
+      const none = { spikes: 0, maxSpikeDb: 0, raisedVoices: 0, maxRaisedDb: 0 };
+      const result = {
+        both: show({ spikes: 2, maxSpikeDb: 6.2, raisedVoices: 1, maxRaisedDb: 8.8 }, saved.history),
+        raised: show({ ...none, raisedVoices: 3, maxRaisedDb: 4.4 }, saved.history),
+        evening: show(none, [{ out: -30, cut: 0 }, { out: -30, cut: 2.4 }, { out: -30, cut: 1 }]),
+        quiet: show(none, [{ out: -30, cut: 0 }, { out: -30, cut: 0.3 }])
+      };
+      state.meters = saved.meters;
+      state.history = saved.history;
+      renderCaption();
+      return result;
+    });
+    check('caption counts raised voices with the spikes', captions.both === 'CAUGHT 2 spikes and 1 raised voice. The biggest was cut by 8.8 dB.', captions.both);
+    check('caption counts raised voices on their own', captions.raised === 'CAUGHT 3 raised voices. The biggest was cut by 4.4 dB.', captions.raised);
+    check('nothing caught but the trace shows a cut: the caption says so', captions.evening === 'Listening. Evening out the sound by up to 2 dB.', captions.evening);
+    check('nothing caught or cut: nothing too loud yet', captions.quiet === 'Listening. Nothing too loud yet.', captions.quiet);
     if (screenshotDir) await takeScreenshots();
     await popup.click('[role="radio"]:has-text("Sleep")');
     await sleep(400);

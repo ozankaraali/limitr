@@ -326,6 +326,7 @@
       guardBusy: +guardBusy.toFixed(2),
       spikes: last.spikes,
       maxSpikeDb: last.maxSpikeDb,
+      raisedVoices: last.raisedVoices,
       thresholdShown: out.meters.some(m => Number.isFinite(m.thresholdDb)),
       alertOnsetLeakDb: +onsetLeakDb(program, out.left, EVENTS.alert.start).toFixed(2),
       normalInLufs: +normalIn.toFixed(1),
@@ -766,8 +767,9 @@
   // A dense stretch in place of the talk, a few dB louder on the whole but hardly on its peaks:
   // 'strained' is a raised, strained voice into a mic whose chain clamps it (higher, continuous,
   // saturated, pushed into the 1-4 kHz the ear is most sensitive to); 'ad' is an ad break or a
-  // song, as dense but in a normal tone. Returns how far over the talk before it the stretch comes out on the
-  // whole (mean power) and at its loudest, in and out, and the talk after it.
+  // song, as dense but in a normal tone. Returns how far over the talk before it the stretch comes
+  // out on the whole (mean power) and at its loudest, in and out, and the talk after it; and what
+  // the raised voice cut and the popup counted.
   async function denseStretch(id, { kind = 'strained', overDb = 3, talkSeconds = 40, seconds = 12, afterSeconds = 15, sourceDb = NORMAL_LUFS } = {}) {
     const from = talkSeconds, to = talkSeconds + seconds;
     const total = to + afterSeconds;
@@ -802,7 +804,15 @@
         after: +(talkingLevel(at(m, to + 3, total)) - before).toFixed(1)
       };
     };
-    return { in: report(inM), out: report(outM) };
+    const last = out.meters[out.meters.length - 1] || {};
+    return {
+      in: report(inM),
+      out: report(outM),
+      deepestRaisedDb: +(-Math.min(0, ...out.meters.map(m => m.shoutDb || 0))).toFixed(1),
+      spikes: last.spikes,
+      raisedVoices: last.raisedVoices,
+      maxRaisedDb: last.maxRaisedDb === undefined ? undefined : +last.maxRaisedDb.toFixed(1)
+    };
   }
 
   // Talk with harsh moments in place of it, as loud as the talk: a crowd or a cymbal-heavy song

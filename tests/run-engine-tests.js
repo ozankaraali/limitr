@@ -361,6 +361,9 @@ async function runIn(browserType, port) {
       // The clap is short and may stay under the counter's 3 dB; the yell and the alert must count
       check(`${id}: counts the yell and the alert at every level`, rows.every(r => r.spikes >= 2 && r.spikes <= 3),
         perLevel(rows, r => r.spikes));
+      // What the guard caught as a spike isn't counted again when the raised voice cuts it too
+      check(`${id}: the spikes aren't counted again as raised voices`, rows.every(r => r.raisedVoices === 0),
+        perLevel(rows, r => r.raisedVoices));
     }
     check(`${id}: alert onset doesn't slip through the lookahead`, rows.every(r => r.alertOnsetLeakDb <= 1),
       perLevel(rows, r => r.alertOnsetLeakDb));
@@ -382,6 +385,8 @@ async function runIn(browserType, port) {
     perLevel(sleepRows, r => `${r.events.yell.outAboveNormal}/${r.events.alert.outAboveNormal}`));
   check('sleep: counts the yell and the alert at every level', sleepRows.every(r => r.spikes >= 2 && r.spikes <= 3),
     perLevel(sleepRows, r => r.spikes));
+  check("sleep: the spikes aren't counted again as raised voices", sleepRows.every(r => r.raisedVoices === 0),
+    perLevel(sleepRows, r => r.raisedVoices));
   check('sleep: guard idle during plain talking at every level', sleepRows.every(r => r.guardBusy <= 0.1),
     perLevel(sleepRows, r => r.guardBusy));
 
@@ -532,6 +537,20 @@ async function runIn(browserType, port) {
             levelOk(r.calmIn, r.calmOut, 2.5) && r.yellsOverCalmOut <= limit, `yells +${r.yellsOverCalmOut} dB, calm talk ${r.calmOut} LUFS`);
         }
       }
+    }
+  }
+
+  // The popup's "caught" count: a raised voice the raised-voice stage cuts by more than a spike
+  // needs (3 dB) counts, as the trace shows its cut
+  console.log('\nA strained voice 6 dB over the talk for 12 s: under the guard, cut by the raised voice');
+  for (const id of ['gentle', 'stream', 'sleep']) {
+    const r = await page.evaluate(p => bench.denseStretch(p, { kind: 'strained', overDb: 6 }), id);
+    const detail = `${r.raisedVoices} raised voice(s), biggest ${r.maxRaisedDb} dB (cut up to ${r.deepestRaisedDb} dB), ${r.spikes} spike(s)`;
+    if (id === 'gentle') {
+      check('gentle: no raised voice counted (its raised-voice stage is off)', r.raisedVoices === 0, detail);
+    } else {
+      check(`${id}: the strained voice is counted as a raised voice, with how deep it was cut`,
+        r.deepestRaisedDb > 3 && r.raisedVoices === 1 && Math.abs(r.maxRaisedDb - r.deepestRaisedDb) <= 0.2, detail);
     }
   }
 
