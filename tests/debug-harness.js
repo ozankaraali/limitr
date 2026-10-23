@@ -111,7 +111,7 @@
     if (!live) return;
     const m = live.engine.getMeters();
     if (Number.isFinite(m.outDb)) {
-      history.push({ out: m.outDb, cut: Math.max(0, -m.guardDb), limit: m.thresholdDb });
+      history.push({ out: m.outDb, cut: Math.max(0, -Math.min(m.guardDb, m.shoutDb || 0)), limit: m.thresholdDb });
       if (history.length > HISTORY_POINTS) history.shift();
     }
     drawTrace(history);

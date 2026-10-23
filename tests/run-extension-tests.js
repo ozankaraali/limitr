@@ -480,8 +480,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await sleep(400);
     check('Fine-tune opens as its own screen', (await visible('[data-screen="finetune"]')) && !(await visible('[data-screen="main"]')));
     check('Fine-tune shows the live loudness strip', await visible('#miniTrace'));
-    check('Fine-tune sections have icons', (await popup.$$eval('[data-screen="finetune"] .gi svg',
-      els => els.filter(svg => svg.querySelector('path, rect, circle')).length)) === 7);
+    const icons = await popup.evaluate(() => {
+      const sections = [...document.querySelectorAll('[data-screen="finetune"] .group')];
+      return { sections: sections.length, drawn: sections.filter(s => s.querySelector('.gi svg :is(path, rect, circle)')).length };
+    });
+    check('Fine-tune sections have icons', icons.sections === 8 && icons.drawn === icons.sections, JSON.stringify(icons));
     // Web Audio ignores gain on pass and notch filters, and Q on shelves: only show what works
     const eqRows = type => popup.evaluate(t => {
       const select = document.querySelector('.eq-band select');

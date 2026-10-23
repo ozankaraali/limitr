@@ -231,6 +231,29 @@ async function checkUpgradeFrom21() {
   }
 }
 
+// 2.2 settings have no raised-voice stage or room for speech: they come from the preset they were
+// on, which stays shown; Sleep no longer lifts quiet streams, unless the listener set the lift
+async function checkUpgradeFrom22() {
+  const S = globalThis.LimitrSettings;
+  console.log('\nUpgrade from 2.2');
+  const RAISED_KEYS = ['shoutEnabled', 'shoutAllow', 'shoutMaxCut', 'speechRoomDb', 'speechRoomLevelDb', 'speechRoomFade'];
+  for (const [preset, expected, lift] of [['stream', true, 0], ['sleep', true, 6], ['sleep', true, 3], ['gentle', false, 0], [null, false, 0]]) {
+    const old = { ...S.applyPreset({ volume: -3 }, preset || 'stream'), levelMaxBoost: lift };
+    if (!preset) old.guardHeadroom = 9;
+    for (const key of RAISED_KEYS) delete old[key];
+    const { settings } = await S.load({ get: async () => ({ limitrSettings: old, limitrPreset: preset }) });
+    const fresh = preset ? { ...S.DEFAULTS, ...S.PRESETS[preset].settings } : S.DEFAULTS;
+    const raised = RAISED_KEYS.every(key => settings[key] === fresh[key]);
+    // Sleep's 2.2 lift (6 dB) is the preset's, now none; one the listener chose stays
+    const keptLift = preset === 'sleep' && lift === 6 ? fresh.levelMaxBoost : lift;
+    const shown = preset && lift === (preset === 'sleep' ? 6 : 0) ? preset : null;
+    check(`${preset || 'own settings'}${preset === 'sleep' ? ` lifting ${lift} dB` : ''}: raised voice ${expected ? 'on' : 'off'}, lift ${keptLift} dB${shown ? `, still shown as ${preset}` : ''}`,
+      raised && settings.shoutEnabled === expected && settings.levelMaxBoost === keptLift && settings.volume === -3 &&
+      (!shown || S.matchPreset(settings) === shown),
+      JSON.stringify({ shout: settings.shoutEnabled, room: settings.speechRoomDb, fade: settings.speechRoomFade, lift: settings.levelMaxBoost, matches: S.matchPreset(settings) }));
+  }
+}
+
 async function runIn(browserType, port) {
   // Offline rendering needs neither the GPU nor the speakers
   // Off the GPU and silent. Chromium: fake audio output device, so the speakers are never opened.
@@ -343,16 +366,16 @@ async function runIn(browserType, port) {
       perLevel(rows, r => r.alertOnsetLeakDb));
   }
 
-  console.log('\nSleep: every stream at one comfortable level, quiet ones lifted a little, spikes held');
+  console.log('\nSleep: every stream at one comfortable level, quiet ones left as they are, spikes held');
   const sleepRows = await sweep('sleep');
   const sleepTarget = (await page.evaluate(() => bench.scenario('sleep'))).normalOutLufs;
   check('sleep: -24 to -10 sources all come out at the same level',
     sleepRows.filter(r => r.level >= -24).every(r => Math.abs(r.normalOutLufs - sleepTarget) <= 1.5),
     perLevel(sleepRows, r => r.normalOutLufs));
+  // Sleep never lifts a quiet stream (louds come down, quiet ones aren't brought up)
   const quiet = sleepRows.find(r => r.level === -36);
-  const maxBoost = globalThis.LimitrSettings.PRESETS.sleep.settings.levelMaxBoost;
-  check('sleep: a quiet stream is lifted, at most by its maximum boost', quiet.normalGainDb > 1 && quiet.normalGainDb <= maxBoost + 0.5,
-    `+${quiet.normalGainDb} dB`);
+  check('sleep: a quiet stream is left as it is, not lifted', Math.abs(quiet.normalGainDb) <= 0.5,
+    `${quiet.normalGainDb >= 0 ? '+' : ''}${quiet.normalGainDb} dB`);
   check('sleep: yell and alert held at every level',
     sleepRows.every(r => r.events.yell.outAboveNormal <= PRESET_EXPECTATIONS.sleep.maxYellAbove &&
       r.events.alert.outAboveNormal <= PRESET_EXPECTATIONS.sleep.maxAlertAbove),
@@ -657,6 +680,7 @@ async function runIn(browserType, port) {
   await checkLegacyUpgrade();
   await checkUpgradeFrom20();
   await checkUpgradeFrom21();
+  await checkUpgradeFrom22();
   const routes = {};
   for (const [name, file] of Object.entries(RECORDING_FILES)) {
     routes[`/recordings/${name}`] = (req, res) => {

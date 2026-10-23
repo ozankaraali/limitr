@@ -416,6 +416,7 @@ const SECTION_ICONS = {
   'Spike guard': '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M8.5 12.5c1-1.6 2-1.6 3 0s2 1.6 3 0"/>',
   'Comfortable level': '<path d="M4 8h16M4 16h16"/><circle cx="9" cy="8" r="2.2"/><circle cx="15" cy="16" r="2.2"/>',
   'Harsh sound': '<path d="M3 9h7c3.5 0 4 7 7.5 7H21"/><path d="M18 4v5M16 7l2 2 2-2"/>',
+  'Raised voice': '<path d="M4 10v4h3l5 4V6l-5 4z"/><path d="M16 9.5l2.5 2.5L21 9.5"/>',
   'Peak limiter': '<path d="M4 6h16"/><path d="M4 18c3 0 3-8 6-8s3 8 6 8"/>',
   'Tone': '<path d="M5 20V4M12 20V4M19 20V4"/><circle cx="5" cy="14" r="2"/><circle cx="12" cy="8" r="2"/><circle cx="19" cy="16" r="2"/>',
   'Compressor': '<path d="M4 12h4l2-5 4 10 2-5h4"/>',
@@ -432,7 +433,9 @@ const GROUPS = [
       ['guardRatio', 'Strength', fmt.ratio],
       ['guardAttack', 'Reaction time', fmt.ms],
       ['guardHold', 'Hold before recovering', fmt.ms],
-      ['guardRelease', 'Recovery time', fmt.ms]
+      ['guardRelease', 'Recovery time', fmt.ms],
+      ['speechRoomDb', 'Extra room for natural speech', fmt.dbPlain],
+      ['speechRoomFade', 'Speech room ends above normal at', fmt.dbPlain]
     ]
   },
   {
@@ -451,6 +454,16 @@ const GROUPS = [
     note: 'Takes the shrill edge off a yell into the mic, a piercing alert or a cheering crowd while it lasts. Measured against how the stream usually sounds, so normal talk keeps its tone.',
     controls: [
       ['deharshMaxCut', 'Most it may soften', fmt.dbPlain]
+    ]
+  },
+  {
+    title: 'Raised voice',
+    toggle: 'shoutEnabled',
+    note: 'Brings a voice raised for seconds, or a strained one that is dense more than loud, back toward the talk within about a second. A strained voice counts as louder than it measures.',
+    controls: [
+      ['shoutAllow', 'Allow above normal', fmt.dbPlain],
+      ['shoutMaxCut', 'Most it may turn down', fmt.dbPlain],
+      ['speechRoomLevelDb', 'Extra room for natural speech', fmt.dbPlain]
     ]
   },
   {
@@ -906,7 +919,8 @@ async function pollMeters() {
   if (meters && Array.isArray(meters.trace) && meters.trace.length) {
     state.history = meters.trace.slice(-HISTORY_POINTS);
   } else if (meters && Number.isFinite(meters.outDb)) {
-    const cut = Math.max(0, -(meters.guardDb || 0));
+    // The guard's or a raised voice's cut, whichever is larger (they never add)
+    const cut = Math.max(0, -Math.min(meters.guardDb || 0, meters.shoutDb || 0));
     state.history.push({ out: meters.outDb, cut, limit: meters.thresholdDb });
     if (state.history.length > HISTORY_POINTS) state.history.shift();
   }
