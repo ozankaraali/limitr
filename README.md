@@ -214,6 +214,10 @@ one, back near the talk (Fine-tune → Raised voice): a streamer's long yells co
 most 1.4 dB over their talk in Stream, against 2.6–4.5 dB. After a quiet intro or a long setup the
 voice is cut for about a second instead of up to 24 s, and Sleep no longer lifts quiet streams.
 
+2.3.1: the popup counts a raised voice it turned down as caught, as its trace already showed, and
+when nothing has been caught but Limitr is evening the sound out, it says so instead of "Nothing
+too loud yet".
+
 ## What's new in 2.2
 
 Stream and Sleep now take the shrill edge off a yell into the mic, a piercing alert or a cheering
