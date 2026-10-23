@@ -730,9 +730,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('captured audio runs through the engine', cm && cm.dsp === 'worklet' && cm.inDb > -60, cm && `${cm.dsp}, in ${cm.inDb?.toFixed(1)}`);
     m = await meters(0);
     check('page-mode engine steps aside while captured', m && m.inDb < -60, m && `page in ${m.inDb?.toFixed(1)}`);
-    // The test tone has two bursts in a 12 s loop; a burst before Limitr knew the stream isn't counted
+    // The test tone has two bursts in a 12 s loop; a burst before Limitr knew the stream isn't
+    // counted, so where in the loop the capture starts decides how soon one is: two loops always do
     let cm2 = null;
-    for (let waited = 0; waited < 12000 && !(cm2 && cm2.spikes >= 1); waited += 1000) {
+    for (let waited = 0; waited < 24000 && !(cm2 && cm2.spikes >= 1); waited += 1000) {
       await sleep(1000);
       cm2 = (await worker.evaluate(id => chrome.runtime.sendMessage({ target: 'offscreen', action: 'capture-meters', tabId: id }), tabId)).meters;
     }
