@@ -393,7 +393,8 @@
   // Most streams open on the broadcaster setting up: minutes of room audio (a fan, the keyboard,
   // quiet music) loud enough to be learned as the stream's level, then the voice. The voice must
   // not be held down as a loud stretch for the preset's memory. Returns how long Limitr cut it
-  // by more than 3 dB, and its share of time cutting >1 dB once that is over.
+  // by more than 3 dB, its deepest cut from 1.5 to 5 s into the voice, and its share of time
+  // cutting >1 dB once that is over.
   async function longSetup(id, { setupSeconds = 150, roomDb = -42, sourceDb = -16, talkSeconds = 40 } = {}) {
     const seconds = setupSeconds + talkSeconds;
     const program = new Float32Array(seconds * FS);
@@ -404,8 +405,10 @@
     let cutFor = 0;
     for (const m of voiceMeters) if (cutDb(m) < -3) cutFor = m.time - setupSeconds;
     const after = voiceMeters.filter(m => m.time >= setupSeconds + cutFor + 5);
+    const early = voiceMeters.filter(m => m.time >= setupSeconds + 1.5 && m.time <= setupSeconds + 5);
     return {
       cutForSeconds: +cutFor.toFixed(1),
+      deepestAfter: +Math.min(0, ...early.map(cutDb)).toFixed(1),
       guardBusyAfter: after.length ? +(after.filter(m => cutDb(m) < -1).length / after.length).toFixed(2) : 0
     };
   }
@@ -440,7 +443,8 @@
 
   // A long quiet intro (a "starting soon" screen with soft music), then the voice: normal must
   // not defend the intro for the preset's whole memory. Returns how long the voice was cut by
-  // more than 3 dB after it started, and the guard's share of time cutting once that is over.
+  // more than 3 dB after it started, the deepest cut from 1.5 to 5 s into it, and the share of
+  // time cutting once that is over.
   // With `pauseSeconds`, the voice comes in 4 s phrases with pauses that long, the music still
   // playing under them.
   async function longQuietIntro(id, { introSeconds = 40, introDb = -45, sourceDb = -14, seconds = 100, pauseSeconds = 0 } = {}) {
@@ -459,8 +463,10 @@
     for (const m of voiceMeters) if (cutDb(m) < -3) lastDeep = m.time;
     const cutFor = lastDeep === null ? 0 : lastDeep - introSeconds;
     const after = voiceMeters.filter(m => m.time >= introSeconds + cutFor + 5);
+    const early = voiceMeters.filter(m => m.time >= introSeconds + 1.5 && m.time <= introSeconds + 5);
     return {
       cutForSeconds: +cutFor.toFixed(1),
+      deepestAfter: +Math.min(0, ...early.map(cutDb)).toFixed(1),
       guardBusyAfter: after.length ? +(after.filter(m => cutDb(m) < -1).length / after.length).toFixed(2) : 0
     };
   }

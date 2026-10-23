@@ -475,6 +475,9 @@ async function runIn(browserType, port) {
     check(`${id}: the voice after a long setup is cut for at most 12 s, not held down as a loud stretch`,
       r.cutForSeconds <= 12 && r.guardBusyAfter <= 0.1,
       `cut >3 dB for ${r.cutForSeconds} s, then cutting >1 dB ${Math.round(r.guardBusyAfter * 100)}% of the time`);
+    // Once the voice re-seeds normal, every cut measured against the setup lets go with the guard
+    check(`${id}: once the voice re-seeds normal, no cut measured against the setup lingers (at most 1 dB from 1.5 s in)`,
+      r.deepestAfter >= -1, `deepest ${r.deepestAfter} dB from 1.5 to 5 s`);
   }
 
   console.log('\nA streamer talking in phrases over a quieter game bed (what real streams look like)');
@@ -497,6 +500,8 @@ async function runIn(browserType, port) {
       check(`${id}: the voice${pauseSeconds ? `, with ${pauseSeconds} s pauses over the music,` : ''} is cut for at most 25 s, not the preset's whole memory`,
         r.cutForSeconds <= 25 && r.guardBusyAfter <= 0.1,
         `cut >3 dB for ${r.cutForSeconds} s, then cutting >1 dB ${Math.round(r.guardBusyAfter * 100)}% of the time`);
+      check(`${id}: once the voice${pauseSeconds ? ' with pauses' : ''} re-seeds normal, no cut measured against the intro lingers (at most 1 dB from 1.5 s in)`,
+        r.deepestAfter >= -1, `deepest ${r.deepestAfter} dB from 1.5 to 5 s`);
     }
   }
 

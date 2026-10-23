@@ -64,9 +64,9 @@ way BS.1770 does.
 | Preset | Regular streamer: Limitr cutting | Talking −18.9 LUFS comes out at | Yelling clip: Limitr cutting | Calm talk −14.5 LUFS comes out at | Yells above the calm talk |
 |--------|---:|---:|---:|---:|---:|
 | Gentle | 0.7% of the time | −18.9 (untouched) | 64% | −16.1 | +7.4 → +3.9 dB |
-| Stream | 2.5% | −20.8 (its −20 level) | 79% | −20.1 (its −20 level) | +7.4 → −0.4 dB |
+| Stream | 2.1% | −20.8 (its −20 level) | 79% | −20.1 (its −20 level) | +7.4 → −0.4 dB |
 | Movie | 1.4% | −19.3 | 81% | −17.8 (its −18 level) | +7.4 → +2.9 dB |
-| Sleep | 4.4% | −28.9 (its −28 level) | 92% | −29.8 (its −28 level) | +7.4 → +1.0 dB |
+| Sleep | 4.1% | −28.9 (its −28 level) | 92% | −29.8 (its −28 level) | +7.4 → +1.0 dB |
 
 Most of what remains on the regular stream falls in its first minute, while Limitr learns it. 2.1.2
 cut the same regular stream 43–82% of the time and turned its talking down 10–18 dB. On the
