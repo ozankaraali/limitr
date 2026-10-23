@@ -368,6 +368,23 @@
     };
   }
 
+  // A stream that opens loud: a clip or a video mastered near -14 LUFS, far over the level assumed
+  // before anything is heard. The guard holds it until normal is learned, then hands it to the
+  // evener. Returns how much louder than where it settles the talk comes out in the seconds after
+  // that handover, and how far the threshold the trace shows ("Taming starts here") rises over
+  // where it settles once normal is known.
+  async function loudStart(id, { sourceDb = -14, seconds = 20 } = {}) {
+    const program = scaleTo(voice(seconds, 7), sourceDb);
+    const out = await renderThroughEngine(program, program, presetSettings(id));
+    const outM = momentary(out.left, out.right);
+    const within = (a, b) => talkingLevel(outM.filter(v => v.t >= a && v.t <= b).map(v => v.lufs));
+    const limits = (a, b) => out.meters.filter(m => m.time >= a && m.time <= b).map(m => m.thresholdDb);
+    return {
+      handoverAbove: +(within(1.5, 4) - within(10, seconds)).toFixed(1),
+      limitAbove: +(Math.max(...limits(1.5, seconds)) - median(limits(10, seconds))).toFixed(1)
+    };
+  }
+
   // Most streams open on the broadcaster setting up: minutes of room audio (a fan, the keyboard,
   // quiet music) loud enough to be learned as the stream's level, then the voice. The voice must
   // not be held down as a loud stretch for the preset's memory. Returns how long the guard cut it
@@ -565,16 +582,25 @@
     const w = f => 2 * Math.PI * f / FS;
     const bp = (() => { const al = Math.sin(w(300)) / 1.4, a0 = 1 + al; return [al / a0, 0, -al / a0, -2 * Math.cos(w(300)) / a0, (1 - al) / a0]; })();
     const hp = (() => { const c = Math.cos(w(2000)), al = Math.sin(w(2000)) / Math.SQRT2, a0 = 1 + al; return [(1 + c) / 2 / a0, -(1 + c) / a0, (1 + c) / 2 / a0, -2 * c / a0, (1 - al) / a0]; })();
-    const lp = (() => { const c = Math.cos(w(8000)), al = Math.sin(w(8000)) / Math.SQRT2, a0 = 1 + al; return [(1 - c) / 2 / a0, (1 - c) / a0, (1 - c) / 2 / a0, -2 * c / a0, (1 - al) / a0]; })();
+    const lowpassAt = f => { const c = Math.cos(w(f)), al = Math.sin(w(f)) / Math.SQRT2, a0 = 1 + al; return [(1 - c) / 2 / a0, (1 - c) / a0, (1 - c) / 2 / a0, -2 * c / a0, (1 - al) / a0]; };
+    const highpassAt = f => { const c = Math.cos(w(f)), al = Math.sin(w(f)) / Math.SQRT2, a0 = 1 + al; return [(1 + c) / 2 / a0, -(1 + c) / a0, (1 + c) / 2 / a0, -2 * c / a0, (1 - al) / a0]; };
+    const lp = lowpassAt(8000);
     const mono = new Float32Array(left.length);
     for (let i = 0; i < mono.length; i++) mono[i] = (left[i] + right[i]) / 2;
     const lo = biquad(mono, bp), hi = biquad(biquad(mono, hp), lp);
-    const hop = FS / 10, n = Math.floor(mono.length / hop), elo = new Float64Array(n), ehi = new Float64Array(n);
-    for (let b = 0; b < n; b++) for (let i = b * hop; i < (b + 1) * hop; i++) { elo[b] += lo[i] * lo[i]; ehi[b] += hi[i] * hi[i]; }
+    // The presence band, 1-4 kHz: where a strained voice puts its extra energy
+    const mid = biquad(biquad(mono, highpassAt(1000)), lowpassAt(4000));
+    const hop = FS / 10, n = Math.floor(mono.length / hop), elo = new Float64Array(n), ehi = new Float64Array(n), emid = new Float64Array(n);
+    for (let b = 0; b < n; b++) for (let i = b * hop; i < (b + 1) * hop; i++) { elo[b] += lo[i] * lo[i]; ehi[b] += hi[i] * hi[i]; emid[b] += mid[i] * mid[i]; }
     const out = [];
     for (let b = 3; b < n; b++) {
       const sum = a => a[b] + a[b - 1] + a[b - 2] + a[b - 3];
-      out.push({ t: (b + 1) / 10, tilt: 10 * Math.log10((sum(ehi) + 1e-20) / (sum(elo) + 1e-20)), edge: 10 * Math.log10(sum(ehi) / (4 * hop) + 1e-20) });
+      out.push({
+        t: (b + 1) / 10,
+        tilt: 10 * Math.log10((sum(ehi) + 1e-20) / (sum(elo) + 1e-20)),
+        edge: 10 * Math.log10(sum(ehi) / (4 * hop) + 1e-20),
+        presence: 10 * Math.log10(sum(emid) / (4 * hop) + 1e-20)
+      });
     }
     return out;
   }
@@ -594,6 +620,33 @@
     const normal = m => m.filter(v => v.t >= skip && !nearLoud(v.t)).map(v => v.lufs);
     const talkIn = talkingLevel(normal(inM));
     const talkOut = talkingLevel(normal(outM));
+    // The talk well away from every loud part (5 s), where nothing loud should be cutting it
+    const far = m => m.filter(v => v.t >= skip && !loud.some(([a, b]) => v.t >= a - 5 && v.t <= b + 5.4)).map(v => v.lufs);
+    const farIn = far(inM), farOut = far(outM);
+    const worst3 = m => {
+      const v = m.filter(x => x.t >= skip).map(x => Math.pow(10, x.lufs / 10));
+      let best = 0, sum = 0;
+      for (let i = 0; i < v.length; i++) {
+        sum += v[i];
+        if (i >= 30) sum -= v[i - 30];
+        if (i >= 29) best = Math.max(best, sum / 30);
+      }
+      return 10 * Math.log10(best);
+    };
+    const p99 = m => { const v = m.filter(x => x.t >= skip).map(x => x.lufs).sort((a, b) => a - b); return v[Math.floor(0.99 * (v.length - 1))]; };
+    // What the cuts took off (the guard, a raised-voice cut, the limiter; not the comfortable
+    // level, which moves everything alike), averaged as power over what came in, so pauses count
+    // for little
+    const cutOver = list => {
+      let w = 0, g = 0;
+      for (const m of list) {
+        const p = Math.pow(10, m.inDb / 10);
+        w += p;
+        g += p * Math.pow(10, (Math.min(m.guardDb, m.shoutDb || 0) + (m.limiterDb || 0)) / 10);
+      }
+      return w > 0 ? +(-10 * Math.log10(g / w)).toFixed(2) : null;
+    };
+    const awayFromLoud = out.meters.filter(m => m.time >= skip && !loud.some(([a, b]) => m.time >= a - 5 && m.time <= b + 5.4));
     const meters = out.meters.filter(m => m.time >= skip && !nearLoud(m.time));
     const from = Math.round(skip * FS);
     // Harshness: each harsh part's balance over the usual balance of the talk (talk-level blocks
@@ -602,21 +655,48 @@
     const nearMarked = t => nearLoud(t) || harsh.some(([a, b]) => t >= a - 1 && t <= b + 1.4);
     const usual = (bal, m, talk) => median(bal.filter((v, k) => v.t >= skip && !nearMarked(v.t) && m[k] && Math.abs(m[k].lufs - talk) <= 6).map(v => v.tilt));
     const usualIn = usual(balIn, inM, talkIn), usualOut = usual(balOut, outM, talkOut);
+    // The talk's own 1-4 kHz level, as loud parts' presence is measured against it
+    const talkPresence = (bal, m, talk) => median(bal.filter((v, k) => v.t >= skip && !nearMarked(v.t) && m[k] && Math.abs(m[k].lufs - talk) <= 6).map(v => v.presence));
+    const presenceIn = talkPresence(balIn, inM, talkIn), presenceOut = talkPresence(balOut, outM, talkOut);
     const over = (bal, [a, b], u) => { const v = bal.filter(x => x.t >= a + 0.4 && x.t <= b + 0.4).map(x => x.tilt); return v.length ? v.reduce((s, x) => s + x, 0) / v.length - u : NaN; };
     return {
       talkIn: +talkIn.toFixed(1),
       talkOut: +talkOut.toFixed(1),
+      // The yardstick of a calm documentary: how far anything rises over the talk. The loudest 3 s
+      // (from the momentary blocks' power) and the momentary 99th percentile, everywhere after skip
+      worst3In: +(worst3(inM) - talkIn).toFixed(1),
+      worst3Out: +(worst3(outM) - talkOut).toFixed(1),
+      p99In: +(p99(inM) - talkIn).toFixed(1),
+      p99Out: +(p99(outM) - talkOut).toFixed(1),
+      talkCut: cutOver(meters),
+      farCut: awayFromLoud.length >= 50 ? cutOver(awayFromLoud) : null,
+      // Out minus in, so presets compare: how much the evener and every cut took off that talk
+      farGain: farIn.length >= 20 ? +(talkingLevel(farOut) - talkingLevel(farIn)).toFixed(1) : null,
       dsp: out.status.dsp,
       talkDuller: +(usualOut - usualIn).toFixed(1),
       harsh: harsh.map(r => ({ at: r[0], inAbove: +over(balIn, r, usualIn).toFixed(1), outAbove: +over(balOut, r, usualOut).toFixed(1) }))
         .filter(h => Number.isFinite(h.inAbove)),
       rangeIn: +loudnessRange(left.subarray(from), right.subarray(from)).toFixed(1),
       rangeOut: +loudnessRange(out.left.subarray(from), out.right.subarray(from)).toFixed(1),
-      guardBusy: meters.length ? +(meters.filter(m => m.guardDb < -1).length / meters.length).toFixed(3) : 0,
+      // Any cut on the talk counts: the guard's, and a raised voice's
+      guardBusy: meters.length ? +(meters.filter(m => Math.min(m.guardDb, m.shoutDb || 0) < -1).length / meters.length).toFixed(3) : 0,
+      // Each loud part at its loudest moment, and on the whole (its mean power: a raised voice can
+      // go on for long, and its every second counts)
       loud: loud.map(([a, b]) => {
         let k = -1;
         inM.forEach((v, i) => { if (v.t >= a + 0.4 && v.t <= b + 0.4 && (k < 0 || v.lufs > inM[k].lufs)) k = i; });
-        return k < 0 ? null : { at: a, inAbove: +(inM[k].lufs - talkIn).toFixed(1), outAbove: +(outM[k].lufs - talkOut).toFixed(1) };
+        const whole = (m, key = 'lufs') => {
+          const v = m.filter(x => x.t >= a + 0.4 && x.t <= b + 0.4).map(x => Math.pow(10, x[key] / 10));
+          return 10 * Math.log10(v.reduce((s, x) => s + x, 0) / v.length);
+        };
+        // Its first 2 s (a burst's onset is what wakes a sleeper), and its 1-4 kHz on the whole
+        const first = m => Math.max(...m.filter(x => x.t >= a + 0.4 && x.t <= Math.min(b, a + 2) + 0.4).map(x => x.lufs));
+        return k < 0 ? null : {
+          at: a, inAbove: +(inM[k].lufs - talkIn).toFixed(1), outAbove: +(outM[k].lufs - talkOut).toFixed(1),
+          inWhole: +(whole(inM) - talkIn).toFixed(1), outWhole: +(whole(outM) - talkOut).toFixed(1),
+          inFirst: +(first(inM) - talkIn).toFixed(1), outFirst: +(first(outM) - talkOut).toFixed(1),
+          inPresence: +(whole(balIn, 'presence') - presenceIn).toFixed(1), outPresence: +(whole(balOut, 'presence') - presenceOut).toFixed(1)
+        };
       }).filter(Boolean)
     };
   }
@@ -647,6 +727,71 @@
       at8: +above(outM, normalOut, 8).toFixed(1),
       at15: +above(outM, normalOut, 15).toFixed(1)
     };
+  }
+
+  // A fit of raised voice after 40 s of talk: a few dB up for 12 s, too little to count as a jump
+  // from normal, and then the same talk again. Normal must not walk up with it: the guard holds it,
+  // and the talk after it comes out as loud as before. Returns how far normal rose, how far over
+  // the talk before it the raised voice and the talk after it come out.
+  async function raisedVoice(id, { raiseDb = 3, talkSeconds = 40, seconds = 12, afterSeconds = 15, sourceDb = NORMAL_LUFS } = {}) {
+    const from = talkSeconds, to = talkSeconds + seconds;
+    const total = to + afterSeconds;
+    const talk = scaleTo(voice(total, 7), NORMAL_LUFS);
+    const up = Math.pow(10, raiseDb / 20);
+    for (let i = from * FS; i < to * FS; i++) talk[i] *= up;
+    const input = scaled(talk, sourceDb);
+    const out = await renderThroughEngine(input, input, presetSettings(id));
+    const outM = momentary(out.left, out.right);
+    const within = (a, b) => talkingLevel(outM.filter(v => v.t >= a && v.t <= b).map(v => v.lufs));
+    const normals = out.meters.filter(m => m.time >= from - 5).map(m => m.baselineDb);
+    const before = within(from - 15, from);
+    return {
+      normalRise: +(Math.max(...normals) - normals[0]).toFixed(1),
+      raisedAbove: +(within(from + 2, to) - before).toFixed(1),
+      afterAbove: +(within(to + 3, total) - before).toFixed(1)
+    };
+  }
+
+  // A dense stretch in place of the talk, a few dB louder on the whole but hardly on its peaks:
+  // 'strained' is a raised, strained voice into a mic whose chain clamps it (higher, continuous,
+  // saturated, pushed into the 1-4 kHz the ear is most sensitive to); 'ad' is an ad break or a
+  // song, as dense but in a normal tone. Returns how far over the talk before it the stretch comes out on the
+  // whole (mean power) and at its loudest, in and out, and the talk after it.
+  async function denseStretch(id, { kind = 'strained', overDb = 3, talkSeconds = 40, seconds = 12, afterSeconds = 15, sourceDb = NORMAL_LUFS } = {}) {
+    const from = talkSeconds, to = talkSeconds + seconds;
+    const total = to + afterSeconds;
+    const talk = scaleTo(voice(total, 7), NORMAL_LUFS);
+    let stretch;
+    if (kind === 'strained') {
+      stretch = voice(seconds, 11, { pitch: 210, brightness: 6000, continuous: true });
+      let peak = 0;
+      for (const v of stretch) peak = Math.max(peak, Math.abs(v));
+      for (let i = 0; i < stretch.length; i++) stretch[i] = Math.tanh(4 * stretch[i] / peak);
+      const presence = stretch.slice();
+      onePoleHighpass(presence, 1000);
+      onePoleLowpass(presence, 4000);
+      for (let i = 0; i < stretch.length; i++) stretch[i] += presence[i];
+    } else {
+      stretch = voice(seconds, 11, { continuous: true });
+      mix(stretch, scaleTo(bed(seconds, 13), integrated(stretch) - 6), 0);
+    }
+    scaleTo(stretch, integrated(talk.subarray(0, from * FS)) + overDb);
+    talk.set(stretch, from * FS);
+    const input = scaled(talk, sourceDb);
+    const out = await renderThroughEngine(input, input, presetSettings(id));
+    const inM = momentary(input, input);
+    const outM = momentary(out.left, out.right);
+    const at = (m, a, b) => m.filter(v => v.t >= a && v.t <= b).map(v => v.lufs);
+    const whole = v => 10 * Math.log10(v.reduce((s, x) => s + Math.pow(10, x / 10), 0) / v.length);
+    const report = m => {
+      const before = talkingLevel(at(m, from - 15, from));
+      return {
+        whole: +(whole(at(m, from + 0.4, to + 0.4)) - before).toFixed(1),
+        loudest: +(Math.max(...at(m, from + 0.4, to + 0.4)) - before).toFixed(1),
+        after: +(talkingLevel(at(m, to + 3, total)) - before).toFixed(1)
+      };
+    };
+    return { in: report(inM), out: report(outM) };
   }
 
   // Talk with harsh moments in place of it, as loud as the talk: a crowd or a cymbal-heavy song
@@ -847,10 +992,13 @@
     scenario,
     sustained,
     boom,
+    raisedVoice,
+    denseStretch,
     yellingFits,
     harshParts,
     quietStart,
     silentStart,
+    loudStart,
     longSetup,
     talkWithBed,
     longQuietIntro,

@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // Renders synthetic stream audio through the real engine in Chromium and Firefox and checks
 // that Limitr does what it promises. LIMITR_WORKLET=FILE runs the checks on another
-// dsp-worklet.js, to try a candidate without touching lib/.
+// dsp-worklet.js, and LIMITR_SETTINGS=FILE on another settings.js (its presets), to try a candidate
+// without touching lib/.
 // Run: node tests/run-engine-tests.js [--browser=chromium|firefox]
 
 const { chromium, firefox } = require('playwright');
 const { startStaticServer } = require('./static-server');
 const { streamWav } = require('./stream-audio');
+const SETTINGS_FILE = require('path').resolve(process.env.LIMITR_SETTINGS || `${__dirname}/../lib/settings.js`);
 
 const MAKEUP_CASES = [
   { threshold: -18, ratio: 6, knee: 10 },
@@ -90,7 +92,7 @@ function check(label, ok, detail) {
 
 // Pure settings logic, no browser needed
 function checkCaptionPrefs() {
-  require('../lib/settings.js');
+  require(SETTINGS_FILE);
   const S = globalThis.LimitrSettings;
   console.log('\nCaption preferences');
   check('English browser starts on English captions', S.defaultCaptions('en-GB').language === 'en');
@@ -660,6 +662,13 @@ async function runIn(browserType, port) {
     routes[`/recordings/${name}`] = (req, res) => {
       res.writeHead(200, { 'Content-Type': 'audio/wav' });
       res.end(require('fs').readFileSync(file));
+    };
+  }
+  if (process.env.LIMITR_SETTINGS) {
+    console.log(`Settings: ${process.env.LIMITR_SETTINGS}`);
+    routes['/lib/settings.js'] = (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/javascript' });
+      res.end(require('fs').readFileSync(SETTINGS_FILE));
     };
   }
   if (process.env.LIMITR_WORKLET) {
