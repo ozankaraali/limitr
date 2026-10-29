@@ -214,6 +214,17 @@ within 0.001 dB in both Chromium and Firefox, so the compressor never makes quie
   starts when you open the popup there. Fullscreen video stays inside the window while a tab is
   captured, and each captured tab gets its own volume.
 
+## What's new in 2.4
+
+Turkish captions now come from ufak AI's ufakzeka-kulak, live, about a second behind the words in
+clean speech. A word shows once two readings of the line agree on it, or once ufak is at least 90%
+sure of it, so the words you've read almost never change. Limitr also no longer trusts a video's
+first seconds: a clip that opened mid-yell used to have the yell taken for its normal level, and
+its yells came out 13 dB over the talk in Sleep, now 6.3. A new video starts at the comfortable
+level (3 dB under it in Sleep) from its first moment, and calm talk is believed at its own level at
+once. The harsh-sound stage leaves calm talk's brightness alone, so a documentary's narration comes
+out 1 dB brighter in Stream and Sleep. The volume slider moves in whole dB.
+
 ## What's new in 2.3
 
 A calm documentary now comes out as it went in. 2.2 could take a documentary's opening ambience

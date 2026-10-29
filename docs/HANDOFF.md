@@ -4,7 +4,7 @@
 
 Squashed onto master on 2026-10-30 as one commit, which keeps the mihu prototype out of master's
 history; master is pushed. Branch `turkish-streaming-stt` keeps the commits below, locally only.
-The version still reads 2.3.1.
+Released as 2.4.0 the same day (tag v2.4.0): source, both dists and both zips read 2.4.0.
 
 | commits | what |
 |---|---|
@@ -27,7 +27,7 @@ The version still reads 2.3.1.
   - **Strain only counts in a raised voice** (`strainedDb` 6, `strainRaisedDb` 3, `strainMemory` 30 s). All four are settings, with no slider.
 - **Task 4** (since 2026-10-24): the harsh-sound stage cuts calm talk only while its brightness lasts a second; a raised or strained voice, a crowd and anything that isn't speech are cut at once, as before. See "Task 4" below.
 - **The taming threshold** (since 2026-10-30): a new video's first 100 ms are tamed from where the preset starts; a stream held because it isn't believed yet gets no speech room; the trace's "Taming starts here" is where the guard starts cutting. See "The taming threshold" below.
-- **`dist/chrome` and `dist/firefox`** are rebuilt from master, with the taming threshold fix, for the listener's real use. Firefox's manifest reads 2.4.0, set by hand at the listener's request; Chrome's reads 2.3.1.
+- **`dist/chrome` and `dist/firefox`** are rebuilt from master, with the taming threshold fix, for the listener's real use. Both read 2.4.0, from the source.
 
 ## Decisions so far, and why
 
@@ -403,6 +403,6 @@ The listener asked for the flaw in the taming threshold. Three, all fixed:
 4. **The harsh-sound stage leaves calm talk bright:** done (see "Task 4"). The listener judges it in real use. Sleep's 6 kHz shelf stays at -4 dB and the 60 Hz cut stays.
 5. **The burst-edge fix:** a burst's abrupt edges pulse like syllables, count as speech, and hold normal halfway (-14 dB).
 6. **The integrated-loudness comfortable level** (density).
-7. **Squash onto master:** done 2026-10-30, with the taming threshold fix. Release (ufak captions would be 2.4.0), push and publish only when asked.
+7. **Squash onto master:** done 2026-10-30, with the taming threshold fix, and released as 2.4.0 (tag v2.4.0, zips in `dist/`). Uploading to the stores is the listener's.
 
 Parked: the guard's speech room dropping at once on a +10 dB jump; a parametric EQ.
