@@ -3,8 +3,8 @@
 ## Current state
 
 Squashed onto master on 2026-10-30 as one commit, which keeps the mihu prototype out of master's
-history. Branch `turkish-streaming-stt` keeps the commits below, locally. Nothing is pushed, and the
-version still reads 2.3.1.
+history; master is pushed. Branch `turkish-streaming-stt` keeps the commits below, locally only.
+The version still reads 2.3.1.
 
 | commits | what |
 |---|---|
@@ -27,7 +27,7 @@ version still reads 2.3.1.
   - **Strain only counts in a raised voice** (`strainedDb` 6, `strainRaisedDb` 3, `strainMemory` 30 s). All four are settings, with no slider.
 - **Task 4** (since 2026-10-24): the harsh-sound stage cuts calm talk only while its brightness lasts a second; a raised or strained voice, a crowd and anything that isn't speech are cut at once, as before. See "Task 4" below.
 - **The taming threshold** (since 2026-10-30): a new video's first 100 ms are tamed from where the preset starts; a stream held because it isn't believed yet gets no speech room; the trace's "Taming starts here" is where the guard starts cutting. See "The taming threshold" below.
-- **`dist/firefox`** is rebuilt from the task 4 commit for the listener's real use, not yet with the taming threshold fix; its manifest reads 2.4.0, set by hand at the listener's request. The rest of `dist/` is from 36483c5.
+- **`dist/chrome` and `dist/firefox`** are rebuilt from master, with the taming threshold fix, for the listener's real use. Firefox's manifest reads 2.4.0, set by hand at the listener's request; Chrome's reads 2.3.1.
 
 ## Decisions so far, and why
 
