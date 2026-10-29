@@ -6,3 +6,6 @@ dist/
 .DS_Store
 tests/fixtures/recordings/
 tests/fixtures/dataset.local.json
+variants/listen/
+variants/results/
+variants/voiceover/

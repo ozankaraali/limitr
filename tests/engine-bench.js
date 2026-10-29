@@ -167,10 +167,11 @@
   }
 
   // ---------- rendering through the real engine ----------
-  // changes: [{ at: seconds, settings }] applied mid-render, like a listener moving a control.
+  // changes: [{ at: seconds, settings }] applied mid-render, like a listener moving a control;
+  // resets: [seconds] where a new video starts (the render waits while the worklet takes it in).
   // Returns the rendered audio, every meter message the worklet sent and how long the rendering
   // itself took (renderMs, for tests/bench/engine-cpu-bench.js).
-  async function renderThroughEngine(left, right, settings, { enabled = true, failWorklets = false, changes = [] } = {}) {
+  async function renderThroughEngine(left, right, settings, { enabled = true, failWorklets = false, changes = [], resets = [] } = {}) {
     const ctx = new OfflineAudioContext(2, left.length, FS);
     const buffer = ctx.createBuffer(2, left.length, FS);
     buffer.copyToChannel(left, 0);
@@ -194,6 +195,13 @@
       ctx.suspend(change.at).then(() => {
         engine.update(change.settings, enabled);
         ctx.resume();
+      });
+    }
+    for (const at of resets) {
+      ctx.suspend(at).then(() => {
+        engine.resetAnalysis();
+        // An offline render only reads the worklet's messages while it waits
+        setTimeout(() => ctx.resume(), 100);
       });
     }
     source.connect(engine.input);
@@ -389,6 +397,100 @@
       handoverAbove: +(within(1.5, 4) - within(10, seconds)).toFixed(1),
       limitAbove: +(Math.max(...limits(1.5, seconds)) - median(limits(10, seconds))).toFixed(1)
     };
+  }
+
+  // A raised voice strained into the mic: higher, saturated, pushed into 1-4 kHz and thin on its
+  // body, but still in syllables (it pulses like talk). Its 3 s strain reads 7-10 dB, like a real
+  // yell's first seconds.
+  function strainedVoice(seconds, seed) {
+    const out = voice(seconds, seed, { pitch: 260, brightness: 6000 });
+    let peak = 0;
+    for (const v of out) peak = Math.max(peak, Math.abs(v));
+    for (let i = 0; i < out.length; i++) out[i] = Math.tanh(4 * out[i] / peak);
+    const presence = out.slice();
+    onePoleHighpass(presence, 1000);
+    onePoleLowpass(presence, 4000);
+    for (let i = 0; i < out.length; i++) out[i] += 3 * presence[i];
+    onePoleHighpass(out, 500);
+    return out;
+  }
+
+  // How a stream's first seconds are believed. 'calm' opens on calm talk at `sourceDb` (a video
+  // mastered loud); 'yell' on `yellSeconds` of a strained voice raised 10 dB over the talk that
+  // follows (a clip that opens mid-yell); 'bright' on `brightSeconds` of a quiet, bright sound at
+  // `brightDb` before the talk (a clink, a jingle's tail). Returns how far the talk comes out over
+  // where it settles, from 1.5 to 4 s into it and from 4 to 8 s, and how far the loudest moment of
+  // the yell's first 3 s comes out over that.
+  async function opening(id, { kind = 'calm', sourceDb = -14, yellSeconds = 5, brightSeconds = 1.5, brightDb = -30, seconds = 40 } = {}) {
+    const program = new Float32Array(seconds * FS);
+    let talkFrom = 0;
+    if (kind === 'yell') {
+      talkFrom = yellSeconds;
+      mix(program, scaleTo(strainedVoice(yellSeconds, 11), sourceDb + 10), 0);
+    } else if (kind === 'bright') {
+      talkFrom = brightSeconds;
+      const clinks = voice(brightSeconds, 13, { pitch: 600, brightness: 12000 });
+      onePoleHighpass(clinks, 1500);
+      mix(program, scaleTo(clinks, brightDb), 0);
+    }
+    mix(program, scaleTo(voice(seconds - talkFrom, 7), sourceDb), talkFrom);
+    const out = await renderThroughEngine(program, program, presetSettings(id));
+    const outM = momentary(out.left, out.right);
+    const at = (a, b) => outM.filter(v => v.t >= a && v.t <= b).map(v => v.lufs);
+    const settled = talkingLevel(at(seconds - 10, seconds));
+    return {
+      talkAbove: +(talkingLevel(at(talkFrom + 1.5, talkFrom + 4)) - settled).toFixed(1),
+      laterAbove: +(talkingLevel(at(talkFrom + 4, talkFrom + 8)) - settled).toFixed(1),
+      yellAbove: kind === 'yell' ? +(Math.max(...at(0.4, 3)) - settled).toFixed(1) : undefined
+    };
+  }
+
+  // A quieter video, then a louder one (an ad after a documentary): the new video resets what
+  // normal was, in a short gap between them. Returns how far the louder video's first 3 s come out
+  // over the quieter one's talk, and whether the reset landed in the gap.
+  async function louderAfter(id, { firstDb = -24, firstSeconds = 60, gapSeconds = 1, secondDb = -14, seconds = 20 } = {}) {
+    const total = firstSeconds + gapSeconds + seconds;
+    const program = new Float32Array(total * FS);
+    mix(program, scaleTo(voice(firstSeconds, 7), firstDb), 0);
+    const from = firstSeconds + gapSeconds;
+    mix(program, scaleTo(voice(seconds, 21), secondDb), from);
+    const out = await renderThroughEngine(program, program, presetSettings(id), { resets: [firstSeconds + 0.1] });
+    const outM = momentary(out.left, out.right);
+    const at = (a, b) => outM.filter(v => v.t >= a && v.t <= b).map(v => v.lufs);
+    const before = talkingLevel(at(firstSeconds - 20, firstSeconds));
+    return {
+      secondAbove: +(talkingLevel(at(from + 0.4, from + 3)) - before).toFixed(1),
+      resetInGap: out.meters.some(m => m.time > firstSeconds + 0.1 && m.time < from && !m.spikes && m.baselineDb === -23)
+    };
+  }
+
+  // A new video's first moments, before its first 100 ms are measured, are tamed from where the
+  // preset starts, like what follows (the engine used to defend -23 LUFS there whatever the
+  // preset: 10 dB over Sleep's start). Silence after a reset sets the start too, so this shows
+  // when the sound comes at once: the engine's first video, or the next one after a paused tab's
+  // audio was suspended. With `firstDb`, a quieter video plays first and the new one resets what
+  // normal was as its sound arrives, so the carry starts it lower. Returns how far the loudest
+  // 50 ms of its first 120 ms come out over the loudest 50 ms of what follows until its normal is
+  // known (0.15-0.9 s), where everything over the starting threshold is held at it.
+  async function firstMoments(id, { sourceDb = -14, firstDb = null, firstSeconds = 60, gapSeconds = 1, seconds = 3 } = {}) {
+    const from = firstDb === null ? 0 : firstSeconds + gapSeconds;
+    const program = new Float32Array(Math.round((from + seconds) * FS));
+    if (firstDb !== null) mix(program, scaleTo(voice(firstSeconds, 7), firstDb), 0);
+    mix(program, scaleTo(voice(seconds, 21), sourceDb), from);
+    const out = await renderThroughEngine(program, program, presetSettings(id), { resets: firstDb === null ? [] : [from] });
+    const kl = kWeight(out.left);
+    const kr = kWeight(out.right);
+    const win = Math.round(0.05 * FS);
+    const loudest = (a, b) => {
+      let best = 0;
+      for (let s = Math.round((from + a + LATENCY_S) * FS); s + win <= Math.round((from + b + LATENCY_S) * FS); s += Math.round(0.005 * FS)) {
+        let sum = 0;
+        for (let i = s; i < s + win; i++) sum += kl[i] * kl[i] + kr[i] * kr[i];
+        best = Math.max(best, sum / win);
+      }
+      return -0.691 + 10 * Math.log10(best + 1e-20);
+    };
+    return { firstOver: +(loudest(0, 0.12) - loudest(0.15, 0.9)).toFixed(1) };
   }
 
   // Most streams open on the broadcaster setting up: minutes of room audio (a fan, the keyboard,
@@ -1020,6 +1122,9 @@
     quietStart,
     silentStart,
     loudStart,
+    opening,
+    louderAfter,
+    firstMoments,
     longSetup,
     talkWithBed,
     longQuietIntro,

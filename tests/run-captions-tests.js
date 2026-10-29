@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Live-captions checks with real speech, in Chromium with the extension loaded: English
-// (Moonshine), Turkish (Whisper), automatic language detection, and translation into English.
+// (Moonshine), Turkish (ufak), automatic language detection (Whisper, then ufak), and translation
+// into English (Whisper translates where the browser can't).
 // Speech is synthesized with macOS `say` (Turkish needs the Yelda voice). Models download on
 // the first run and are cached in a reused browser profile.
 // Run: node tests/run-captions-tests.js [--idle] [--fresh]
@@ -13,6 +14,7 @@ const os = require('os');
 const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
 const { startStaticServer } = require('./static-server');
+const { changedPer100 } = require('./caption-steadiness');
 
 const EXTENSION = path.join(__dirname, '..');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -148,7 +150,7 @@ function wordRecall(lang, captions) {
         await sleep(1000);
       }
       const first = finals(results)[0];
-      return { results, firstFinalMs: first ? first.at - clicked : null, latencies: finals(results).map(r => r.latencyMs) };
+      return { results, clicked, firstFinalMs: first ? first.at - clicked : null, latencies: finals(results).map(r => r.latencyMs) };
     }
 
     console.log('\nEnglish (Moonshine)');
@@ -177,28 +179,43 @@ function wordRecall(lang, captions) {
     check('captions continue after a reload', finals(run.results).length > 0);
 
     if (audio.tr) {
-      console.log('\nTürkçe (Whisper)');
+      console.log('\nTürkçe (ufak, live)');
+      await statuses();
       await setPrefs({ language: 'tr', translateTo: '' });
       await sleep(500);
       await toBackground({ action: 'captions-start', tabId });
+      // The first run downloads ufak (43 MB); it says when it can transcribe
+      let ready = false;
+      for (let waitedMs = 0; !ready && waitedMs < 90000; waitedMs += 500) {
+        ready = (await statuses()).some(s => s.status === 'active');
+        if (!ready) await sleep(500);
+      }
+      check('ufak loads', ready);
       await popup.evaluate(() => { window.__stalls = []; });
       run = await play('tr', 24);
       const stall = await popup.evaluate(() => Math.max(...window.__stalls));
-      check('the popup stays responsive while Whisper works (longest stall under 0.5 s)', stall < 500, `${Math.round(stall)} ms`);
+      check('the popup stays responsive while ufak works (longest stall under 0.5 s)', stall < 500, `${Math.round(stall)} ms`);
       text = finals(run.results).map(r => r.text);
       check('Turkish captions match the spoken words', wordRecall('tr', text) >= 0.6,
         `${Math.round(wordRecall('tr', text) * 100)}% of words: ${JSON.stringify(text.slice(0, 1))}`);
-      console.log(`        first caption ${run.firstFinalMs} ms after play; processing per sentence ${run.latencies.join(', ')} ms`);
-
-      console.log('\nTürkçe, faster model (Whisper tiny)');
-      await setPrefs({ language: 'tr', translateTo: '', model: 'fast' });
-      await sleep(500);
-      run = await play('tr', 24);
-      text = finals(run.results).map(r => r.text);
-      check('the faster model gets most Turkish words', wordRecall('tr', text) >= 0.5,
-        `${Math.round(wordRecall('tr', text) * 100)}% of words: ${JSON.stringify(text.slice(0, 1))}`);
-      console.log(`        first caption ${run.firstFinalMs} ms after play; processing per sentence ${run.latencies.join(', ')} ms`);
-      await setPrefs({ language: 'tr', translateTo: '' });
+      const firstLine = run.results.find(r => r.engine === 'ufak');
+      check('the line being spoken shows within 2.5 s of play', firstLine && firstLine.at - run.clicked <= 2500,
+        firstLine ? `${firstLine.at - run.clicked} ms` : 'no line from ufak');
+      // Live like a streaming model: a finished line is never touched again, and the words shown
+      // while it is spoken stay (ufak shows a word once it is sure of it, or two decodes agree)
+      const versions = new Map();
+      let afterFinal = 0;
+      for (const r of run.results.filter(r => r.engine === 'ufak')) {
+        const line = versions.get(r.segmentId) || [];
+        if (line.some(v => v.final)) afterFinal++;
+        line.push(r);
+        versions.set(r.segmentId, line);
+      }
+      check('a finished Turkish line is never sent again', afterFinal === 0, `${afterFinal} results after their line finished`);
+      const changed = changedPer100([...versions.values()].map(line => line.map(r => r.text)));
+      check('few of the words shown change later (at most 10 in 100)', changed <= 10,
+        `${changed.toFixed(1)} in 100, over ${versions.size} lines`);
+      console.log(`        first finished sentence ${run.firstFinalMs} ms after play; processing per call ${run.latencies.join(', ')} ms`);
 
       console.log('\nDetect automatically');
       await setPrefs({ language: 'auto', translateTo: '' });
@@ -209,6 +226,8 @@ function wordRecall(lang, captions) {
       check('Auto picks Turkish for Turkish speech', detected && detected.language === 'tr', detected && `${detected.language} p=${detected.probability?.toFixed(3)}`);
       text = finals(run.results).map(r => r.text);
       check('then transcribes it in Turkish', wordRecall('tr', text) >= 0.6, `${Math.round(wordRecall('tr', text) * 100)}% of words`);
+      check('and ufak takes over from Whisper', run.results.some(r => r.engine === 'ufak'),
+        JSON.stringify([...new Set(run.results.map(r => r.engine))]));
       console.log(`        first caption ${run.firstFinalMs} ms after play (includes detection)`);
 
       console.log('\nTranslate Turkish into English');

@@ -50,6 +50,39 @@ window.bench = {
       await new Promise(r => setTimeout(r, 20));
     }
     return null;
+  },
+
+  // Feeds a clip in real time, `chunkSeconds` at a time as the capture does, then waits `tailMs`:
+  // every caption line and status the transcriber sent, with when (ms after the clip started)
+  async live(pcmBase64, seconds, chunkSeconds = 0.5, tailMs = 3000) {
+    messages.length = 0;
+    const audio = decode(pcmBase64, seconds);
+    const step = Math.round(chunkSeconds * 16000);
+    const started = performance.now();
+    for (let at = 0; at < audio.length; at += step) {
+      const due = started + (at / 16000) * 1000;
+      const wait = due - performance.now();
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      window.LimitrTranscriber.pushAudio(TAB, audio.slice(at, at + step));
+    }
+    await new Promise(r => setTimeout(r, tailMs));
+    return messages.map(m => ({
+      t: Math.round(m.at - started),
+      action: m.action,
+      status: m.status,
+      message: m.message,
+      result: m.result && { text: m.result.text, final: m.result.final, segmentId: m.result.segmentId, engine: m.result.engine, latencyMs: m.result.latencyMs }
+    }));
+  },
+
+  // Waits until the transcriber says it is transcribing (or `ms` passes)
+  async waitForStatus(status, message, ms = 120000) {
+    const deadline = performance.now() + ms;
+    while (performance.now() < deadline) {
+      if (messages.some(m => m.action === 'transcription-status' && m.status === status && (!message || m.message === message))) return true;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    return false;
   }
 };
 

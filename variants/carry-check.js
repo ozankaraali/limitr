@@ -1,0 +1,22 @@
+const fs = require('fs'), vm = require('vm');
+const [wf, sf, ef] = process.argv.slice(2);
+require(sf); require(ef);
+const { LimitrSettings, LimitrEngine } = globalThis;
+const FS = 48000, Q = 128, clock = { frame: 0 };
+globalThis.sampleRate = FS;
+Object.defineProperty(globalThis, 'currentTime', { get: () => clock.frame / FS, configurable: true });
+globalThis.AudioWorkletProcessor = class { constructor() { this.port = { postMessage() {} }; } };
+let P; vm.runInThisContext(`(function (registerProcessor) {${fs.readFileSync(wf, 'utf8')}\n})`)((n, c) => { P = c; });
+const params = id => LimitrEngine.prototype.dspParams.call({ tabVolumeDb: 0, postGainDb: LimitrEngine.prototype.postGainDb }, LimitrSettings.normalize({ ...LimitrSettings.applyPreset({ volume: 0 }, id) }));
+const p = new P({ processorOptions: { params: params('sleep') } });
+// 40 s of a syllabic voice at -30 dBFS, so there is long-term speech to carry
+const inL = new Float32Array(Q), o = [new Float32Array(Q), new Float32Array(Q)];
+const run = (sec, db) => { for (let k = 0; k < sec * FS / Q; k++) { for (let i = 0; i < Q; i++) { const t = (clock.frame + i) / FS; inL[i] = Math.pow(10, db / 20) * 2.5 * Math.sin(2 * Math.PI * 200 * t) * (0.5 - 0.5 * Math.cos(2 * Math.PI * 4.5 * t)) * ((t % 4) < 3.4 ? 1 : 0); } p.process([[inL, inL], []], [o]); clock.frame += Q; } };
+run(40, -30);
+p.resetAnalysis(); run(1, -30);
+console.log(`after a new video: carried ${p.carryLow?.toFixed(1)}, start ${p.startLevel.toFixed(1)} (Sleep's own -33.5)`);
+p.resetAnalysis(); p.applyParams(params('stream')); run(1, -30);
+console.log(`after a preset change: carried ${p.carryLow}, start ${p.startLevel.toFixed(1)} (Stream's own -23)`);
+p.applyParams(params('sleep')); run(40, -30); p.resetAnalysis();
+const realNow = Date.now; Date.now = () => realNow() + 11 * 60 * 1000; run(1, -30); Date.now = realNow;
+console.log(`after 11 minutes without sound: carried ${p.carryLow}, start ${p.startLevel.toFixed(1)}`);

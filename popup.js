@@ -1030,7 +1030,7 @@ function buildCaptionOptions() {
   language.replaceChildren(option('auto', 'Detect automatically'), ...S.CAPTION_LANGUAGES.map(([c, n]) => option(c, n)));
   translate.replaceChildren(option('', 'Off'), ...S.CAPTION_LANGUAGES.map(([c, n]) => option(c, n)));
   translate.closest('label').hidden = !translatorApi();
-  // English always uses Moonshine; this is the Whisper size for every other language
+  // English always uses Moonshine and Turkish ufak; this is the Whisper size for every other language
   const model = $('captionsModel');
   model.replaceChildren(option('fast', 'Faster, less accurate'), option('standard', 'Standard'),
     ...(largeModelSupported() ? [option('large', 'Larger (410 MB, graphics card)')] : []));

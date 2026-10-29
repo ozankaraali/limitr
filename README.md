@@ -44,11 +44,12 @@ You can save your own presets on the Fine-tune screen.
 
 **Extras**
 
-- **Live captions, on your computer:** Moonshine for live English, Whisper for Turkish and 14 other
-  languages, or detect the language automatically. Chrome and Edge can translate them with their
-  on-device translator. For other languages you can pick a faster, less accurate model (Whisper
-  tiny, about twice as fast) or, on Chrome and Edge, a larger one that runs on the graphics card
-  (410 MB). Save the transcript as a text file from the Captions screen.
+- **Live captions, on your computer:** Moonshine for live English, ufak AI's
+  [ufakzeka-kulak](https://huggingface.co/ufakai/ufakzeka-kulak) for live Turkish (43 MB), Whisper
+  for 14 other languages, or detect the language automatically. Chrome and Edge can translate them
+  with their on-device translator. For the other languages you can pick a faster, less accurate
+  model (Whisper tiny, about twice as fast) or, on Chrome and Edge, a larger one that runs on the
+  graphics card (410 MB). Save the transcript as a text file from the Captions screen.
 - **Remove background noise:** RNNoise, running locally
 - **Fine-tune:** spike guard, comfortable level, harsh sound, raised voice, peak limiter, tone (low/high cut
   and a 5-band EQ), a classic compressor, tape hiss, a mono fix and a CRT video look
@@ -162,31 +163,41 @@ for the stream. The limiter's ceiling moves with the volume and never goes past 
    leave the voice ducked. Sound quieter than −50 LUFS (an empty room, a muted mic while the
    streamer sets up) is never learned, normal is first learned from a second of sound, and
    whatever was cut before that is let go at once.
-3. Anything louder than normal plus the preset's headroom (2.5 to 7 dB) is pulled back down. In
-   Stream and Sleep, natural speech gets 3 dB more room for its own emphasis, fading out as the
-   sound climbs past 6 dB over normal (3 dB in Sleep, where the onset of a yell or a raised voice
-   is what wakes you);
+3. Doesn't trust a stream's first seconds, since a video can open mid-yell. A new stream starts at
+   the preset's comfortable level (3 dB under it in Sleep), or at the level you've been listening
+   to lately if that's lower, so an ad after a quiet documentary doesn't jump in. Calm talk, speech
+   that pulses and isn't strained, is believed at its own level at once; anything louder that
+   isn't calm talk (a yell, music) is believed halfway after 10 seconds. A strained voice (its
+   1–4 kHz 6 dB brighter than this stream's usual talk) raised 3 dB over the believed normal plus
+   the preset's headroom keeps anything from counting as calm for 30 seconds.
+4. Anything louder than the normal it believes plus the preset's headroom (2.5 to 7 dB) is pulled
+   back down. In Stream and Sleep, natural speech gets 3 dB more room for its own emphasis, fading
+   out as the sound climbs past 6 dB over the normal it believes (3 dB in Sleep, where the onset of
+   a yell or a raised voice is what wakes you), so a stream it doesn't believe yet gets none;
    sudden hits get at most 5 dB over their usual crest in every preset, the least that still
    leaves a real talker's consonants alone. The 20 ms lookahead lets the gain drop before the
    jump reaches the output.
-4. The comfortable level turns the stream's normal loudness down to the preset's level within
+5. The comfortable level turns the stream's normal loudness down to the preset's level within
    about a second when it's louder, and leaves quieter streams alone. A new video starts fresh,
    and the site's own volume slider acts like a plain gain.
-5. Harsh sound (on in Stream and Sleep): a yell into the mic, a shrill alert or a cheering crowd
+6. Harsh sound (on in Stream and Sleep): a yell into the mic, a shrill alert or a cheering crowd
    tips the sound from the voice's body (150–600 Hz) to its edge (2–8 kHz). Limitr learns the
    balance this stream usually has while it talks (over about 20 s), and when a moment near the
    talking level or louder turns more than 3 dB brighter than that, a high shelf above 2 kHz
    softens it while it lasts: 1.2 dB for each dB over, up to 8 dB, within 10 ms, letting go over a
    quarter of a second. Because it's measured against the stream itself, a bright streamer's
-   normal voice keeps its tone, and quiet brightness (sibilance, room tone) is left alone.
-6. Raised voice (on in Stream and Sleep): a voice raised for seconds, or a strained one that's
+   normal voice keeps its tone, and quiet brightness (sibilance, room tone) is left alone. Calm
+   talk keeps its sibilants and bright syllables too: it's only softened while its brightness
+   lasts a second. A raised or strained voice, a crowd or anything that isn't speech is softened
+   at once.
+7. Raised voice (on in Stream and Sleep): a voice raised for seconds, or a strained one that's
    dense rather than loud, isn't a spike the guard can catch, so this stage watches the last 3 seconds.
    When they sit more than 1.5 dB over normal (0.5 dB in Sleep; 3 dB more while it's natural
    speech), the excess comes off within about a second, up to 10 dB, and a strained voice
    (brighter on 1–4 kHz against 150–600 Hz than this stream's usual talk) counts up to 3 dB
    louder. The last second starts the cut early and holds it while the burst goes on. It and the
    guard never add up: the larger cut wins.
-7. A brickwall limiter at the end, also with lookahead, makes sure no sample goes over the ceiling.
+8. A brickwall limiter at the end, also with lookahead, makes sure no sample goes over the ceiling.
 
 **Compressor without the hidden boost:** Web Audio's `DynamicsCompressorNode` applies automatic
 makeup gain that can't be turned off: +15.3 dB at −30 dB / 12:1. Limitr cancels it exactly, to

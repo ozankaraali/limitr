@@ -104,7 +104,7 @@ SOFTWARE.
 Moonshine - Speech Recognition for Live Transcription
 ================================================================================
 Source: https://github.com/usefulsensors/moonshine
-Model: onnx-community/moonshine-tiny-ONNX (converted from UsefulSensors/moonshine)
+Model: onnx-community/moonshine-base-ONNX (converted from UsefulSensors/moonshine)
 
 Copyright (c) 2024 Useful Sensors
 
@@ -125,6 +125,53 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+sherpa-onnx - Speech Recognition with Next-gen Kaldi and ONNX Runtime
+================================================================================
+Source: https://github.com/k2-fsa/sherpa-onnx
+Files: lib/sherpa-offline/sherpa-onnx-wasm-main-vad-asr.wasm,
+       lib/sherpa-offline/sherpa-onnx-wasm-main-vad-asr.js (minus its bundled model),
+       lib/sherpa-offline/sherpa-onnx-asr.js
+(WebAssembly build from k2-fsa's demo space
+https://huggingface.co/spaces/k2-fsa/web-assembly-vad-asr-sherpa-onnx-zh-zipformer-ctc)
+
+Copyright the sherpa-onnx authors (k2-fsa)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+================================================================================
+ufakzeka-kulak - Turkish Speech Recognition Model
+================================================================================
+Source: https://huggingface.co/ufakai/ufakzeka-kulak
+Model: sherpa-onnx-tdt/*.int8.onnx, downloaded on first use, not shipped with Limitr
+Trained on openly licensed Turkish speech (Common Voice, ISSAI Turkish Speech Corpus,
+antalia-voice-corpus, YODAS); every source and its licence is listed in the model's
+ATTRIBUTION.md.
+
+Copyright ufak AI
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 
 ================================================================================
 IBM Plex Sans and IBM Plex Mono typefaces

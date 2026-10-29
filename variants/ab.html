@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Limitr A/B</title>
+<style>
+:root {
+  --bg: #f6f5f2; --fg: #1d1d1b; --muted: #6b6a66; --line: #dcdad4; --card: #fff; --accent: #2563eb;
+  --t0: #8a8a86; --t1: #2563eb; --t2: #d97706; --t3: #a8a7a2; --t4: #7c3aed; --mark: #dc2626; --span: rgba(220, 38, 38, .08);
+  --range: rgba(37, 99, 235, .06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #151514; --fg: #ecebe8; --muted: #9b9a95; --line: #363531; --card: #1f1f1d; --accent: #60a5fa;
+    --t0: #a3a3a0; --t1: #60a5fa; --t2: #f59e0b; --t3: #5f5e5a; --t4: #a78bfa; --mark: #f87171; --span: rgba(248, 113, 113, .10);
+    --range: rgba(96, 165, 250, .08);
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 -apple-system, system-ui, sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 18px; }
+nav { margin-bottom: 14px; }
+nav .round { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+nav .rl { color: var(--muted); font-size: 12px; min-width: 100%; }
+nav button { font: inherit; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+nav button.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+nav .tag { color: var(--muted); font-size: 12px; margin-left: 4px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+#note { margin: 0 0 14px; }
+#tracks { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-bottom: 14px; }
+#tracks button { font: inherit; text-align: left; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
+#tracks button.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 10%, transparent); }
+#tracks .k { display: inline-block; min-width: 20px; padding: 0 5px; margin-right: 8px; border-radius: 5px; border: 1px solid var(--line); font-size: 12px; text-align: center; color: var(--muted); }
+#tracks .d { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+canvas { display: block; width: 100%; height: 170px; border-radius: 8px; cursor: pointer; background: color-mix(in srgb, var(--fg) 3%, transparent); }
+#markers { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; }
+#markers button { font: inherit; font-size: 13px; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
+#markers button::before { content: '↦ '; color: var(--mark); }
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.transport button { font: inherit; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
+.transport button.on { border-color: var(--accent); color: var(--accent); }
+#play { min-width: 92px; font-weight: 600; background: var(--accent); color: #fff; border-color: var(--accent); }
+#time { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--muted); }
+#meter { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+#meter .bar { flex: 0 0 160px; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--fg) 8%, transparent); overflow: hidden; }
+#meter .fill { height: 100%; width: 0; background: var(--accent); }
+#boostRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 13px; }
+#boostRow input { width: 160px; }
+#boostText.clip { color: var(--mark); }
+#reveal { color: var(--muted); margin: 10px 0 0; min-height: 1.4em; }
+#reveal strong { color: var(--fg); }
+#pick { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+#picks { margin-top: 10px; font-size: 13px; color: var(--muted); }
+#picks ol { margin: 4px 0 0; padding-left: 20px; }
+.keys { color: var(--muted); font-size: 13px; margin: 16px 0 0; }
+.keys kbd { font: 12px ui-monospace, monospace; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; }
+#status { color: var(--muted); }
+#status.err { color: var(--mark); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Loud-start renders, side by side</h1>
+  <p class="sub">All versions play in sync; switching keeps your place. Set the volume once on “today”, as you would to sleep.</p>
+  <nav id="groups"></nav>
+  <section class="card">
+    <p id="note"></p>
+    <div id="tracks"></div>
+    <canvas id="tl"></canvas>
+    <div id="markers"></div>
+    <div class="transport">
+      <button id="play">▶ Play</button>
+      <button id="fromStart">From the range start</button>
+      <button id="loop">Loop the range</button>
+      <button id="whole">Whole file</button>
+      <button id="blind">Blind</button>
+      <button id="pick" hidden>Pick this one</button>
+      <span id="time"></span>
+    </div>
+    <div id="meter"><span class="bar"><span class="fill" id="fill"></span></span><span id="meterText"></span></div>
+    <div id="boostRow"><label for="boost">Listening boost, the same for every version</label> <input type="range" id="boost" min="0" max="24" step="1" value="12"> <span id="boostText"></span></div>
+    <p id="reveal"></p>
+    <div id="picks"></div>
+    <p id="status"></p>
+  </section>
+  <p class="keys"><kbd>Space</kbd> play/pause · <kbd>1</kbd>, <kbd>2</kbd>, … versions, the last one the original · <kbd>←</kbd>/<kbd>→</kbd> 5 s (with <kbd>Shift</kbd> 1 s) · <kbd>R</kbd> range start · <kbd>L</kbd> loop · <kbd>B</kbd> blind, <kbd>P</kbd> pick the one playing · click the strip to jump</p>
+</main>
+<script>
+// The renders written by variants/seq2.js and split.js. Times are seconds in the render.
+const GROUPS = [
+  {
+    round: 'Harsh sound leaves calm talk alone', title: 'NatGeo 23 Oct', tag: 'Sleep', base: 'natgeo-tr-2026-10-23-sleep', input: 'natgeo-tr-2026-10-23-sleep-0-input.wav',
+    tracks: [['lib', 'now (lib)'], ['hl0.6s1sp', 'brightness that lasts 0.6 s'], ['hl1s1sp', 'brightness that lasts 1 s']], range: [0, 45], markers: [], spans: [],
+    note: 'Listen 0:00–0:45 for the narration\'s brightness. Now, the harsh-sound stage answers the narrator\'s sibilants; the other two cut speech only while its brightness lasts 0.6 s or 1 s. Against the input, 4–8 kHz comes out −4.5 / −3.2 / −2.8 dB and the air (8–16 kHz) −5.7 / −4.6 / −4.3 (the −4 dB shelf is in all three).'
+  },
+  {
+    round: 'Harsh sound leaves calm talk alone', title: 'NatGeo 23 Oct', tag: 'Stream', base: 'natgeo-tr-2026-10-23-stream', input: 'natgeo-tr-2026-10-23-stream-0-input.wav',
+    tracks: [['lib', 'now (lib)'], ['hl0.6s1sp', 'brightness that lasts 0.6 s'], ['hl1s1sp', 'brightness that lasts 1 s']], range: [0, 45], markers: [], spans: [],
+    note: 'Listen 0:00–0:45. Stream has no tone shelf, so this is the harsh-sound stage alone: 4–8 kHz −3.0 / −1.4 / −1.0 dB against the input, air −2.4 / −1.1 / −0.8.'
+  },
+  {
+    round: 'Harsh sound leaves calm talk alone', title: 'k434e', tag: 'Sleep', base: 'k434e-sleep', input: 'k434e-sleep-0-input.wav',
+    tracks: [['lib', 'now (lib)'], ['hl0.6s1sp', 'brightness that lasts 0.6 s'], ['hl1s1sp', 'brightness that lasts 1 s']], range: [4, 33.4],
+    markers: [['marked harsh', 6.7], ['marked loud', 7.6], ['marked loud + harsh', 14.9], ['marked harsh', 30.5]],
+    spans: [[6.7, 9.9], [14.9, 26.8], [30.5, 31.2], [32.1, 32.9]],
+    note: 'Listen 0:04–0:33 for the harsh parts staying soft. Their air against the input (0:14.9–0:26.8): −7.5 / −7.4 / −7.3 dB; the shelf\'s cut in the marked harsh parts 85 / 79 / 74 dB·s.'
+  },
+  {
+    round: 'Harsh sound leaves calm talk alone', title: '5eak67hd', tag: 'Sleep', base: '5eak67hd-sleep', input: '5eak67hd-sleep-0-input.wav',
+    tracks: [['lib', 'now (lib)'], ['hl0.6s1sp', 'brightness that lasts 0.6 s'], ['hl1s1sp', 'brightness that lasts 1 s']], range: [8, 52],
+    markers: [['marked harsh', 9.5], ['marked loud', 15.3], ['marked loud + harsh', 23.4], ['marked harsh', 38.8], ['marked harsh', 45.4], ['marked harsh', 50.8]],
+    spans: [[9.5, 10.1], [15, 18.5], [23.4, 35.4], [38.8, 39.5], [40.3, 41.3], [42.1, 42.9], [45.4, 46], [47.1, 48.3], [50.8, 51.6]],
+    note: 'Listen 0:08–0:52: many short harsh moments, then a long one. The long part\'s air against the input: −9.7 / −9.6 / −9.6 dB; the shelf\'s cut in all marked harsh parts 119 / 106 / 96 dB·s.'
+  },
+  {
+    round: 'Harsh sound leaves calm talk alone', title: '9fmyzw9n', tag: 'Sleep', base: '9fmyzw9n-sleep', input: '9fmyzw9n-sleep-0-input.wav',
+    tracks: [['lib', 'now (lib)'], ['hl0.6s1sp', 'brightness that lasts 0.6 s'], ['hl1s1sp', 'brightness that lasts 1 s']], range: [0, 33.3],
+    markers: [['marked harsh', 0], ['marked harsh', 3.5], ['marked loud', 11.6], ['marked loud', 19.7], ['marked loud', 30.9]],
+    spans: [[0, 1.8], [3.5, 13.2], [14.8, 15.5], [17, 18], [19, 23], [30.9, 33.3]],
+    note: 'Listen 0:00–0:33: this one loses some softening. In the harsh stretch 0:03.5–0:13.2, 4–8 kHz against the input is −2.6 / −1.7 / −1.0 dB and the air −2.5 / −1.5 / −1.4; the shelf\'s cut in its marked parts 51 / 41 / 41 dB·s.'
+  },
+  {
+    round: 'Harsh sound leaves calm talk alone', title: 'rqyr58kg', tag: 'Sleep', base: 'rqyr58kg-sleep', input: 'rqyr58kg-sleep-0-input.wav',
+    tracks: [['lib', 'now (lib)'], ['hl0.6s1sp', 'brightness that lasts 0.6 s'], ['hl1s1sp', 'brightness that lasts 1 s']], range: [18, 36],
+    markers: [['marked loud', 24.2]], spans: [[24.2, 36]],
+    note: 'Listen 0:18–0:36: the strained voice from 0:24. The raised-voice stage holds most of it; the harsh shelf took little even now (0.42 dB on average there, 0.10 with either new version). Its air against the input: −3.6 / −3.1 / −3.1 dB.'
+  },
+  {
+    round: 'Harsh sound leaves calm talk alone', title: 'mpw9gysz', tag: 'Sleep', base: 'mpw9gysz-sleep', input: 'mpw9gysz-sleep-0-input.wav',
+    tracks: [['lib', 'now (lib)'], ['hl0.6s1sp', 'brightness that lasts 0.6 s'], ['hl1s1sp', 'brightness that lasts 1 s']], range: [0, 32],
+    markers: [['marked loud + harsh', 1.7], ['marked harsh', 7.5], ['marked loud', 9.8], ['marked harsh', 25.5], ['marked loud', 31.1]],
+    spans: [[1.7, 3.2], [7.5, 10.8], [25.5, 27.4], [31.1, 31.9]],
+    note: 'Listen 0:00–0:32. Its harsh parts come out the same in all three (0:07.5–0:10.8: air −11.3 dB against the input); its talk between them a little brighter (whole clip: air −0.5 / −0.2 / +0.1 dB).'
+  },
+  {
+    round: 'Strain memory and Sleep\'s shelf', title: 't5tkhfzr', tag: 'Sleep', base: 't5tkhfzr-sleep', input: 't5tkhfzr-sleep-0-input.wav',
+    tracks: [['today', 'today'], ['calm10u3t', 'calm speech'], ['calm10u3t-m30', 'calm, 30 s strain memory'], ['calm10u3t-g3', 'calm, strain only when raised']], range: [0, 32],
+    markers: [['strain memory starts', 1.0], ['marked loud', 7.6], ['marked loud', 11.4], ['marked loud', 16], ['marked loud', 31.5]],
+    spans: [[7.6, 9.9], [11.4, 12.5], [16, 18.9], [31.5, 32]],
+    note: 'Listen 0:00–0:32. Its strain memory went off at 0:01 on a quiet bright sound (−30 LUFS, not marked), read against the default tilt before its own was learned. Calm and the 30 s memory are the same until 0:12.5; from there the 30 s memory holds its talk 3 dB down to 0:16, its marked loud part at 0:16 3.3 dB down, then 1 dB to the end. Its loud parts over its talk: +7.4 dB today, +6.7 calm, +6.4 with 30 s. With strain only when raised there\'s no memory at all here (10 or 30 s alike): after its first second it\'s today\'s sound, +7.8.'
+  },
+  {
+    round: 'Strain memory and Sleep\'s shelf', title: '9fmyzw9n', tag: 'Sleep', base: '9fmyzw9n-sleep', input: '9fmyzw9n-sleep-0-input.wav',
+    tracks: [['today', 'today'], ['calm10u3t', 'calm speech'], ['calm10u3t-m30', 'calm, 30 s strain memory'], ['calm10u3t-g3', 'calm, strain only when raised']], range: [0, 33.3],
+    markers: [['marked harsh', 0], ['marked loud', 11.6], ['marked loud', 19.7], ['marked loud', 30.9]],
+    spans: [[0, 1.8], [11.6, 12.7], [19.7, 23], [30.9, 33.3]],
+    note: 'Listen 0:00–0:33. It opens on a strained moment you marked harsh (0:00–0:01.8). It\'s quieter than Sleep\'s comfortable level, so with strain only when raised it doesn\'t count. Its loud parts over its talk: +8.4 dB today, +8.6 calm, +7.9 with 30 s, +8.3 when raised only; the talk is cut 53%, 79%, 84% and 57% of the time.'
+  },
+  {
+    round: 'Strain memory and Sleep\'s shelf', title: 'NatGeo 23 Oct: the 6 kHz shelf', tag: 'Sleep, today\'s engine', base: 'natgeo-tr-2026-10-23-sleep', input: 'natgeo-tr-2026-10-23-sleep-0-input.wav',
+    tracks: [['shelf-4', 'shelf −4 dB (today)'], ['shelf-1.5', 'shelf −1.5 dB'], ['shelf0', 'no shelf']], range: [0, 45], markers: [], spans: [],
+    note: 'Listen 0:00–0:45. Today\'s engine on Sleep; only the 6 kHz shelf differs (the 60 Hz cut stays). The tone against the input, on the talk: air (8–16 kHz) −5.6 dB with −4, −3.9 with −1.5, −2.7 with no shelf; 4–8 kHz −4.3 / −3.5 / −2.9. What\'s left with no shelf is the harsh-sound stage (task 4).'
+  },
+  {
+    round: 'Strain memory and Sleep\'s shelf', title: 'rqyr58kg: the 6 kHz shelf', tag: 'Sleep, today\'s engine', base: 'rqyr58kg-sleep', input: 'rqyr58kg-sleep-0-input.wav',
+    tracks: [['shelf-4', 'shelf −4 dB (today)'], ['shelf-1.5', 'shelf −1.5 dB'], ['shelf0', 'no shelf']], range: [18, 36],
+    markers: [['marked loud', 24.2]], spans: [[24.2, 36]],
+    note: 'Listen 0:18–0:36: the strained voice is marked from 0:24. Air against the input: −4.3 dB with −4, −2.3 with −1.5, −1.0 with no shelf. Its harsh parts against its talk barely move (the harsh-sound stage handles them).'
+  },
+  {
+    round: 'Strain memory and Sleep\'s shelf', title: 'k434e: the 6 kHz shelf', tag: 'Sleep, today\'s engine', base: 'k434e-sleep', input: 'k434e-sleep-0-input.wav',
+    tracks: [['shelf-4', 'shelf −4 dB (today)'], ['shelf-1.5', 'shelf −1.5 dB'], ['shelf0', 'no shelf']], range: [4, 33.4],
+    markers: [['marked harsh', 6.7], ['marked loud', 7.6], ['marked loud', 14.9], ['marked harsh', 30.5]],
+    spans: [[6.7, 9.9], [14.9, 26.8], [30.5, 31.2], [32.1, 32.9]],
+    note: 'Listen 0:04–0:33: a bright voice with marked harsh parts. Air against the input: −9.6 dB with −4, −7.7 with −1.5, −6.7 with no shelf: most of its dulling is the harsh-sound stage, not the shelf.'
+  },
+  {
+    round: 'Calm speech believed at once', title: 'NatGeo alone', tag: 'Sleep', base: 'natgeo-23oct-sleep', input: 'natgeo-23oct-sleep-0-input.wav',
+    tracks: [['today', 'today'], ['calm10u3t', 'calm speech']], range: [0, 45], markers: [], spans: [],
+    note: 'Listen 0:00–0:45. The narration is calm speech, so it\'s believed after 1 s, as fast as today learns normal: only that first second is held. From there it measures like today: the same cut on the talk (1.1 dB) and the same brightness.'
+  },
+  {
+    round: 'Calm speech believed at once', title: 'NatGeo, an ad, NatGeo', tag: 'Sleep', base: 'natgeo-voicead-natgeo-sleep', input: 'natgeo-voicead-natgeo-sleep-0-input.wav',
+    tracks: [['today', 'today'], ['calm10u3t', 'calm speech'], ['b5u3d', '5 s, your pick']], range: [70, 140],
+    markers: [['the ad', 71.3], ['NatGeo returns', 91.8]], spans: [[71.3, 91.3]],
+    note: 'Listen 1:10–2:20. The ad reads as calm speech too, but it\'s believed no higher than the NatGeo you were listening to until its slow belief passes that, at about 12 s. Over NatGeo: +3.3 dB today (its first 3 s +8.8), +1.8 (+3.7) with calm speech, +2.9 (+4.8) with 5 s. NatGeo after it is held 1 s, against 18 s with 5 s.'
+  },
+  {
+    round: 'Calm speech believed at once', title: 'The clip that opens mid-yell', tag: 'Sleep', base: 'clips-vp05-sleep', input: 'clips-vp05-sleep-0-input.wav',
+    tracks: [['today', 'today'], ['calm10u3t', 'calm speech'], ['calm10u3t-m30', 'calm, 30 s strain memory'], ['b10u3', '10 s, your pick']], range: [34, 60],
+    markers: [['vp05 starts', 34.8], ['yell', 35.2], ['yell', 37.4], ['yell', 41.7], ['yell', 53.7], ['yell', 56.5]],
+    spans: [[35.2, 35.7], [37.4, 41.2], [41.7, 42.1], [53.7, 55.1], [56.5, 57.5]],
+    note: 'Listen 0:34–1:00. Its yells are strained, so nothing counts as calm for a while after each one: 10 s in “calm speech”, 30 s in the new one, where vp05 never gets there and its talk is held like 10 s. Yells over its talk, on average: +14.1 dB today, +9.3 calm speech, +7.9 with the 30 s memory, +8.6 with 10 s. The two later yells (0:54, 0:56) are where they differ.'
+  },
+  {
+    round: 'Earlier', title: 'NatGeo alone', tag: 'Sleep', base: 'natgeo-23oct-sleep', input: 'natgeo-23oct-sleep-0-input.wav',
+    tracks: [['today', 'today'], ['b5u3', '5 s'], ['b10u3', '10 s']], range: [0, 45], markers: [], spans: [],
+    note: 'Listen 0:00–0:45. The new versions hold the narration at first: about 17 s in all with 5 s, 43 s with 10 s. Does it sound wrong while held?'
+  },
+  {
+    round: 'Earlier', title: 'NatGeo, an ad, NatGeo', tag: 'Sleep', base: 'natgeo-voicead-natgeo-sleep', input: 'natgeo-voicead-natgeo-sleep-0-input.wav',
+    tracks: [['today', 'today'], ['b5u3d', '5 s'], ['b10u3d', '10 s']], range: [70, 140],
+    markers: [['the ad', 71.3], ['NatGeo returns', 91.8]], spans: [[71.3, 91.3]],
+    note: 'Listen 1:10–2:20. The ad over NatGeo: +3.3 dB today (its onset +8.8), +2.9 (+4.8) with 5 s, +3.6 (+5.4) with 10 s. After it, NatGeo is held again about 18 s with 5 s, 48 s with 10 s.'
+  },
+  {
+    round: 'Earlier', title: 'The clip that opens mid-yell', tag: 'Sleep', base: 'clips-vp05-sleep', input: 'clips-vp05-sleep-0-input.wav',
+    tracks: [['today', 'today'], ['b5u3', '5 s'], ['b10u3', '10 s']], range: [34, 60],
+    markers: [['vp05 starts', 34.8], ['yell', 35.2], ['yell', 37.4], ['yell', 41.7], ['yell', 53.7], ['yell', 56.5]],
+    spans: [[35.2, 35.7], [37.4, 41.2], [41.7, 42.1], [53.7, 55.1], [56.5, 57.5]],
+    note: 'Listen 0:34–1:00, after two short talk clips. Its yells over its talk, on average: +14.1 dB today, +11.3 with 5 s, +8.6 with 10 s.'
+  },
+  {
+    round: 'Earlier', title: 'The carry: after a quiet documentary', tag: 'Stream', base: 'quietnatgeo-stream-stream', input: 'quietnatgeo-stream-sleep-0-input.wav',
+    tracks: [['today', 'today'], ['b5u3', '5 s'], ['b5u3t', '5 s + carry']], range: [66, 110],
+    markers: [['the stream starts', 71.3]], spans: [],
+    note: 'Listen 1:06–1:50. NatGeo 10 dB down, then a regular stream. With the carry the stream fades in from about 13 dB down.'
+  },
+  {
+    round: 'Earlier', title: 'The carry: NatGeo, a music ad, NatGeo', tag: 'Stream', base: 'natgeo-musicad-natgeo-stream', input: 'natgeo-musicad-natgeo-sleep-0-input.wav',
+    tracks: [['today', 'today'], ['b5u3', '5 s'], ['b5u3t', '5 s + carry']], range: [66, 110],
+    markers: [['the ad', 71.3], ['NatGeo returns', 91.8]], spans: [[71.3, 91.3]],
+    note: 'Listen 1:06–1:50. The music ad over NatGeo: +6.0 dB with 5 s, +4.4 with the carry.'
+  }
+];
+const COLORS = ['--t0', '--t1', '--t4', '--t2'];
+const FADE_S = 0.015;
+
+const $ = id => document.getElementById(id);
+const ctx = new AudioContext();
+// Everything plays through one gain, whose level the meter shows: if it moves and nothing is heard,
+// the sound is lost after the page (the tab muted, the output device, the volume)
+const master = ctx.createGain();
+const analyser = ctx.createAnalyser();
+analyser.fftSize = 2048;
+master.connect(analyser);
+master.connect(ctx.destination);
+const meterBuf = new Float32Array(analyser.fftSize);
+let pendingPlay = false;
+let groupPeakDb = -Infinity;
+function setBoost() {
+  const db = Number($('boost').value);
+  master.gain.setTargetAtTime(Math.pow(10, db / 20), ctx.currentTime, 0.02);
+  const peak = groupPeakDb + db;
+  $('boostText').textContent = `+${db} dB, peaks at ${peak.toFixed(1)} dBFS${peak > -0.1 ? ': clips' : ''}`;
+  $('boostText').className = peak > -0.1 ? 'clip' : '';
+}
+const cache = new Map();      // file name → { buffer, env, loud }
+let g = null, tracks = [], active = 0, order = [], blind = false, loop = false, whole = false;
+// The group's versions, then the original
+const V = () => g.tracks.length;
+const color = i => css(i === V() ? '--t3' : COLORS[i]);
+let playing = false, offset = 0, startedAt = 0, nodes = [], run = 0, loadToken = 0;
+
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const fmt = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+const status = (text, err) => { $('status').textContent = text; $('status').className = err ? 'err' : ''; };
+
+// Power per 100 ms, shown as 400 ms loudness, and the gated (BS.1770-style, unweighted) level
+function analyse(buf) {
+  const hop = Math.round(buf.sampleRate / 10), n = buf.length, chs = [];
+  for (let c = 0; c < buf.numberOfChannels; c++) chs.push(buf.getChannelData(c));
+  const pw = [];
+  let peak = 0;
+  for (let s = 0; s < n; s += hop) {
+    const e = Math.min(n, s + hop);
+    let sum = 0;
+    for (const ch of chs) for (let i = s; i < e; i++) { const v = ch[i]; sum += v * v; if (v > peak) peak = v; else if (-v > peak) peak = -v; }
+    pw.push(sum / ((e - s) * chs.length));
+  }
+  const env = pw.map((_, i) => {
+    let s = 0, k = 0;
+    for (let j = Math.max(0, i - 3); j <= i; j++, k++) s += pw[j];
+    return 10 * Math.log10(s / k + 1e-12);
+  });
+  const a = pw.filter(p => p > 1e-7);
+  const mean = a.reduce((s, p) => s + p, 0) / Math.max(1, a.length);
+  const gated = a.filter(p => p > mean / 10);
+  const loud = 10 * Math.log10(gated.reduce((s, p) => s + p, 0) / Math.max(1, gated.length) + 1e-12);
+  return { env, loud, peakDb: 20 * Math.log10(peak + 1e-12) };
+}
+
+async function load(file) {
+  if (cache.has(file)) return cache.get(file);
+  const res = await fetch(`listen/${encodeURIComponent(file)}`);
+  if (!res.ok) throw new Error(`${file} isn't in variants/listen`);
+  const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
+  const v = { buffer, ...analyse(buffer) };
+  cache.set(file, v);
+  return v;
+}
+
+async function pickGroup(k) {
+  stop();
+  g = GROUPS[k];
+  offset = g.range[0];
+  active = 0;
+  order = [...Array(V() + 1).keys()];
+  setBlind(false);
+  $('reveal').textContent = '';
+  const token = ++loadToken;
+  document.querySelectorAll('#groups button').forEach(b => b.classList.toggle('on', Number(b.dataset.k) === k));
+  $('note').textContent = g.note;
+  $('markers').innerHTML = '';
+  for (const [name, t] of g.markers) {
+    const b = document.createElement('button');
+    b.textContent = `${name} ${fmt(t)}`;
+    b.onclick = () => startAt(Math.max(0, t - 2));
+    $('markers').appendChild(b);
+  }
+  tracks = [];
+  renderTracks();
+  const files = [...g.tracks.map(([id]) => `${g.base}-${id}.wav`), g.input];
+  for (const f of [...cache.keys()]) if (!files.includes(f)) cache.delete(f);
+  status('Loading…');
+  try {
+    const loaded = await Promise.all(files.map(load));
+    if (token !== loadToken) return;
+    // The original plays at today's level, so it's a reference for the sound, not a jump in volume
+    const trimDb = Math.min(0, loaded[0].loud - loaded[V()].loud);
+    tracks = loaded.map((v, i) => ({
+      ...v,
+      label: i < V() ? g.tracks[i][1] : 'original',
+      detail: i < V() ? `${g.base}-${g.tracks[i][0]}.wav` : `unprocessed, ${trimDb.toFixed(1)} dB to today's level; its loud parts stay as loud as they really are`,
+      gain: i < V() ? 1 : Math.pow(10, trimDb / 20),
+      color: color(i)
+    }));
+    // The renders are Sleep-quiet (about -32 LUFS): boosted, all alike, as far as no version clips
+    groupPeakDb = Math.max(...tracks.map(t => t.peakDb + 20 * Math.log10(t.gain)));
+    $('boost').value = Math.max(0, Math.min(12, Math.floor(-groupPeakDb - 1)));
+    setBoost();
+    status('');
+    if (pendingPlay) { pendingPlay = false; startAt(offset); }
+    renderTracks();
+  } catch (e) {
+    if (token === loadToken) status(e.message, true);
+  }
+}
+
+const duration = () => tracks.length ? Math.min(...tracks.map(t => t.buffer.duration)) : 0;
+
+function renderTracks() {
+  const box = $('tracks');
+  box.innerHTML = '';
+  const n = V() + 1;
+  for (let slot = 0; slot < n; slot++) {
+    const i = order[slot], t = tracks[i];
+    const b = document.createElement('button');
+    const hidden = blind && i < V();
+    const name = !t ? '…' : hidden ? String.fromCharCode(65 + slot) : t.label;
+    b.innerHTML = `<span class="k">${slot + 1}</span>${name}<span class="d">${t && !hidden ? t.detail : '&nbsp;'}</span>`;
+    b.style.setProperty('--c', hidden ? css('--accent') : color(i));
+    b.classList.toggle('on', i === active);
+    b.onclick = () => select(slot);
+    box.appendChild(b);
+  }
+}
+
+function select(slot) {
+  const i = order[slot];
+  if (!tracks[i] || i === active) return;
+  if (playing) {
+    const t = ctx.currentTime;
+    for (const [k, n] of nodes.entries()) {
+      n.g.gain.cancelScheduledValues(t);
+      n.g.gain.setValueAtTime(n.g.gain.value, t);
+      n.g.gain.linearRampToValueAtTime(k === i ? tracks[k].gain : 0, t + FADE_S);
+    }
+  }
+  active = i;
+  renderTracks();
+}
+
+function position() {
+  if (!playing) return offset;
+  const [a, b] = g.range;
+  let p = offset + Math.max(0, ctx.currentTime - startedAt);
+  if (nodes.looping && p >= b) p = a + (p - b) % (b - a);
+  return Math.min(p, duration());
+}
+
+function stop() {
+  if (playing) offset = position();
+  run++;
+  for (const n of nodes) { try { n.s.stop(); } catch {} n.s.disconnect(); n.g.disconnect(); }
+  nodes = [];
+  playing = false;
+  $('play').textContent = '▶ Play';
+}
+
+async function startAt(t) {
+  // (resumed here, inside the click or key press: browsers only let a page start sound from one)
+  const resumed = ctx.resume();
+  if (!tracks.length) { pendingPlay = true; $('play').textContent = 'Loading…'; return; }
+  stop();
+  await resumed;
+  const [a, b] = g.range;
+  if (loop && (t < a || t >= b)) t = a;
+  offset = Math.max(0, Math.min(t, duration() - 0.05));
+  const when = ctx.currentTime + 0.03, mine = run;
+  nodes = tracks.map((tr, k) => {
+    const s = ctx.createBufferSource(), gn = ctx.createGain();
+    s.buffer = tr.buffer;
+    if (loop) { s.loop = true; s.loopStart = a; s.loopEnd = b; }
+    gn.gain.value = k === active ? tr.gain : 0;
+    s.connect(gn).connect(master);
+    s.start(when, offset);
+    return { s, g: gn };
+  });
+  nodes.looping = loop;
+  nodes[0].s.onended = () => { if (run === mine) { stop(); offset = g.range[0]; } };
+  startedAt = when;
+  playing = true;
+  $('play').textContent = '❚❚ Pause';
+}
+
+const toggle = () => (playing || pendingPlay ? (pendingPlay = false, stop()) : startAt(offset));
+const seek = t => (playing ? startAt(t) : (offset = Math.max(0, Math.min(t, duration()))));
+
+function view() {
+  const d = duration();
+  return whole || !g ? [0, d] : [Math.max(0, g.range[0] - 2), Math.min(d, g.range[1] + 2)];
+}
+
+function draw() {
+  const cv = $('tl'), dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const c = cv.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, h);
+  if (g && tracks.length) {
+    const [v0, v1] = view(), X = t => (t - v0) / (v1 - v0) * w, Y = db => h - 6 - (Math.max(-60, Math.min(0, db)) + 60) / 60 * (h - 12);
+    c.fillStyle = css('--range');
+    c.fillRect(X(g.range[0]), 0, X(g.range[1]) - X(g.range[0]), h);
+    c.fillStyle = css('--span');
+    for (const [a, b] of g.spans) c.fillRect(X(a), 0, Math.max(2, X(b) - X(a)), h);
+    c.strokeStyle = css('--line');
+    c.fillStyle = css('--muted');
+    c.font = '11px system-ui';
+    c.lineWidth = 1;
+    for (const db of [-50, -40, -30, -20, -10]) { c.beginPath(); c.moveTo(0, Y(db)); c.lineTo(w, Y(db)); c.stroke(); c.fillText(`${db}`, 4, Y(db) - 2); }
+    if (!blind) {
+      // The other versions thin, the one playing on top
+      for (const i of [V(), ...Array(V()).keys()].filter(i => i !== active).concat(active)) {
+        const t = tracks[i], scale = i === V() ? 20 * Math.log10(t.gain) : 0;
+        c.strokeStyle = t.color;
+        c.lineWidth = i === active ? 2 : 1;
+        c.globalAlpha = i === active ? 1 : 0.55;
+        c.beginPath();
+        const i0 = Math.max(0, Math.floor(v0 * 10)), i1 = Math.min(t.env.length - 1, Math.ceil(v1 * 10));
+        for (let j = i0; j <= i1; j++) { const x = X(j / 10 + 0.05), y = Y(t.env[j] + scale); j === i0 ? c.moveTo(x, y) : c.lineTo(x, y); }
+        c.stroke();
+      }
+      c.globalAlpha = 1;
+    }
+    c.strokeStyle = css('--mark');
+    c.lineWidth = 1;
+    for (const [, t] of g.markers) { c.beginPath(); c.moveTo(X(t), 0); c.lineTo(X(t), h); c.stroke(); }
+    const p = position();
+    c.strokeStyle = css('--fg');
+    c.lineWidth = 2;
+    c.beginPath(); c.moveTo(X(p), 0); c.lineTo(X(p), h); c.stroke();
+    $('time').textContent = `${fmt(p)} / ${fmt(duration())}`;
+  }
+  analyser.getFloatTimeDomainData(meterBuf);
+  let sum = 0;
+  for (const v of meterBuf) sum += v * v;
+  const db = 10 * Math.log10(sum / meterBuf.length + 1e-12);
+  $('fill').style.width = `${Math.max(0, Math.min(100, (db + 60) / 60 * 100))}%`;
+  $('meterText').textContent = `page output ${db > -100 ? db.toFixed(0) + ' dBFS' : 'silent'} · audio ${ctx.state} at ${ctx.sampleRate} Hz`;
+  window.abLevelDb = db;
+  requestAnimationFrame(draw);
+}
+
+let roundBox = null;
+GROUPS.forEach((gr, k) => {
+  if (!roundBox || roundBox.dataset.round !== gr.round) {
+    roundBox = document.createElement('div');
+    roundBox.className = 'round';
+    roundBox.dataset.round = gr.round;
+    roundBox.innerHTML = `<span class="rl">${gr.round}</span>`;
+    $('groups').appendChild(roundBox);
+  }
+  const b = document.createElement('button');
+  b.dataset.k = k;
+  b.innerHTML = `${gr.title}<span class="tag">${gr.tag}</span>`;
+  b.onclick = () => pickGroup(k);
+  roundBox.appendChild(b);
+});
+$('play').onclick = toggle;
+$('boost').oninput = setBoost;
+$('fromStart').onclick = () => startAt(g.range[0]);
+$('loop').onclick = () => { loop = !loop; $('loop').classList.toggle('on', loop); if (playing) startAt(position()); };
+$('whole').onclick = () => { whole = !whole; $('whole').classList.toggle('on', whole); };
+// Blind: the versions as A, B, C in a shuffled order, without names or levels. Picking the one
+// playing reveals them; the pick is kept in this browser and by the server, in
+// variants/results/ab-picks.jsonl
+const letter = s => String.fromCharCode(65 + s);
+const escapeHtml = t => t.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+function setBlind(on) {
+  blind = on;
+  $('blind').classList.toggle('on', blind);
+  $('blind').textContent = blind ? 'Stop blind' : 'Blind';
+  $('pick').hidden = !blind;
+}
+function startBlind() {
+  if (!tracks.length) return;
+  order = [...Array(V()).keys()];
+  for (let i = V() - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  order.push(V());
+  setBlind(true);
+  $('reveal').textContent = `Blind: ${order.slice(0, V()).map((_, s) => letter(s)).join(', ')} in a random order. Play the one you like and press “Pick this one” (P).`;
+  renderTracks();
+  // Blind starts on A, so the one already playing gives nothing away
+  select(0);
+}
+function endBlind(picked) {
+  const map = order.slice(0, V()).map((i, s) => `${letter(s)} = ${tracks[i].label}`).join(' · ');
+  if (picked) {
+    const choice = tracks[active].label, slot = order.indexOf(active);
+    $('reveal').innerHTML = `You picked <strong>${letter(slot)}: ${escapeHtml(choice)}</strong>. ${escapeHtml(map)}`;
+    const entry = { at: new Date().toISOString(), group: `${g.title} (${g.tag})`, picked: choice, file: `${g.base}-${g.tracks[active][0]}.wav`, others: g.tracks.filter((_, i) => i !== active).map(t => t[1]), at_s: +position().toFixed(1) };
+    savePick(entry);
+  } else {
+    $('reveal').textContent = `Not picked. ${map}`;
+  }
+  order = [...Array(V() + 1).keys()];
+  setBlind(false);
+  renderTracks();
+}
+function readPicks() { try { return JSON.parse(localStorage.getItem('abPicks') || '[]'); } catch { return []; } }
+function savePick(entry) {
+  const all = readPicks().concat(entry);
+  try { localStorage.setItem('abPicks', JSON.stringify(all)); } catch {}
+  fetch('/pick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) }).catch(() => {});
+  showPicks();
+}
+function showPicks() {
+  const all = readPicks();
+  $('picks').innerHTML = all.length ? `Your blind picks:<ol>${all.slice(-12).map(x => `<li>${escapeHtml(x.group)}: <strong>${escapeHtml(x.picked)}</strong> over ${escapeHtml(x.others.join(', '))}</li>`).join('')}</ol>` : '';
+}
+$('blind').onclick = () => (blind ? endBlind(false) : startBlind());
+$('pick').onclick = () => {
+  if (!blind) return;
+  if (active >= V()) { $('reveal').textContent = `The original isn't one of the blind versions: play ${order.slice(0, V()).map((_, s) => letter(s)).join(', ')} and pick one of them.`; return; }
+  endBlind(true);
+};
+$('tl').onclick = e => {
+  if (!tracks.length) return;
+  const r = e.currentTarget.getBoundingClientRect(), [v0, v1] = view();
+  seek(v0 + (e.clientX - r.left) / r.width * (v1 - v0));
+};
+// Keys never also press the button that has focus (Space would play, then click it on release)
+document.addEventListener('click', e => { if (e.target.closest('button')) e.target.closest('button').blur(); });
+addEventListener('keyup', e => { if (e.key === ' ') e.preventDefault(); });
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const step = e.shiftKey ? 1 : 5;
+  if (e.key === ' ') { e.preventDefault(); toggle(); }
+  else if (/^[1-9]$/.test(e.key) && g && Number(e.key) <= V() + 1) select(Number(e.key) - 1);
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); seek(position() - step); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); seek(position() + step); }
+  else if (e.key === 'r' || e.key === 'R') startAt(g.range[0]);
+  else if (e.key === 'l' || e.key === 'L') $('loop').click();
+  else if (e.key === 'b' || e.key === 'B') $('blind').click();
+  else if (e.key === 'p' || e.key === 'P') $('pick').click();
+});
+showPicks();
+pickGroup(0);
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

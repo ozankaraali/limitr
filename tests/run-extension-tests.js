@@ -274,8 +274,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await worker.evaluate((s) => chrome.storage.local.set({ limitrSettings: { ...s, guardHeadroom: 2 } }), limitrSettings);
     await sleep(800);
     m = await meters(0);
+    // The trace's line is where the guard starts cutting: the headroom (2) less half its 4 dB knee
     check('setting change reaches the running engine',
-      m && Math.abs(m.thresholdDb - (m.baselineDb + m.levelDb + 2 + limitrSettings.volume)) < 0.5,
+      m && Math.abs(m.thresholdDb - (m.baselineDb + m.levelDb + 2 - 2 + limitrSettings.volume)) < 0.5,
       m && `threshold ${m.thresholdDb?.toFixed(1)}, normal ${m.baselineDb?.toFixed(1)}`);
     await worker.evaluate((s) => chrome.storage.local.set({ limitrSettings: s }), limitrSettings);
 
@@ -401,6 +402,14 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('popup reports the player is being tamed', /Taming/.test(statusText), statusText);
     const caption = await popup.textContent('#traceCaption');
     check('popup shows caught spikes', /CAUGHT \d+ spikes?( and \d+ raised voices?)?\./.test(caption), caption);
+    // A hand's tremor on the volume slider must not skip values: each step gets at least 4 px of
+    // the track (with 0.5 dB steps it had 2.5, and the same spot read -7 one time, -5.5 the next)
+    const volumeTrack = await popup.evaluate(() => {
+      const v = $('volume');
+      return { px: v.getBoundingClientRect().width, steps: (Number(v.max) - Number(v.min)) / Number(v.step), step: Number(v.step) };
+    });
+    check('each volume step gets at least 4 px of the slider', volumeTrack.px / volumeTrack.steps >= 4,
+      `${(volumeTrack.px / volumeTrack.steps).toFixed(1)} px per ${volumeTrack.step} dB step`);
     // The caption against what the trace shows: raised voices count with spikes, and a trace with a
     // cut but nothing caught says it's evening the sound out rather than that nothing is too loud
     const captions = await popup.evaluate(() => {
@@ -722,6 +731,17 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
     console.log('\nWhole-tab capture mode');
     await worker.evaluate(() => chrome.storage.local.set({ limitrMode: 'capture' }));
+    // One known stream for the capture: only the page's own player, 5.5 s into the tone's 12 s loop
+    // (talk, 3.5 s before its next burst). With the other players on, their bursts line up by
+    // chance with how long the steps before took, and can fill half the stream; and a stream that
+    // opens on a burst takes it for normal for a while (normal is learned from the first sound).
+    await tab.evaluate(() => document.getElementById('remote').pause());
+    await tab.frameLocator('#frame').locator('#framed').evaluate(a => a.pause());
+    await tab.evaluate(() => {
+      const local = document.getElementById('local');
+      local.currentTime = 5.5;
+      return local.play();
+    });
     const captureResult = await worker.evaluate(id => captureTab(id).then(() => 'ok', e => e.message), tabId);
     check('tab capture starts', captureResult === 'ok', captureResult);
     await sleep(3000);
@@ -730,14 +750,13 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     check('captured audio runs through the engine', cm && cm.dsp === 'worklet' && cm.inDb > -60, cm && `${cm.dsp}, in ${cm.inDb?.toFixed(1)}`);
     m = await meters(0);
     check('page-mode engine steps aside while captured', m && m.inDb < -60, m && `page in ${m.inDb?.toFixed(1)}`);
-    // The test tone has two bursts in a 12 s loop; a burst before Limitr knew the stream isn't
-    // counted, so where in the loop the capture starts decides how soon one is: two loops always do
+    // Normal learned from the talk, a burst comes within a loop of the tone; two loops to spare
     let cm2 = null;
     for (let waited = 0; waited < 24000 && !(cm2 && cm2.spikes >= 1); waited += 1000) {
       await sleep(1000);
       cm2 = (await worker.evaluate(id => chrome.runtime.sendMessage({ target: 'offscreen', action: 'capture-meters', tabId: id }), tabId)).meters;
     }
-    check('capture engine catches the bursts', cm2 && cm2.spikes >= 1, cm2 && `spikes=${cm2.spikes}`);
+    check('capture engine catches the bursts', cm2 && cm2.spikes >= 1, cm2 && `spikes=${cm2.spikes}, normal ${cm2.baselineDb?.toFixed(1)} dB`);
     const capturedTrace = (await worker.evaluate(id => chrome.runtime.sendMessage({ target: 'offscreen', action: 'capture-meters', tabId: id, trace: true }), tabId)).meters;
     // (the capture has run for a few seconds by now)
     check('the captured tab keeps its loudness trace too', capturedTrace && Array.isArray(capturedTrace.trace) && capturedTrace.trace.length >= 30,
