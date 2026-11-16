@@ -66,13 +66,9 @@ const state = {
   meters: null,
   captions: 'off',
   transcriptLines: 0,
-  captionPrefs: S.normalizeCaptions(null, uiLanguage()),
+  captionPrefs: S.normalizeCaptions(null),
   crt: false
 };
-
-function uiLanguage() {
-  return (chrome.i18n && chrome.i18n.getUILanguage && chrome.i18n.getUILanguage()) || navigator.language;
-}
 
 // ---------- formatting ----------
 const MINUS = '−';
@@ -1030,7 +1026,7 @@ function buildCaptionOptions() {
   language.replaceChildren(option('auto', 'Detect automatically'), ...S.CAPTION_LANGUAGES.map(([c, n]) => option(c, n)));
   translate.replaceChildren(option('', 'Off'), ...S.CAPTION_LANGUAGES.map(([c, n]) => option(c, n)));
   translate.closest('label').hidden = !translatorApi();
-  // English always uses Moonshine and Turkish ufak; this is the Whisper size for every other language
+  // English always uses Moonshine and Turkish its own Moonshine; this is the Whisper size for every other language
   const model = $('captionsModel');
   model.replaceChildren(option('fast', 'Faster, less accurate'), option('standard', 'Standard'),
     ...(largeModelSupported() ? [option('large', 'Larger (410 MB, graphics card)')] : []));
@@ -1057,7 +1053,7 @@ function buildCaptionOptions() {
 }
 
 function saveCaptionPrefs(change) {
-  state.captionPrefs = S.normalizeCaptions({ ...state.captionPrefs, ...change }, uiLanguage());
+  state.captionPrefs = S.normalizeCaptions({ ...state.captionPrefs, ...change });
   chrome.storage.local.set({ [K.captions]: state.captionPrefs });
 }
 
@@ -1335,7 +1331,7 @@ async function init() {
   state.ui = { ...state.ui, ...(stored[K.ui] || {}) };
   state.preset = S.matchPreset(state.settings, state.custom);
   if (state.preset) state.ui.basePreset = state.preset;
-  state.captionPrefs = S.normalizeCaptions(stored[K.captions], uiLanguage());
+  state.captionPrefs = S.normalizeCaptions(stored[K.captions]);
   // Tab capture exists only in Chromium browsers
   state.canCapture = Boolean(chrome.tabCapture && chrome.tabCapture.getMediaStreamId);
   state.mode = state.canCapture ? loaded.mode : 'page';

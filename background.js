@@ -280,7 +280,7 @@ const restartingCaptions = new Set();
 
 async function loadCaptionPrefs() {
   const stored = await chrome.storage.local.get(KEYS.captions);
-  return S.normalizeCaptions(stored[KEYS.captions], chrome.i18n?.getUILanguage?.() || navigator.language);
+  return S.normalizeCaptions(stored[KEYS.captions]);
 }
 
 function ensureBackgroundTranscriber() {

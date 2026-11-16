@@ -127,51 +127,41 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-sherpa-onnx - Speech Recognition with Next-gen Kaldi and ONNX Runtime
+QiTV ASR Turkish - Turkish Speech Recognition Model (Moonshine small)
 ================================================================================
-Source: https://github.com/k2-fsa/sherpa-onnx
-Files: lib/sherpa-offline/sherpa-onnx-wasm-main-vad-asr.wasm,
-       lib/sherpa-offline/sherpa-onnx-wasm-main-vad-asr.js (minus its bundled model),
-       lib/sherpa-offline/sherpa-onnx-asr.js
-(WebAssembly build from k2-fsa's demo space
-https://huggingface.co/spaces/k2-fsa/web-assembly-vad-asr-sherpa-onnx-zh-zipformer-ctc)
+Source: https://huggingface.co/ozankaraali/qitv-asr-tr-moonshine-small
+Model: onnx/encoder_model_quantized.onnx, onnx/decoder_model_merged_quantized.onnx and
+onnx/tokens.txt at revision a4dea6126a4d4dad52f459f31590691f281a8e92, downloaded on first
+use, not shipped with Limitr, and used unchanged.
 
-Copyright the sherpa-onnx authors (k2-fsa)
+Credit: "QiTV ASR Turkish - Ozan Karaali"
+(https://huggingface.co/ozankaraali/qitv-asr-tr-moonshine-small)
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/
 
-    http://www.apache.org/licenses/LICENSE-2.0
+The model is a derivative of Moonshine Streaming Small by Useful Sensors, Inc. (dba
+Moonshine AI), released under the MIT License:
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Copyright (c) 2025 Useful Sensors, Inc. (dba Moonshine AI)
 
-================================================================================
-ufakzeka-kulak - Turkish Speech Recognition Model
-================================================================================
-Source: https://huggingface.co/ufakai/ufakzeka-kulak
-Model: sherpa-onnx-tdt/*.int8.onnx, downloaded on first use, not shipped with Limitr
-Trained on openly licensed Turkish speech (Common Voice, ISSAI Turkish Speech Corpus,
-antalia-voice-corpus, YODAS); every source and its licence is listed in the model's
-ATTRIBUTION.md.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Copyright ufak AI
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ================================================================================
 IBM Plex Sans and IBM Plex Mono typefaces

@@ -95,13 +95,13 @@ function checkCaptionPrefs() {
   require(SETTINGS_FILE);
   const S = globalThis.LimitrSettings;
   console.log('\nCaption preferences');
-  check('English browser starts on English captions', S.defaultCaptions('en-GB').language === 'en');
-  check('other browsers start on automatic detection', S.defaultCaptions('tr-TR').language === 'auto');
-  check('other languages use the standard model until another is chosen', S.normalizeCaptions(null, 'en').model === 'standard');
+  check('captions start on automatic detection', S.defaultCaptions().language === 'auto' && S.normalizeCaptions(null).language === 'auto');
+  check('a language picked before is kept', S.normalizeCaptions({ language: 'en' }).language === 'en' && S.normalizeCaptions({ language: 'tr' }).language === 'tr');
+  check('other languages use the standard model until another is chosen', S.normalizeCaptions(null).model === 'standard');
   check('choosing the faster or the larger model is kept',
-    S.normalizeCaptions({ model: 'fast' }, 'en').model === 'fast' && S.normalizeCaptions({ model: 'large' }, 'en').model === 'large');
-  check('a 2.1 "larger model" switch that was on carries over', S.normalizeCaptions({ largeModel: true }, 'en').model === 'large');
-  check('anything else falls back to standard', S.normalizeCaptions({ model: 'huge' }, 'en').model === 'standard');
+    S.normalizeCaptions({ model: 'fast' }).model === 'fast' && S.normalizeCaptions({ model: 'large' }).model === 'large');
+  check('a 2.1 "larger model" switch that was on carries over', S.normalizeCaptions({ largeModel: true }).model === 'large');
+  check('anything else falls back to standard', S.normalizeCaptions({ model: 'huge' }).model === 'standard');
 }
 
 // Whisper sometimes "hears" the credit lines it learned from broadcast subtitles on silence or
@@ -124,130 +124,16 @@ async function checkCaptionText() {
   const real = ['Bu gece yayını izlediğiniz için teşekkürler.', 'Sesli kitap dinlemeyi seviyorum.', 'Thanks for the subscription!'];
   const kept = real.map(t => cleanText(t, 5000));
   check('real speech that only sounds similar is kept', kept.every((t, i) => t === real[i]), JSON.stringify(kept));
-}
 
-// Live captions from a whole-utterance model: the sentence is decoded again from a little before
-// its last committed word, and a word is committed once two decodes in a row agree on it
-async function checkLiveAgreement() {
-  const { LiveAgreement, wordsOf } = await import(require('url').pathToFileURL(require('path').join(__dirname, '../lib/live-agreement.js')).href);
-  console.log('\nLive agreement (Turkish live captions)');
-  // A decode result as sherpa-onnx gives it: word pieces (a leading space starts a word), their
-  // start times from the start of the decoded audio, and log-probabilities (sure, unless given)
-  const decode = (pieces, offset = 0) => ({
-    tokens: pieces.map(([t]) => t),
-    timestamps: pieces.map(([, at]) => at - offset),
-    ys_log_probs: pieces.map(([, , logProb = 0]) => logProb)
-  });
-  const words = wordsOf(decode([[' İ', 0], ['yi', 0.08], [' ak', 0.4], ['şamlar', 0.56], [' her', 1.1], ['kese', 1.3], [',', 1.7]]), 0);
-  check('word pieces make words, punctuation joins the word before', words.map(w => w.text).join('|') === 'İyi|akşamlar|herkese,' &&
-    words[1].start === 0.4 && Math.abs(words[1].end - 0.72) < 1e-9, JSON.stringify(words));
-
-  // The model is often unsure of the punctuation after a word ("herkese." at 59%, its letters at
-  // 100%): that is no doubt about the word
-  const sure = wordsOf({ tokens: [' İ', 'yi', ' ak', 'şamlar', '.'], timestamps: [0, 0.08, 0.4, 0.56, 0.7], ys_log_probs: [-0.01, -0.3, -0.02, -0.05, -0.9] });
-  check('each word carries how sure the model was of its letters (its least sure piece)', sure.map(w => w.logProb).join('|') === '-0.3|-0.05', JSON.stringify(sure));
-
-  const live = new LiveAgreement({ contextSeconds: 1, maxPendingSeconds: 6 });
-  let out = live.update(decode([[' İyi', 0], [' akşamlar', 0.4], [' her', 1.1]]), 0, 1.4, false);
-  check('a first decode commits nothing, but shows its words', live.committed.length === 0 && out.line === 'İyi akşamlar her', JSON.stringify(out));
-  out = live.update(decode([[' İyi', 0], [' akşamlar', 0.4], [' herkese', 1.1], [',', 1.5], [' yayına', 1.8]]), 0, 2.2, false);
-  check('words two decodes agree on are committed; the rest stays open',
-    live.committed.map(w => w.text).join(' ') === 'İyi akşamlar' && out.line === 'İyi akşamlar herkese yayına', JSON.stringify(out));
-  // The next decode starts with a second of what is already committed (here, all of it)
-  const from = live.windowStart();
-  out = live.update(decode([[' akşamlar', 0.4], [' herkese', 1.1], [',', 1.5], [' yayına', 1.8], [' hoş', 2.3], [' geldiniz', 2.6], ['.', 3.1],
-    [' Bugün', 3.4]], from), from, 3.6, false);
-  check('the context is not committed twice', live.committed.map(w => w.text).join(' ') === 'İyi akşamlar herkese, yayına', JSON.stringify(live.committed.map(w => w.text)));
-  out = live.update(decode([[' yayına', 1.8], [' hoş', 2.3], [' geldiniz', 2.6], ['.', 3.1], [' Bugün', 3.4], [' yeni', 3.8]], live.windowStart()),
-    live.windowStart(), 4.0, false);
-  check('a finished sentence comes out as a line of its own', out.done.length === 1 && out.done[0] === 'İyi akşamlar herkese, yayına hoş geldiniz.' &&
-    out.line === 'Bugün yeni', JSON.stringify(out));
-  out = live.update(decode([[' Bugün', 3.4], [' yeni', 3.8], [' oyunu', 4.1]], live.windowStart()), live.windowStart(), 4.6, true);
-  check('the end of the sentence commits the rest and closes the line', out.done.join('|') === 'Bugün yeni oyunu' && out.line === '', JSON.stringify(out));
-
-  // Decodes that never agree (music, crosstalk) still move on: the older words are committed
-  const noisy = new LiveAgreement({ contextSeconds: 1, maxPendingSeconds: 4 });
-  for (let t = 1; t <= 8; t++) {
-    const pieces = [];
-    for (let k = 0; k < t * 2; k++) pieces.push([` w${k}${t % 2 ? 'a' : 'b'}`, k * 0.5]);
-    out = noisy.update(decode(pieces), 0, t, false);
-  }
-  const lastCommitted = noisy.committed[noisy.committed.length - 1];
-  check('without agreement for too long, the older words are committed', noisy.committed.length > 0 && lastCommitted.end <= 8 - 2 + 0.5,
-    `${noisy.committed.length} committed, up to ${lastCommitted && lastCommitted.end} s`);
-
-  // The next decode starts at least a context before the last committed word ends, in the pause
-  // before a word: cut inside one, the model hears half a word and makes up others around it
-  const context = new LiveAgreement({ contextSeconds: 1.5 });
-  const greeting = [[' İ', 0], ['yi', 0.08], [' ak', 0.4], ['şamlar', 0.56], [' her', 1.1], ['kese', 1.3], [' ya', 1.8]];
-  context.update(decode(greeting), 0, 2, false);
-  context.update(decode(greeting), 0, 2.5, false);
-  check('the next decode starts in the pause before a word, a context before the last committed one ends',
-    context.committed.map(w => w.text).join(' ') === 'İyi akşamlar herkese ya' && Math.abs(context.windowStart() - 0.24) < 1e-9,
-    `${context.committed.map(w => w.text).join(' ')}; from ${context.windowStart()}`);
-
-  // A word one decode missed is kept when the next ones hear it: the word before it ends where it is
-  // spoken, not where the next word that decode heard starts
-  const missed = new LiveAgreement({ contextSeconds: 1 });
-  missed.update(decode([[' tut', 0], ['tum', 0.2], [' kobra', 0.6], [' ken', 1.0], ['di', 1.2]]), 0, 1.6, false);
-  missed.update(decode([[' tut', 0], ['tum', 0.2], [' ken', 1.0], ['di', 1.2], [' yük', 1.6]]), 0, 2.1, false);
-  const heard = [[' tut', 0], ['tum', 0.2], [' kobra', 0.6], [' ken', 1.0], ['di', 1.2], [' yük', 1.6], ['selirse', 1.9]];
-  missed.update(decode(heard), 0, 2.6, false);
-  missed.update(decode(heard), 0, 3.1, false);
-  check('a word one decode missed is kept when the next ones hear it', missed.committed.map(w => w.text).join(' ') === 'tuttum kobra kendi yükselirse',
-    missed.committed.map(w => w.text).join(' '));
-
-  // Nothing new for a long while (music under a pause the segmenter took for speech): the window
-  // moves on instead of growing with the sentence
-  const quiet = new LiveAgreement({ contextSeconds: 1, maxPendingSeconds: 6 });
-  quiet.update(decode([[' yol', 0.2], [' çekilsin', 0.6]]), 0, 1, false);
-  quiet.update(decode([[' yol', 0.2], [' çekilsin', 0.6]]), 0, 1.5, false);
-  for (let now = 2; now <= 30; now += 0.5) quiet.update(decode([]), quiet.windowStart(), now, false);
-  check('with nothing new for a long while, the window still moves on', 30 - quiet.windowStart() <= 6 + 1 + 0.5,
-    `the decode at 30 s would start at ${quiet.windowStart().toFixed(2)} s`);
-
-  // The words in doubt show only while the model is sure of them (each piece at least 90%), so a
-  // guess doesn't flicker on screen; agreed words always show
-  const doubt = new LiveAgreement();
-  const guess = [[' bol', 0, -0.01], [' su', 0.3, -0.02], [' iç', 0.6, -0.01], ['in', 0.7, -0.5], [' ve', 1.0, -0.01]];
-  out = doubt.update(decode(guess), 0, 1.3, false);
-  check('of the words in doubt, only those before the first unsure one show', out.line === 'bol su', JSON.stringify(out));
-  out = doubt.update(decode(guess), 0, 1.8, false);
-  check('agreed words show however unsure', out.line === 'bol su için ve', JSON.stringify(out));
-
-  // A long stretch without a full stop doesn't fill the picture: once a line has run 4 s it ends at
-  // the next pause (0.3 s or more), and past 8 s at the next word. The words after where it will
-  // end wait for the next line rather than show at the end of this one and then move down.
-  const words4 = (from, to, step, name) => {
-    const list = [];
-    for (let k = 0; from + k * step <= to + 1e-9; k++) list.push([` ${name}${k}`, Number((from + k * step).toFixed(2))]);
-    return list;
-  };
-  const text = list => list.map(([w]) => w.trim()).join(' ');
-  const paused = new LiveAgreement({ contextSeconds: 1, maxPendingSeconds: 20 });
-  const before = words4(0, 5, 0.25, 'a');          // 0.09 s between words
-  const after = words4(5.6, 6.1, 0.25, 'b');       // after a 0.44 s pause
-  out = paused.update(decode([...before, ...after]), 0, 6.4, false);
-  check('once a line has run 4 s, the words after a pause wait for the next line', out.done.length === 0 && out.line === text(before),
-    JSON.stringify(out));
-  out = paused.update(decode([...before, ...after]), 0, 6.9, false);
-  check('and the line ends at that pause', out.done.length === 1 && out.done[0] === text(before) && out.line === text(after), JSON.stringify(out));
-
-  const nonstop = new LiveAgreement({ contextSeconds: 1, maxPendingSeconds: 20 });
-  const talk = words4(0, 10, 0.25, 'k');
-  out = nonstop.update(decode(talk), 0, 10.4, false);
-  check('past 8 s without a pause, the words from 8 s wait for the next line', out.line === text(talk.filter(([, t]) => t < 8)), JSON.stringify(out));
-  out = nonstop.update(decode(talk), 0, 10.9, false);
-  check('and the line ends there', out.done.length === 1 && out.done[0] === text(talk.filter(([, t]) => t < 8)) &&
-    out.line === text(talk.filter(([, t]) => t >= 8)), JSON.stringify(out));
-
-  // A full stop still in doubt holds back what follows it too, and shows once committed (the model
-  // often puts one in and takes it out again)
-  const stop = new LiveAgreement();
-  out = stop.update(decode([[' hoş', 0], [' geldiniz', 0.3], ['.', 0.7], [' Bugün', 1.0]]), 0, 1.3, false);
-  check('the words after a full stop in doubt wait for the next line', out.line === 'hoş geldiniz', JSON.stringify(out));
-  out = stop.update(decode([[' hoş', 0], [' geldiniz', 0.3], ['.', 0.7], [' Bugün', 1.0]]), 0, 1.8, false);
-  check('punctuation shows once its word is committed', out.done.join('|') === 'hoş geldiniz.' && out.line === 'Bugün', JSON.stringify(out));
+  // QiTV's guard on the Turkish Moonshine: a repetition shows as said, a loop no one speaks or a
+  // subscribe outro on its own goes
+  const turkish = t => cleanText(t, 5000, { asSaid: true });
+  const said = ['Gol! Gol! Gol! Gol! Gol!', 'Hayır hayır hayır!', 'Bugün güzel bir video var, abone olmayı unutmayın.',
+    'Bu gece yayını izlediğiniz için teşekkürler.'];
+  check('Turkish repeats people say show as said', said.every(t => turkish(t) === t), JSON.stringify(said.map(turkish)));
+  const unsaid = ['iki bin on yedide, iki bin on yedide, iki bin on yedide!', 'Gel. '.repeat(10).trim(),
+    'Sen öyle. Sen öyle. Sen öyle. Sen öyle. Sen öyle.', 'Abone ol.', 'Beğen ve abone ol!', 'Altyazı M.K.'];
+  check('loops, an outro on its own and credits are dropped', unsaid.every(t => turkish(t) === ''), JSON.stringify(unsaid.map(turkish)));
 }
 
 // The captions resampler (lib/transcriber-capture-worklet.js) run in Node: speech passes, and
@@ -891,7 +777,6 @@ async function runIn(browserType, port) {
   checkCaptionPrefs();
   checkCaptionResampler();
   await checkCaptionText();
-  await checkLiveAgreement();
   await checkLegacyUpgrade();
   await checkUpgradeFrom20();
   await checkUpgradeFrom21();

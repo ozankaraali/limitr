@@ -9,3 +9,7 @@ tests/fixtures/dataset.local.json
 variants/listen/
 variants/results/
 variants/voiceover/
+variants/qitv-asr/models
+variants/qitv-asr/clips
+variants/qitv-asr/sherpa-stream
+variants/qitv-asr/venv-sherpa

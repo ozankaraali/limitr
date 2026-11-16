@@ -1,8 +1,11 @@
 // Turkish caption engines side by side inside an extension page, on the CPU only (WebGPU is hidden
 // from this page before ONNX Runtime loads, as in asr-bench.js): Whisper through transformers.js on
-// the finished sentences the captions segmenter would send it, and ufak (lib/stt-offline-worker.js)
-// on the pieces it would get, whole or through the live agreement (lib/live-agreement.js). Driven
-// by tests/bench/turkish-captions-bench.js.
+// the finished sentences the captions segmenter would send it, and the Turkish Moonshine
+// (lib/turkish-moonshine.js) in the captions' own model worker (lib/transcriber-worker.js, on the
+// product's threads) on the pieces it would get, read as lib/transcriber.js reads them
+// (lib/turkish-reading.js). Driven by tests/bench/turkish-captions-bench.js.
+
+import { readingFor, afterReading, interimWait, keptText } from '../../lib/turkish-reading.js';
 
 Object.defineProperty(Navigator.prototype, 'gpu', { get: () => undefined, configurable: true });
 
@@ -15,8 +18,9 @@ const SAMPLE_RATE = 16000;
 
 let transformers = null;
 const pipelines = {};
-let offline = null;
-let offlinePending = null;   // the reply the ufak worker owes us
+let models = null;           // lib/transcriber-worker.js, as the captions page runs it
+let nextCall = 1;
+const calls = new Map();     // id -> { resolve, reject }
 
 function decodePcm(base64) {
   const binary = atob(base64);
@@ -27,113 +31,85 @@ function decodePcm(base64) {
   return audio;
 }
 
-function askOffline(message, transfer = []) {
+function askModels(type, args) {
+  const id = nextCall++;
   return new Promise((resolve, reject) => {
-    offlinePending = { resolve, reject };
-    offline.postMessage(message, transfer);
+    calls.set(id, { resolve, reject });
+    models.postMessage({ id, type, ...args });
   });
 }
 
 window.bench = {
-  async offlineLoad() {
+  // The Turkish model, loaded in the model worker; base: where its files are (else the Hub);
+  // stitch: its encoder stitching's lengths, or false (else the product's); threads: ONNX Runtime's
+  // (else the product's)
+  async turkishLoad(base, stitch, threads) {
     const started = performance.now();
-    offline = new Worker(chrome.runtime.getURL('lib/stt-offline-worker.js'));
-    offline.onmessage = event => {
-      const msg = event.data;
-      if (msg.type === 'progress' || !offlinePending) return;
-      const { resolve, reject } = offlinePending;
-      offlinePending = null;
-      if (msg.type === 'error') reject(new Error(msg.message));
-      else resolve(msg);
+    models = new Worker(chrome.runtime.getURL('lib/transcriber-worker.js'), { type: 'module' });
+    models.onmessage = ({ data }) => {
+      const call = calls.get(data.id);
+      if (!call) return;
+      calls.delete(data.id);
+      if (data.error) call.reject(new Error(data.error));
+      else call.resolve(data.result);
     };
-    offline.onerror = event => {
-      if (offlinePending) offlinePending.reject(new Error(event.message || 'worker error'));
-      offlinePending = null;
+    models.onerror = event => {
+      for (const call of calls.values()) call.reject(new Error(event.message || 'worker error'));
+      calls.clear();
     };
-    const ready = await askOffline({ type: 'load' });
-    return { ...ready, loadMs: performance.now() - started };
+    await askModels('load', { key: 'moonshineTr', base, ...(stitch !== undefined && stitch !== null && { stitch }), ...(threads && { threads }) });
+    return { loadMs: performance.now() - started };
   },
 
-  // Each [start, end] piece (seconds) of the clip decoded on its own: milliseconds and text
-  async offlineDecode(base64, pieces) {
+  // The clip read as the captions read it, on a clock of its own that runs at the speed of the
+  // readings: units are what the segmenter sends ({ sentence, final, time, piece: [start, end] },
+  // seconds); as lib/transcriber.js serves them, one reading at a time, finished sentences first,
+  // and of the open sentence only its latest version waits, read once the budget allows. Each
+  // reading: { sentence, final, done (s), ms, text, kept (the words the next goes on from) }
+  async turkishLive(base64, units, policy) {
     const audio = decodePcm(base64);
-    const out = [];
-    for (const [start, end] of pieces) {
-      const samples = audio.slice(Math.round(start * SAMPLE_RATE), Math.round(end * SAMPLE_RATE));
-      const r = await askOffline({ type: 'decode', id: out.length, samples }, [samples.buffer]);
-      out.push({ ms: r.decodeMs, text: r.text, tokens: r.tokens, timestamps: r.timestamps, ys_log_probs: r.ys_log_probs });
-    }
-    return out;
-  },
-
-  // ufak through the live agreement, served as the captions pipeline would: sentences
-  // [[start, end, sentAt, ticks]] (seconds; ticks: [pieceStart, at]) in time order, one call at a
-  // time, finished sentences first, only the newest call for an open sentence waiting. Returns
-  // every call made (when it was done on a live clock, and the lines it sent: id, text, final),
-  // and per sentence its lines and final words
-  async offlineLive(base64, sentences, options = {}) {
-    const { LiveAgreement } = await import('../../lib/live-agreement.js');
-    const audio = decodePcm(base64);
-    const events = [];
-    sentences.forEach(([, , sentAt, ticks], s) => {
-      for (const [, at] of ticks) events.push({ s, time: at, final: false });
-      events.push({ s, time: sentAt, final: true });
-    });
-    events.sort((a, b) => a.time - b.time || (a.final ? 1 : -1));
-    const states = sentences.map(() => ({ live: new LiveAgreement(options), lines: [] }));
-    const calls = [];
+    const events = units.slice().sort((a, b) => a.time - b.time || (a.final ? 1 : -1));
+    const shown = [];
     const queue = [];
     let interim = null;
-    let busyUntil = 0;
+    let clock = 0;
+    let nextInterimAt = 0;
+    let line = null;
     let i = 0;
-    // options.slowWindow: past this many seconds of window, an open sentence is decoded at most
-    // once a second (options.slowRefresh)
-    const slowWindow = options.slowWindow || Infinity;
-    const slowRefresh = options.slowRefresh || 1;
     const admit = e => {
       if (e.final) {
         queue.push(e);
-        if (interim && interim.s === e.s) interim = null;
+        if (interim && interim.sentence === e.sentence) interim = null;
       } else {
-        const st = states[e.s];
-        const [start] = sentences[e.s];
-        if (st.lastCall !== undefined && e.time - start - st.live.windowStart() > slowWindow && e.time - st.lastCall < slowRefresh - 1e-6) return;
         interim = e;
       }
     };
     while (i < events.length || queue.length || interim) {
-      while (i < events.length && events[i].time <= busyUntil) admit(events[i++]);
-      if (!queue.length && !interim) {
-        if (i >= events.length) break;
-        busyUntil = Math.max(busyUntil, events[i].time);
+      while (i < events.length && events[i].time <= clock) admit(events[i++]);
+      let job = null;
+      if (queue.length) job = queue.shift();
+      else if (interim && clock >= nextInterimAt) {
+        job = interim;
+        interim = null;
+      }
+      if (!job) {
+        const next = Math.min(i < events.length ? events[i].time : Infinity, interim ? nextInterimAt : Infinity);
+        clock = Math.max(clock, next);
         continue;
       }
-      const job = queue.shift() || interim;
-      if (job === interim) interim = null;
-      const [start, end] = sentences[job.s];
-      const now = job.final ? end : job.time;
-      const st = states[job.s];
-      st.lastCall = job.time;
-      const from = st.live.windowStart();
-      const samples = audio.slice(Math.round((start + from) * SAMPLE_RATE), Math.round(now * SAMPLE_RATE));
-      const seconds = samples.length / SAMPLE_RATE;
-      const r = await askOffline({ type: 'decode', id: calls.length, samples }, [samples.buffer]);
-      const done = Math.max(busyUntil, job.time) + r.decodeMs / 1000;
-      busyUntil = done;
-      const out = st.live.update(r, from, now - start, job.final);
-      // The lines the overlay gets, as lib/transcriber.js sends them
-      const lines = out.done.map((text, k) => ({ id: `${job.s}.${st.lines.length + k}`, text, final: true }));
-      st.lines.push(...out.done);
-      if (out.line) lines.push({ id: `${job.s}.${st.lines.length}`, text: out.line, final: false });
-      calls.push({ s: job.s, time: job.time, done, ms: r.decodeMs, final: job.final, seconds, from: start + from, text: r.text, lines });
+      const piece = { piece: `bench:${job.sentence}`, final: job.final, cut: Boolean(job.cut) };
+      const [start, end] = job.piece;
+      const samples = audio.slice(Math.round(start * SAMPLE_RATE), Math.round(end * SAMPLE_RATE));
+      const started = performance.now();
+      const said = await askModels('transcribe', { key: 'moonshineTr', audio: samples, options: readingFor(line, piece, policy) });
+      const ms = performance.now() - started;
+      clock += ms / 1000;
+      nextInterimAt = clock + interimWait(ms, policy) / 1000;
+      line = afterReading(line, piece, said, policy);
+      // kept: the words of this reading the next goes on from (the line, shown without the others)
+      shown.push({ sentence: job.sentence, final: job.final, done: clock, ms, text: said.text, kept: keptText(line) });
     }
-    return {
-      calls,
-      sentences: states.map((st, s) => ({
-        lines: st.lines,
-        words: st.live.committed.map(w => ({ text: w.text, start: sentences[s][0] + w.start }))
-      }))
-    };
+    return shown;
   },
 
   // threads: ONNX Runtime's thread count for Whisper (the product gives it a quarter of the cores

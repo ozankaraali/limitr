@@ -1,0 +1,9 @@
+<!DOCTYPE html><html><body><script>
+window.run = (opts) => new Promise((resolve, reject) => {
+  const w = new Worker('conf-worker.js');
+  w.onmessage = e => { if (e.data.type === 'done') resolve(e.data); else if (e.data.type === 'error') reject(new Error(e.data.message)); };
+  w.onerror = e => reject(new Error(e.message));
+  w.postMessage(opts);
+});
+window.ready = true;
+</script></body></html>

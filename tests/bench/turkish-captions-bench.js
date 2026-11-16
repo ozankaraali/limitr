@@ -1,31 +1,35 @@
 #!/usr/bin/env node
-// Turkish captions, Whisper against ufak (lib/stt-offline-worker.js), in an extension page on the
-// CPU (tests/bench/stt-bench.html): how much of real time each engine takes, and how long after a
-// word is spoken it shows. Whisper gets the sentences the captions segmenter would send it
-// (lib/transcriber.js: a 450 ms pause ends one, 9 s at most), one after another; a sentence shows
-// when it is transcribed, so its words wait for its end. ufak gets what the segmenter sends it: the
-// open sentence again every half second, and the finished one at its pause; a word shows with the
-// first of those that has it. ufak-live decodes the open sentence only from a little before its last
-// committed word and commits words two decodes agree on (lib/live-agreement.js); a word shows
-// with the first decode that has it, and is committed (stays) later. Word times come from ufak.
+// Turkish captions, Whisper against the Turkish Moonshine (lib/turkish-moonshine.js), in an
+// extension page on the CPU (tests/bench/stt-bench.html): how much of real time each engine takes,
+// and how long after a word is spoken it shows. Whisper gets the sentences the captions segmenter
+// would send it (lib/transcriber.js: a 450 ms pause ends one, 9 s at most), one after another; a
+// sentence shows when it is transcribed, so its words wait for its end. The Turkish model runs in
+// the captions' own model worker, on the product's threads, and gets what the segmenter sends it:
+// the open sentence again once a second, and the finished one at its pause, read as
+// lib/turkish-reading.js says (each reading going on from the last, the line being spoken read
+// within a budget), on a clock that runs at the speed of the readings. Its live line leaves off
+// the word being spoken, as lib/transcriber.js shows it; a word shows with the first result that
+// has it. It gives no word times, so a sentence's words are spread over its length.
 // How steady a live line is: of the words shown, how many a later version of the sentence changed
 // or took back, per 100 words it ends with.
 // Accuracy needs a reference: a Turkish passage spoken by macOS `say` (the Yelda voice) is scored
 // on word error rate; recordings (--file) print each engine's transcript to compare by ear.
 // Run: node tests/bench/turkish-captions-bench.js [--file=REC ...] [--from=0] [--seconds=60]
-//        [--whisper=tiny,base] [--threads=1,2] [--engines=whisper,ufak] [--ext=DIR]
-//        [--ufak-refresh=0.5] [--ufak-slow-after=3] [--ufak-pause=0.3] [--ufak-max=9] [--verbose]
-//        [--live-refresh=0.5] [--live-pause=0.3] [--live-max=30] [--live-context=1.5] [--live-pending=6]
-//        [--live-slow-window=4] [--live-sure=0.9]
-//   --ufak-*   how the segmenter feeds ufak: how often the open sentence is
-//              sent again (twice as rarely once it is longer than slow-after), how long a pause
-//              ends a sentence, the longest one (seconds); as SEGMENTING.ufak in lib/transcriber.js
-//   --live-*   the same for ufak-live, plus the context each decode starts with before the last
-//              committed word, how long words may stay uncommitted, and past how long a window an
-//              open sentence is decoded only once a second (seconds; 0: always every refresh);
-//              --live-sure: how sure ufak must be of a word in doubt to show it (several to compare)
-//   --threads  Whisper's thread counts to try (the product: a quarter of the cores in Chrome, at
-//              most 4; 1 in Firefox). ufak always runs on one.
+//        [--whisper=tiny,base] [--threads=1,2] [--engines=whisper,turkish] [--ext=DIR]
+//        [--turkish-refresh=1] [--turkish-pause=0.24] [--turkish-max=8] [--turkish-base=URL]
+//        [--turkish-prefix=agreed|shown|none] [--turkish-final-afresh] [--turkish-stitch=1.0,0.5|0]
+//        [--turkish-stitch-final=1|0] [--turkish-budget=0.6] [--turkish-threads=N] [--dump=PREFIX]
+//        [--verbose]
+//   --turkish-*  how the segmenter feeds the Turkish model: how often the open sentence is sent
+//                again, how long a pause ends a sentence, the longest one (seconds), as
+//                SEGMENTING.moonshineTr in lib/transcriber.js; --turkish-base: where its files
+//                are (a local copy), else the Hub; prefix, final-afresh (finalPrefix off), stitch
+//                (left and right seconds, or 0 for none), stitch-final and budget:
+//                TURKISH_READING's in lib/turkish-reading.js; threads: the model's (else the
+//                product's: a quarter of the cores in Chrome, at most 4; 1 in Firefox)
+//   --threads    Whisper's thread counts to try (the product: a quarter of the cores in Chrome,
+//                at most 4; 1 in Firefox)
+//   --dump       each engine's whole text to PREFIX.<engine>.txt, for scoring
 
 const fs = require('fs');
 const os = require('os');
@@ -50,8 +54,35 @@ function int16ToFloat(int16) {
   return out;
 }
 
-// A recording's stretch as 16 kHz mono int16 (ffmpeg)
+// A 16 kHz mono WAV (16-bit or float) as int16, read here; else null
+function wav16k(file) {
+  const buf = fs.readFileSync(file);
+  if (buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return null;
+  let at = 12;
+  let format = null;
+  while (at + 8 <= buf.length) {
+    const id = buf.toString('ascii', at, at + 4);
+    const size = buf.readUInt32LE(at + 4);
+    if (id === 'fmt ') format = { tag: buf.readUInt16LE(at + 8), channels: buf.readUInt16LE(at + 10), rate: buf.readUInt32LE(at + 12), bits: buf.readUInt16LE(at + 22) };
+    if (id === 'data' && format && format.channels === 1 && format.rate === SAMPLE_RATE) {
+      const data = buf.subarray(at + 8, Math.min(buf.length, at + 8 + size));
+      if (format.tag === 3 && format.bits === 32) {
+        const out = new Int16Array(data.length >> 2);
+        for (let i = 0; i < out.length; i++) out[i] = Math.max(-32768, Math.min(32767, Math.round(data.readFloatLE(4 * i) * 0x8000)));
+        return out;
+      }
+      if (format.tag === 1 && format.bits === 16) return new Int16Array(data.buffer.slice(data.byteOffset, data.byteOffset + (data.length & ~1)));
+      return null;
+    }
+    at += 8 + size + (size & 1);
+  }
+  return null;
+}
+
+// A recording's stretch as 16 kHz mono int16 (read here if it already is, else with ffmpeg)
 function clip(file, from, seconds) {
+  const pcm = wav16k(file);
+  if (pcm) return pcm.slice(Math.round(from * SAMPLE_RATE), Math.round((from + seconds) * SAMPLE_RATE));
   const raw = execFileSync('ffmpeg', ['-v', 'error', '-ss', String(from), '-i', file, '-t', String(seconds),
     '-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 's16le', '-'], { maxBuffer: 2 ** 30 });
   return new Int16Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
@@ -88,7 +119,7 @@ function sentences(audio, { hangoverMs = 450, maxMs = 9000, interimMs = 0, slowA
   let sinceInterimMs = 0;
   let ticks = [];
   const finish = (end, now, carryOn) => {
-    if (speechMs >= MIN_SPEECH_MS && end > 0) out.push([frames[0] * FRAME_MS / 1000, (frames[end - 1] + 1) * FRAME_MS / 1000, (now + 1) * FRAME_MS / 1000, ticks]);
+    if (speechMs >= MIN_SPEECH_MS && end > 0) out.push([frames[0] * FRAME_MS / 1000, (frames[end - 1] + 1) * FRAME_MS / 1000, (now + 1) * FRAME_MS / 1000, ticks, carryOn]);
     ticks = [];
     sinceInterimMs = 0;
     const rest = frames.slice(end);
@@ -205,51 +236,17 @@ function whisperDelays(segments, results) {
   return { typical, first };
 }
 
-// ufak, served as the captions pipeline serves it: one call at a time,
-// finished sentences first, and of the open sentence only its latest version waits. Per sentence,
-// a word shows with the first result that has that many words.
-function offlineTimeline(units, decoded) {
-  const events = [];
-  units.forEach((u, k) => events.push({ ...u, k }));
-  events.sort((a, b) => a.time - b.time || (a.final ? 1 : -1));
-  let busyUntil = 0;
-  let i = 0;
-  const queue = [];
-  let interim = null;
-  const shown = [];   // { sentence, final, done, words }
-  const admit = e => {
-    if (e.final) {
-      queue.push(e);
-      if (interim && interim.sentence === e.sentence) interim = null;
-    } else {
-      interim = e;
-    }
-  };
-  while (i < events.length || queue.length || interim) {
-    while (i < events.length && events[i].time <= busyUntil) admit(events[i++]);
-    if (!queue.length && !interim) {
-      busyUntil = events[i].time;
-      continue;
-    }
-    const job = queue.shift() || interim;
-    if (job === interim) interim = null;
-    const done = Math.max(busyUntil, job.time) + decoded[job.k].ms / 1000;
-    busyUntil = done;
-    shown.push({ sentence: job.sentence, final: job.final, done, ms: decoded[job.k].ms, words: words(decoded[job.k].text).length, text: decoded[job.k].text });
-  }
-  return shown;
-}
-
-// When each sentence's first word first shows, after it is spoken (s)
-function offlineFirstWaits(segments, shown, starts) {
-  return segments.map((seg, s) => {
+// When each sentence's first word first shows, after the sentence starts (s)
+function offlineFirstWaits(segments, shown) {
+  return segments.map(([start], s) => {
     const first = shown.find(r => r.sentence === s && r.words > 0);
-    return first && starts[s] && starts[s].length ? first.done - starts[s][0] : NaN;
+    return first ? first.done - start : NaN;
   }).filter(Number.isFinite);
 }
 
-// starts: each sentence's final decode's word start times (s), from ufak
-function offlineDelays(segments, shown, starts) {
+// When each word first shows, after it is spoken (s); with no word times (starts), a sentence's
+// words are spread evenly over it
+function offlineDelays(segments, shown, starts = []) {
   const delays = [];
   segments.forEach(([start, end], s) => {
     const results = shown.filter(r => r.sentence === s);
@@ -267,13 +264,7 @@ function offlineDelays(segments, shown, starts) {
 (async () => {
   const whisperKeys = B.arg('whisper', 'tiny,base').split(',').filter(Boolean);
   const threadCounts = B.arg('threads', '1,2').split(',').map(Number).filter(n => n >= 1);
-  const engines = new Set(B.arg('engines', 'whisper,ufak,ufak-live').split(','));
-  const { wordsOf } = await import(require('url').pathToFileURL(path.join(__dirname, '../../lib/live-agreement.js')).href);
-  const liveOptions = {
-    contextSeconds: Number(B.arg('live-context', 1.5)), maxPendingSeconds: Number(B.arg('live-pending', 6)),
-    slowWindow: Number(B.arg('live-slow-window', 4)) || undefined
-  };
-  const sureLevels = B.arg('live-sure', '0.9').split(',').map(Number);
+  const engines = new Set(B.arg('engines', 'whisper,turkish').split(','));
   const from = Number(B.arg('from', 0));
   const seconds = Number(B.arg('seconds', 60));
   const [dir] = B.extensionDirs();
@@ -289,17 +280,11 @@ function offlineDelays(segments, shown, starts) {
     input.duration = input.audio.length / SAMPLE_RATE;
     input.base64 = toBase64(input.pcm);
     input.segments = sentences(input.audio);
-    // As the segmenter cuts for Moonshine-style engines, sent again every half second
+    // As the segmenter cuts for the Turkish model, the open sentence sent again once a second
     input.offlineSegments = sentences(input.audio, {
-      hangoverMs: Number(B.arg('ufak-pause', 0.3)) * 1000,
-      maxMs: Number(B.arg('ufak-max', 9)) * 1000,
-      interimMs: Number(B.arg('ufak-refresh', 0.5)) * 1000,
-      slowAfterMs: Number(B.arg('ufak-slow-after', 3)) * 1000
-    });
-    input.liveSegments = sentences(input.audio, {
-      hangoverMs: Number(B.arg('live-pause', 0.3)) * 1000,
-      maxMs: Number(B.arg('live-max', 30)) * 1000,
-      interimMs: Number(B.arg('live-refresh', 0.5)) * 1000
+      hangoverMs: Number(B.arg('turkish-pause', 0.24)) * 1000,
+      maxMs: Number(B.arg('turkish-max', 8)) * 1000,
+      interimMs: Number(B.arg('turkish-refresh', 1)) * 1000
     });
     input.rows = [];
     input.transcripts = [];
@@ -339,80 +324,53 @@ function offlineDelays(segments, shown, starts) {
       }
       await page.close();
     }
-    // ufak, on one thread
-    if (engines.has('ufak')) {
+    // The Turkish model, in the captions' model worker
+    if (engines.has('turkish')) {
       const page = await benchPage();
-      const l = await page.evaluate(() => bench.offlineLoad());
-      console.log(`Loaded ufak: ${f1(l.loadMs / 1000)} s (download or cache ${f1(l.downloadMs / 1000)} s, start ${f1(l.initMs / 1000)} s)`);
+      const stitchArg = B.arg('turkish-stitch', '1.0,0.5');
+      const stitch = stitchArg === '0' ? false : (([leftS, rightS]) => ({ leftS, rightS }))(stitchArg.split(',').map(Number));
+      const policy = {
+        prefix: B.arg('turkish-prefix', 'agreed'),
+        finalPrefix: !process.argv.includes('--turkish-final-afresh'),
+        stitch: Boolean(stitch),
+        stitchFinal: B.arg('turkish-stitch-final', '1') !== '0',
+        budget: Number(B.arg('turkish-budget', 0.6))
+      };
+      const threads = Number(B.arg('turkish-threads', 0)) || undefined;
+      const l = await page.evaluate(([b, st, t]) => bench.turkishLoad(b, st, t), [B.arg('turkish-base'), stitch || false, threads]);
+      console.log(`Loaded the Turkish Moonshine: ${f1(l.loadMs / 1000)} s (download or cache, and start); reading ${JSON.stringify({ ...policy, stitch })}, ${threads || 'product'} thread(s)`);
       for (const input of inputs) {
         const units = [];
-        input.offlineSegments.forEach(([start, end, sentAt, ticks], sentence) => {
+        input.offlineSegments.forEach(([start, end, sentAt, ticks, cut], sentence) => {
           for (const [a, t] of ticks) units.push({ sentence, final: false, time: t, piece: [a, t] });
-          units.push({ sentence, final: true, time: sentAt, piece: [start, end] });
+          units.push({ sentence, final: true, cut: Boolean(cut), time: sentAt, piece: [start, end] });
         });
-        const decoded = await page.evaluate(([b, p]) => bench.offlineDecode(b, p), [input.base64, units.map(u => u.piece)]);
-        const shown = offlineTimeline(units, decoded);
+        const shown = (await page.evaluate(([b, u, p]) => bench.turkishLive(b, u, p), [input.base64, units, policy]))
+          .map(r => ({ ...r, words: words(r.text).length }));
         // Real time it needs: the calls the pipeline makes (it skips live lines that went stale)
         const busy = shown.reduce((sum, r) => sum + r.ms, 0) / 1000;
         if (B.args('verbose').length || process.argv.includes('--verbose')) {
           input.offlineSegments.forEach(([a, e, sent], k) => {
             const final = shown.find(r => r.sentence === k && r.final);
-            console.log(`    ${input.name} ufak sentence ${f2(a)}-${f2(e)} s (sent ${f2(sent)} s, ${shown.filter(r => r.sentence === k).length} calls, final ${final ? f1(final.ms) : '-'} ms): ${final ? final.text : ''}`);
+            console.log(`    ${input.name} Turkish sentence ${f2(a)}-${f2(e)} s (sent ${f2(sent)} s, ${shown.filter(r => r.sentence === k).length} calls, final ${final ? f1(final.ms) : '-'} ms): ${final ? final.text : ''}`);
           });
         }
-        const starts = input.offlineSegments.map((seg, s) => {
-          const k = units.findIndex(u => u.sentence === s && u.final);
-          return k < 0 ? [] : wordsOf(decoded[k], seg[0]).map(w => w.start);
-        });
-        const delays = offlineDelays(input.offlineSegments, shown, starts);
         const text = shown.filter(r => r.final).map(r => r.text).join(' ');
-        const versions = input.offlineSegments.map((seg, s) => shown.filter(r => r.sentence === s).map(r => r.text));
-        input.rows.push({ engine: 'ufak, 1 thr', share: busy / input.duration, typical: median(delays), worst: pct(delays, 0.9), first: median(offlineFirstWaits(input.offlineSegments, shown, starts)), changed: changedPer100(versions), wer: input.reference ? wer(input.reference, text) : NaN });
-        // The same with the word being spoken left off the line until the sentence ends
+        // As lib/transcriber.js shows it: the live line leaves off the word being spoken
         const held = shown.map(r => r.final ? r : { ...r, words: Math.max(0, r.words - 1), text: words(r.text).slice(0, -1).join(' ') });
-        const heldDelays = offlineDelays(input.offlineSegments, held, starts);
-        const heldVersions = input.offlineSegments.map((seg, s) => held.filter(r => r.sentence === s).map(r => r.text));
-        input.rows.push({ engine: '  but the last word', share: NaN, typical: median(heldDelays), worst: pct(heldDelays, 0.9), first: median(offlineFirstWaits(input.offlineSegments, held, starts)), changed: changedPer100(heldVersions), wer: NaN });
-        input.transcripts.push(['ufak', text]);
-      }
-      await page.close();
-    }
-    // ufak through the live agreement, on one thread
-    if (engines.has('ufak-live')) {
-      const page = await benchPage();
-      await page.evaluate(() => bench.offlineLoad());
-      for (const input of inputs) {
-        for (const sure of sureLevels) {
-          const r = await page.evaluate(([b, segs, o]) => bench.offlineLive(b, segs, o), [input.base64, input.liveSegments, { ...liveOptions, sureLogProb: Math.log(sure) }]);
-          const busy = r.calls.reduce((sum, c) => sum + c.ms, 0) / 1000;
-          const lines = r.sentences.flatMap(x => x.lines);
-          // As the overlay gets them: each line's versions, and per sentence when its k-th word
-          // first showed (on any of its lines)
-          const versions = new Map();
-          const after = [];
-          const firstWaits = [];
-          r.sentences.forEach((x, s) => {
-            const finished = [];
-            let firstShown = -1;
-            for (const c of r.calls.filter(c => c.s === s)) {
-              for (const line of c.lines) versions.set(line.id, [...(versions.get(line.id) || []), line.text]);
-              finished.push(...c.lines.filter(l => l.final).map(l => l.text));
-              const open = c.lines.find(l => !l.final);
-              const visible = words([...finished, open ? open.text : ''].join(' ')).length;
-              for (; firstShown + 1 < Math.min(visible, x.words.length); firstShown++) after.push(c.done - x.words[firstShown + 1].start);
-              if (visible && !firstWaits[s]) firstWaits[s] = c.done - x.words[0].start;
-            }
-          });
-          const name = sureLevels.length > 1 ? `ufak-live, sure ${Math.round(sure * 100)}%` : 'ufak-live, 1 thr';
-          input.rows.push({ engine: name, share: busy / input.duration, typical: median(after), worst: pct(after, 0.9), first: median(firstWaits.filter(Number.isFinite)), changed: changedPer100([...versions.values()]), wer: input.reference ? wer(input.reference, lines.join(' ')) : NaN });
-          if (sure !== sureLevels[0]) continue;
-          if (B.args('verbose').length || process.argv.includes('--verbose')) {
-            for (const c of r.calls) console.log(`    ${input.name} ufak-live ${c.final ? 'final' : 'live '} ${f2(c.from)}-${f2(c.from + c.seconds)} s: ${c.text}  => ${c.lines.map(l => `${l.id}${l.final ? '!' : ''} ${l.text}`).join(' / ')}`);
-          }
-          const longest = Math.max(...r.calls.map(c => c.seconds));
-          input.liveNote = `ufak-live: ${r.calls.length} calls, the longest decoding ${f1(longest)} s of audio; ${lines.length} lines`;
-          input.transcripts.push(['ufak-live', lines.join(' | ')]);
+        const row = (engine, results, share) => {
+          const delays = offlineDelays(input.offlineSegments, results);
+          const versions = input.offlineSegments.map((seg, s) => results.filter(r => r.sentence === s).map(r => r.text));
+          return { engine, share, typical: median(delays), worst: pct(delays, 0.9), first: median(offlineFirstWaits(input.offlineSegments, results)), changed: changedPer100(versions), wer: input.reference ? wer(input.reference, text) : NaN };
+        };
+        input.rows.push(row('Turkish Moonshine', held, busy / input.duration));
+        input.rows.push({ ...row('  with the last word', shown, NaN), wer: NaN });
+        // The line being spoken as only the words kept for the next reading (lib/turkish-reading.js)
+        if (policy.prefix !== 'none') {
+          const kept = shown.map(r => r.final ? r : { ...r, words: words(r.kept).length, text: r.kept });
+          input.rows.push({ ...row('  kept words only', kept, NaN), wer: NaN });
         }
+        input.transcripts.push(['turkish', text]);
       }
       await page.close();
     }
@@ -423,13 +381,14 @@ function offlineDelays(segments, shown, starts) {
 
   for (const input of inputs) {
     console.log(`\n${input.name}: ${f1(input.duration)} s, ${input.segments.length} sentences for Whisper`);
-    console.log('  engine                 share of real time   a word shows after (median)   worst (Whisper: max, live: p90)   a sentence\'s first word waits   shown words changed per 100   WER');
+    console.log('  engine                 share of real time   a word shows after (median)   worst (Whisper: max, Turkish: p90)   a sentence\'s first word waits   shown words changed per 100   WER');
     for (const r of input.rows) {
       console.log(`  ${r.engine.padEnd(22)} ${(f1(r.share * 100) + '%').padStart(18)}   ${(f2(r.typical) + ' s').padStart(27)}   ${(f2(r.worst) + ' s').padStart(36)}   ${(Number.isFinite(r.first) ? f2(r.first) + ' s' : 'shows as spoken').padStart(29)}   ${f1(r.changed).padStart(27)}   ${Number.isFinite(r.wer) ? (r.wer * 100).toFixed(1) + '%' : '-'}`);
     }
-    if (input.liveNote) console.log(`  ${input.liveNote}`);
     if (input.reference) console.log(`  reference:    ${input.reference}`);
     for (const [engine, t] of input.transcripts) console.log(`  ${engine.padEnd(15)} ${t}`);
+    // --dump=PREFIX: each engine's whole text to PREFIX.<engine>.txt (lines joined), for scoring
+    if (B.arg('dump')) for (const [engine, t] of input.transcripts) fs.writeFileSync(`${B.arg('dump')}.${engine.replace(/[^\w.-]+/g, '-')}.txt`, t.replace(/ \| /g, ' ') + '\n');
   }
 })().catch(err => {
   console.error(err);

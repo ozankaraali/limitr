@@ -44,9 +44,9 @@ You can save your own presets on the Fine-tune screen.
 
 **Extras**
 
-- **Live captions, on your computer:** Moonshine for live English, ufak AI's
-  [ufakzeka-kulak](https://huggingface.co/ufakai/ufakzeka-kulak) for live Turkish (43 MB), Whisper
-  for 14 other languages, or detect the language automatically. Chrome and Edge can translate them
+- **Live captions, on your computer:** Moonshine for live English, QiTV ASR's
+  [Turkish Moonshine](https://huggingface.co/ozankaraali/qitv-asr-tr-moonshine-small) for live
+  Turkish (144 MB), Whisper for 14 other languages, or detect the language automatically. Chrome and Edge can translate them
   with their on-device translator. For the other languages you can pick a faster, less accurate
   model (Whisper tiny, about twice as fast) or, on Chrome and Edge, a larger one that runs on the
   graphics card (410 MB). Save the transcript as a text file from the Captions screen.

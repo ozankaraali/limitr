@@ -40,7 +40,12 @@ const SPEECH = {
   tr: { voice: 'Yelda', text: 'İyi akşamlar herkese. Bu gece yayını izlediğiniz için teşekkürler. Bol su için ve biraz uyuyun.' }
 };
 
+// LIMITR_SPEECH_DIR: speech made beforehand as below (en.wav, tr.wav), on a machine without macOS `say`
 function synthesize(lang) {
+  if (process.env.LIMITR_SPEECH_DIR) {
+    const file = path.join(process.env.LIMITR_SPEECH_DIR, `${lang}.wav`);
+    return fs.existsSync(file) ? fs.readFileSync(file) : null;
+  }
   const { voice, text } = SPEECH[lang];
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limitr-speech-'));
   try {
