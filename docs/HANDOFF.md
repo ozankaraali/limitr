@@ -1,5 +1,17 @@
 # Handoff, 2026-10-30
 
+## Since then: 2.5.0 (2026-11-16)
+
+- **Turkish captions moved from ufak to QiTV ASR's Turkish Moonshine small**
+  (`lib/turkish-moonshine.js`, read as `lib/turkish-reading.js` says). The ufak bullets below
+  describe 2.4.
+- **Why small, and how it's read:** `variants/qitv-asr/README.md`. It has the comparison with
+  ufak and with QiTV ASR's streaming conformer, and the measurements behind the reading. The
+  conformer build is kept on the local branch `qitv-asr-turkish-conformer`.
+- **The listener's pick:** small with the 0.6 budget, after trying both in Firefox. On a slow
+  core most of a sentence then appears at once, which they found easy to read.
+- **Captions start on Detect automatically** in every browser.
+
 ## Current state
 
 Squashed onto master on 2026-10-30 as one commit, which keeps the mihu prototype out of master's

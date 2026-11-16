@@ -44,9 +44,10 @@ You can save your own presets on the Fine-tune screen.
 
 **Extras**
 
-- **Live captions, on your computer:** Moonshine for live English, QiTV ASR's
+- **Live captions, on your computer:** detect the language automatically, or pick it: Moonshine
+  for live English, QiTV ASR's
   [Turkish Moonshine](https://huggingface.co/ozankaraali/qitv-asr-tr-moonshine-small) for live
-  Turkish (144 MB), Whisper for 14 other languages, or detect the language automatically. Chrome and Edge can translate them
+  Turkish (144 MB), Whisper for 14 other languages. Chrome and Edge can translate them
   with their on-device translator. For the other languages you can pick a faster, less accurate
   model (Whisper tiny, about twice as fast) or, on Chrome and Edge, a larger one that runs on the
   graphics card (410 MB). Save the transcript as a text file from the Captions screen.
@@ -213,6 +214,19 @@ within 0.001 dB in both Chromium and Firefox, so the compressor never makes quie
   and Web Audio games. Chrome only allows this after you open the extension on the tab, so capture
   starts when you open the popup there. Fullscreen video stays inside the window while a tab is
   captured, and each captured tab gets its own volume.
+
+## What's new in 2.5
+
+Turkish captions now come from QiTV ASR's Turkish Moonshine small (144 MB, downloaded the first
+time), trained further on Turkish TV dialogue. On five ten-minute stretches of hand-subtitled
+Turkish (conversation, drama, film, a talk, a presenter) it gets 22.8% of words wrong live,
+against 23.2% for ufak, and 18.7% against 22.1% sentence by sentence. It needs more of the
+computer than ufak did: on one core of a 2017 laptop in Firefox, about 40% on a drama and 65% on
+fast conversation. To keep up, each reading of the line being spoken goes on from the words the
+last two readings agreed on, and a finished sentence reuses what its line already heard; a busy
+computer refreshes the line less often, so a sentence then tends to appear whole. Captions now
+start on Detect automatically in every browser (before, an English browser started on English); a
+language you picked is kept. ONNX Runtime Web is updated to 1.31.1.
 
 ## What's new in 2.4
 
