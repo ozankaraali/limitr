@@ -228,6 +228,10 @@ computer refreshes the line less often, so a sentence then tends to appear whole
 start on Detect automatically in every browser (before, an English browser started on English); a
 language you picked is kept. ONNX Runtime Web is updated to 1.31.1.
 
+2.5.1: turning Limitr off now ends captions in every tab. Before, they kept transcribing while
+Limitr was off, and since the captions switch is greyed out then, the only way to stop them was to
+turn Limitr back on first. Turning Limitr back on leaves captions off.
+
 ## What's new in 2.4
 
 Turkish captions now come from ufak AI's ufakzeka-kulak, live, about a second behind the words in

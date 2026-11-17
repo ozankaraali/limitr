@@ -11,6 +11,10 @@
 - **The listener's pick:** small with the 0.6 budget, after trying both in Firefox. On a slow
   core most of a sentence then appears at once, which they found easy to read.
 - **Captions start on Detect automatically** in every browser.
+- **2.5.1 (2026-11-17): Off ends captions** in every tab (`stopAllCaptions` in `background.js`),
+  and On leaves them off. The captions tests reuse their browser profile to keep the models, and
+  Chromium then keeps running the cached `background.js` from the last run. After changing it,
+  run them on a fresh profile (`--fresh`, or a new `TMPDIR`).
 
 ## Current state
 
