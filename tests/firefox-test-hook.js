@@ -16,6 +16,8 @@ browser.runtime.onMessage.addListener((message, sender) => {
     case 'captions-start':
       // Same background page as background.js, so call it directly like the popup's message would
       return startCaptions(tabId);
+    case 'captions-status':
+      return captionsStatus(tabId);
     case 'popup-metrics':
       // Opens the popup in a popup-sized window and measures overflow, closed and with Fine-tune open
       return (async () => {

@@ -74,8 +74,9 @@ function receiveCaptionAudio(tabId, pcm) {
     t.pushAudio(tabId, decodePcm(pcm));
   } else if (!restartingCaptions.has(tabId)) {
     restartingCaptions.add(tabId);
+    // No prefs while Limitr is off: captions stay ended
     chrome.runtime.sendMessage({ target: 'background', action: 'captions-prefs' })
-      .then(prefs => t.startExternal(tabId, prefs))
+      .then(prefs => prefs && t.startExternal(tabId, prefs))
       .catch(() => {})
       .finally(() => restartingCaptions.delete(tabId));
   }
@@ -165,6 +166,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       captionsStoppedAt.set(message.tabId, Date.now());
       if (window.LimitrTranscriber) window.LimitrTranscriber.stop(message.tabId);
       sendResponse({ success: true });
+      return false;
+
+    case 'captions-list':
+      sendResponse({ tabs: window.LimitrTranscriber ? window.LimitrTranscriber.activeTabs() : [] });
       return false;
 
     case 'captions-status': {

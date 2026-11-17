@@ -259,6 +259,26 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
           finals.length > 0 && finals.every(r => !r.translatedFrom && !r.translation) && wordRecall('tr', finals.map(r => r.text)) >= 0.6,
           JSON.stringify(finals.map(r => r.text)));
       }
+
+      // Turning Limitr off ends captions too: their switch is greyed out while Off
+      await ask({ op: 'storage-set', values: { limitrCaptions: { language: 'en', translateTo: '' } } });
+      await sleep(500);
+      finals = await play('en', 16);
+      check('captions run before Limitr is turned off', finals.length > 0);
+      await ask({ op: 'storage-set', values: { limitrEnabled: false } });
+      // Past the guard against audio still in flight, with the speech still playing
+      await sleep(4000);
+      await ask({ op: 'caption-results' });
+      await sleep(6000);
+      const afterOff = await ask({ op: 'caption-results' });
+      const statusOff = await ask({ op: 'captions-status' });
+      check('turning Limitr off stops captions', afterOff.length === 0 && statusOff && !statusOff.active,
+        `${afterOff.length} results, active ${statusOff && statusOff.active}`);
+      await ask({ op: 'storage-set', values: { limitrEnabled: true } });
+      await sleep(6000);
+      const afterOn = await ask({ op: 'caption-results' });
+      check('and turning it back on leaves them off', afterOn.length === 0, `${afterOn.length} results`);
+      await tab.evaluate(() => document.querySelectorAll('audio').forEach(a => a.pause()));
     }
   } finally {
     await browser.close();

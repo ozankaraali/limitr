@@ -103,6 +103,8 @@
       const state = await LimitrSettings.load(api.storage.local);
       current.settings = state.settings;
       current.enabled = state.enabled;
+      // Off ends captions (background.js), so this frame stops streaming their audio
+      if (!state.enabled) current.captions = false;
       sendConfig();
       reportStatusToBackground();
     } catch (e) {

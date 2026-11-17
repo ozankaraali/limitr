@@ -283,6 +283,14 @@ async function loadCaptionPrefs() {
   return S.normalizeCaptions(stored[KEYS.captions]);
 }
 
+// Captions run only while Limitr is on: Off ends them (their switch is greyed out while Off)
+const limitrOn = async () => (await S.load(chrome.storage.local)).enabled;
+
+// The prefs to pick captions back up with after a restart, or null while Limitr is off
+async function restartPrefs() {
+  return (await limitrOn()) ? loadCaptionPrefs() : null;
+}
+
 function ensureBackgroundTranscriber() {
   if (!backgroundTranscriber) {
     backgroundTranscriber = (async () => {
@@ -321,14 +329,15 @@ async function receiveCaptionAudio(tabId, pcm) {
     transcriber.pushAudio(tabId, decodePcm(pcm));
   } else if (!restartingCaptions.has(tabId)) {
     restartingCaptions.add(tabId);
-    loadCaptionPrefs()
-      .then(prefs => transcriber.startExternal(tabId, prefs))
+    restartPrefs()
+      .then(prefs => prefs && transcriber.startExternal(tabId, prefs))
       .catch(() => {})
       .finally(() => restartingCaptions.delete(tabId));
   }
 }
 
 async function startCaptions(tabId) {
+  if (!(await limitrOn())) return { success: false, error: 'Limitr is off' };
   captionsStoppedAt.delete(tabId);
   const prefs = await loadCaptionPrefs();
   let response;
@@ -339,6 +348,11 @@ async function startCaptions(tabId) {
   } else {
     await ensureOffscreen();
     response = await toOffscreen({ action: 'captions-start', tabId, prefs });
+  }
+  // Turned off while the model loaded: end them, before any frame is told to stream audio
+  if (response?.success && !(await limitrOn())) {
+    await stopCaptions(tabId);
+    return { success: false, error: 'Limitr is off' };
   }
   // Every frame remembers this, so players that attach later stream audio too
   if (response?.success) {
@@ -366,6 +380,18 @@ async function captionsStatus(tabId) {
   }
   if (!(await hasOffscreen())) return { active: false, loading: false };
   return toOffscreen({ action: 'captions-status', tabId });
+}
+
+// Every tab's captions, when Limitr is turned off. Frames drop their own captions flag on Off
+// (content-bridge.js), so tabs a restarted host no longer knows stop streaming too.
+async function stopAllCaptions() {
+  let tabIds = [];
+  if (transcriberInBackground) {
+    if (backgroundTranscriber) tabIds = (await backgroundTranscriber).activeTabs();
+  } else if (await hasOffscreen()) {
+    tabIds = (await toOffscreen({ action: 'captions-list' }))?.tabs || [];
+  }
+  for (const tabId of tabIds) await stopCaptions(tabId).catch(() => {});
 }
 
 // ---------- messages ----------
@@ -456,8 +482,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'captions-transcript':
       return respond(transcriptLines(message.tabId).then(lines => ({ lines })), sendResponse);
     case 'captions-prefs':
-      // The offscreen document has no storage access; it asks when restarting captions
-      return respond(loadCaptionPrefs(), sendResponse);
+      // The offscreen document has no storage access; it asks when restarting captions (null:
+      // Limitr is off, so don't)
+      return respond(restartPrefs(), sendResponse);
   }
   return false;
 });
@@ -474,6 +501,8 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
       refreshGlobalIcon();
       globalEnabled = state.enabled;
       updateAllTabIcons();
+      // Off ends captions in every tab; On leaves them off
+      if (changes[KEYS.enabled].newValue === false) stopAllCaptions().catch(() => {});
     }
   }
   if (KEYS.mode in changes && changes[KEYS.mode].newValue === 'page') {

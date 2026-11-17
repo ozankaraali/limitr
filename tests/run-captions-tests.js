@@ -255,6 +255,26 @@ function wordRecall(lang, captions) {
     await sleep(6000);
     const after = await take();
     check('captions stay off after stopping', after.length === 0, JSON.stringify(after.map(r => r.text)));
+
+    console.log('\nLimitr turned off');
+    // Turning Limitr off ends captions too: their switch is greyed out while Off
+    await toBackground({ action: 'captions-start', tabId });
+    run = await play('en', 16);
+    check('captions run before Limitr is turned off', finals(run.results).length > 0);
+    await popup.evaluate(() => chrome.storage.local.set({ limitrEnabled: false }));
+    // Past the guard against audio still in flight, with the speech still playing
+    await sleep(4000);
+    await take();
+    await sleep(6000);
+    const afterOff = await take();
+    const statusOff = await toBackground({ action: 'captions-status', tabId });
+    check('turning Limitr off stops captions', afterOff.length === 0 && statusOff && !statusOff.active,
+      `${afterOff.length} results, active ${statusOff && statusOff.active}`);
+    await popup.evaluate(() => chrome.storage.local.set({ limitrEnabled: true }));
+    await sleep(6000);
+    const afterOn = await take();
+    check('and turning it back on leaves them off', afterOn.length === 0, `${afterOn.length} results`);
+    await tab.evaluate(() => document.querySelectorAll('audio').forEach(a => a.pause()));
   } finally {
     await context.close();
     server.close();
